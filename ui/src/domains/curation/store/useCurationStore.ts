@@ -1,321 +1,64 @@
 import { create } from 'zustand'
 import type { DatasetImportJob, DatasetRef } from '@/domains/datasets/types'
+import type {
+  AlignmentOverview,
+  AnnotationWorkspacePayload,
+  LocalDirectorySessionResult,
+  PropagationResults,
+  PrototypeResults,
+  QualityDefaults,
+  QualityResults,
+  RemoteWorkflowPrepareResult,
+  SavedAnnotationsPayload,
+  TrainingTaskApplyResult,
+  WorkflowState,
+  WorkflowStore,
+} from './workflowTypes'
+import {
+  fetchJson,
+  getStoredDataset,
+  normalizeAlignmentSourceMode,
+  normalizePropagationResults,
+  normalizePrototypeResults,
+  normalizeQualityFilterMode,
+  normalizeQualityResults,
+  persistDataset,
+} from './workflowStoreHelpers'
 
-type StageStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error'
-const CURRENT_DATASET_KEY = 'roboclaw.current_dataset'
+export type {
+  AlignmentOverview,
+  AlignmentOverviewRow,
+  AlignmentOverviewSpan,
+  AlignmentSourceMode,
+  AnnotationItem,
+  AnnotationVideoClip,
+  AnnotationWorkspacePayload,
+  AnnotationWorkspaceSummary,
+  JointTrajectoryEntry,
+  JointTrajectoryPayload,
+  LocalDirectorySessionResult,
+  PropagationResultItem,
+  PropagationResults,
+  PropagationSpan,
+  PrototypeCluster,
+  PrototypeClusterMember,
+  PrototypeGroupSummary,
+  PrototypeResults,
+  PrototypeSelectionDiagnostics,
+  PrototypeSelectionEvaluation,
+  QualityDefaults,
+  QualityEpisodeResult,
+  QualityFilterMode,
+  QualityResults,
+  RemoteWorkflowPrepareResult,
+  SavedAnnotationsPayload,
+  StageState,
+  TrainingTaskApplyResult,
+  WorkflowState,
+  WorkflowTaskContext,
+} from './workflowTypes'
 
-export interface StageState {
-  status: StageStatus
-  summary: Record<string, unknown> | null
-}
-
-interface QualityStage extends StageState {
-  selected_validators: string[]
-}
-
-export interface WorkflowState {
-  version: number
-  dataset: string
-  stages: {
-    quality_validation: QualityStage
-    prototype_discovery: StageState
-    annotation: StageState & { annotated_episodes: number[] }
-  }
-}
-
-export interface QualityEpisodeResult {
-  episode_index: number
-  passed: boolean
-  score: number
-  validators: Record<string, { passed: boolean; score: number }>
-  issues?: Array<Record<string, unknown>>
-}
-
-export interface QualityResults {
-  total: number
-  passed: number
-  failed: number
-  overall_score: number
-  selected_validators: string[]
-  threshold_overrides?: Record<string, number>
-  episodes: QualityEpisodeResult[]
-  working_parquet_path?: string
-  published_parquet_path?: string
-}
-
-export interface PrototypeClusterMember {
-  record_key: string
-  episode_index: number | null
-  distance_to_prototype?: number
-  distance_to_barycenter?: number
-  quality?: {
-    score?: number
-    passed?: boolean
-  }
-}
-
-export interface PrototypeCluster {
-  cluster_index: number
-  prototype_record_key: string
-  anchor_record_key: string
-  member_count: number
-  average_distance?: number
-  anchor_distance_to_barycenter?: number
-  members: PrototypeClusterMember[]
-}
-
-export interface PrototypeResults {
-  candidate_count: number
-  entry_count: number
-  cluster_count: number
-  anchor_record_keys: string[]
-  clusters: PrototypeCluster[]
-}
-
-export interface PropagationSpan {
-  label?: string
-  startTime?: number
-  endTime?: number | null
-  text?: string
-  [key: string]: unknown
-}
-
-export interface PropagationResultItem {
-  episode_index: number
-  spans: PropagationSpan[]
-  prototype_score?: number
-}
-
-export interface PropagationResults {
-  source_episode_index: number | null
-  target_count: number
-  propagated: PropagationResultItem[]
-  published_parquet_path?: string
-}
-
-export interface RemoteWorkflowPrepareResult {
-  dataset_id: string
-  local_path: string
-  dataset_name: string
-  display_name?: string
-}
-
-export interface LocalDirectorySessionResult {
-  dataset_name: string
-  display_name: string
-  local_path: string
-}
-
-export interface AnnotationItem {
-  id: string
-  label: string
-  category: string
-  color: string
-  startTime: number
-  endTime: number | null
-  text: string
-  tags: string[]
-  source: string
-}
-
-export interface WorkflowTaskContext {
-  label?: string
-  text?: string
-  joint_name?: string
-  time_s?: number
-  frame_index?: number | null
-  action_value?: number | null
-  state_value?: number | null
-  source?: string
-  [key: string]: unknown
-}
-
-export interface JointTrajectoryEntry {
-  joint_name: string
-  action_name: string
-  state_name: string
-  action_values: Array<number | null>
-  state_values: Array<number | null>
-}
-
-export interface JointTrajectoryPayload {
-  x_axis_key: string
-  x_values: number[]
-  time_values: number[]
-  frame_values: number[]
-  joint_trajectories: JointTrajectoryEntry[]
-  sampled_points: number
-  total_points: number
-}
-
-export interface AnnotationWorkspaceSummary {
-  episode_index: number
-  record_key: string
-  task_value: string
-  task_label: string
-  fps: number
-  robot_type: string
-  row_count: number
-  start_timestamp: number | null
-  end_timestamp: number | null
-  duration_s: number
-  video_count: number
-}
-
-export interface AnnotationVideoClip {
-  path: string
-  url: string
-  stream: string
-  from_timestamp: number | null
-  to_timestamp: number | null
-}
-
-export interface SavedAnnotationsPayload {
-  episode_index: number
-  task_context: WorkflowTaskContext
-  annotations: AnnotationItem[]
-  version_number: number
-  created_at?: string
-  updated_at?: string
-}
-
-export interface AnnotationWorkspacePayload {
-  episode_index: number
-  summary: AnnotationWorkspaceSummary
-  videos: AnnotationVideoClip[]
-  joint_trajectory: JointTrajectoryPayload
-  annotations: SavedAnnotationsPayload
-  latest_propagation: PropagationResults | null
-}
-
-interface WorkflowStore {
-  datasets: DatasetRef[]
-  datasetsLoading: boolean
-  selectedDataset: string | null
-  datasetInfo: DatasetRef | null
-  workflowState: WorkflowState | null
-  selectedValidators: string[]
-  qualityThresholds: Record<string, number>
-  qualityResults: QualityResults | null
-  qualityRunning: boolean
-  prototypeResults: PrototypeResults | null
-  prototypeRunning: boolean
-  propagationResults: PropagationResults | null
-  datasetImportJob: DatasetImportJob | null
-  pollInterval: ReturnType<typeof setInterval> | null
-  loadDatasets: () => Promise<void>
-  selectDataset: (datasetId: string) => Promise<void>
-  importDatasetFromHf: (datasetId: string, includeVideos?: boolean) => Promise<void>
-  prepareRemoteDatasetForWorkflow: (
-    datasetId: string,
-    includeVideos?: boolean,
-  ) => Promise<RemoteWorkflowPrepareResult>
-  createLocalDirectorySession: (
-    files: File[],
-    relativePaths: string[],
-    displayName?: string,
-  ) => Promise<LocalDirectorySessionResult>
-  toggleValidator: (name: string) => void
-  setQualityThreshold: (key: string, value: number) => void
-  runQualityValidation: () => Promise<void>
-  pauseQualityValidation: () => Promise<void>
-  resumeQualityValidation: () => Promise<void>
-  runPrototypeDiscovery: (clusterCount?: number) => Promise<void>
-  loadQualityResults: () => Promise<QualityResults | null>
-  loadPrototypeResults: () => Promise<PrototypeResults | null>
-  loadPropagationResults: () => Promise<PropagationResults | null>
-  deleteQualityResults: () => Promise<void>
-  publishQualityParquet: () => Promise<{ path: string; row_count: number }>
-  publishTextAnnotationsParquet: () => Promise<{ path: string; row_count: number }>
-  getQualityCsvUrl: (failedOnly?: boolean) => string
-  fetchAnnotationWorkspace: (episodeIndex: number) => Promise<AnnotationWorkspacePayload>
-  saveAnnotations: (
-    episodeIndex: number,
-    taskContext: WorkflowTaskContext,
-    annotations: AnnotationItem[],
-  ) => Promise<SavedAnnotationsPayload>
-  runPropagation: (sourceEpisodeIndex: number) => Promise<void>
-  refreshState: () => Promise<void>
-  startPolling: () => void
-  stopPolling: () => void
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${res.status}: ${text}`)
-  }
-  return res.json()
-}
-
-function getStoredDataset(): string | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-  return window.localStorage.getItem(CURRENT_DATASET_KEY)
-}
-
-function persistDataset(name: string | null): void {
-  if (typeof window === 'undefined') {
-    return
-  }
-  if (!name) {
-    window.localStorage.removeItem(CURRENT_DATASET_KEY)
-    return
-  }
-  window.localStorage.setItem(CURRENT_DATASET_KEY, name)
-}
-
-function normalizeQualityResults(payload: Partial<QualityResults> | null): QualityResults | null {
-  if (!payload) return null
-  return {
-    total: payload.total ?? 0,
-    passed: payload.passed ?? 0,
-    failed: payload.failed ?? 0,
-    overall_score: payload.overall_score ?? 0,
-    selected_validators: payload.selected_validators ?? [],
-    threshold_overrides:
-      payload.threshold_overrides && typeof payload.threshold_overrides === 'object'
-        ? payload.threshold_overrides
-        : undefined,
-    episodes: payload.episodes ?? [],
-    working_parquet_path:
-      typeof payload.working_parquet_path === 'string'
-        ? payload.working_parquet_path
-        : undefined,
-    published_parquet_path:
-      typeof payload.published_parquet_path === 'string'
-        ? payload.published_parquet_path
-        : undefined,
-  }
-}
-
-function normalizePrototypeResults(payload: Partial<PrototypeResults> | null): PrototypeResults | null {
-  if (!payload) return null
-  return {
-    candidate_count: payload.candidate_count ?? 0,
-    entry_count: payload.entry_count ?? 0,
-    cluster_count: payload.cluster_count ?? 0,
-    anchor_record_keys: payload.anchor_record_keys ?? [],
-    clusters: payload.clusters ?? [],
-  }
-}
-
-function normalizePropagationResults(
-  payload: Partial<PropagationResults> | null,
-): PropagationResults | null {
-  if (!payload) return null
-  return {
-    source_episode_index: payload.source_episode_index ?? null,
-    target_count: payload.target_count ?? 0,
-    propagated: payload.propagated ?? [],
-    published_parquet_path:
-      typeof payload.published_parquet_path === 'string'
-        ? payload.published_parquet_path
-        : undefined,
-  }
-}
+const WORKFLOW_REFRESH_INTERVAL_MS = 6000
 
 export const useWorkflow = create<WorkflowStore>((set, get) => ({
   datasets: [],
@@ -323,8 +66,15 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
   selectedDataset: getStoredDataset(),
   datasetInfo: null,
   workflowState: null,
-  selectedValidators: ['metadata', 'timing', 'action', 'visual', 'depth', 'ee_trajectory'],
+  selectedValidators: ['metadata', 'timing', 'action', 'visual', 'ee_trajectory'],
+  alignmentSourceMode: 'quality',
+  alignmentQualityFilter: 'passed',
   qualityThresholds: {
+    metadata_require_info_json: 1.0,
+    metadata_require_episode_metadata: 1.0,
+    metadata_require_data_files: 1.0,
+    metadata_require_videos: 1.0,
+    metadata_require_task_description: 1.0,
     metadata_min_duration_s: 1.0,
     timing_min_monotonicity: 0.99,
     timing_max_interval_cv: 0.05,
@@ -355,12 +105,15 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     ee_min_event_count: 1.0,
     ee_min_gripper_span: 0.05,
   },
+  qualityDefaults: null,
   qualityResults: null,
   qualityRunning: false,
   prototypeResults: null,
   prototypeRunning: false,
   propagationResults: null,
+  alignmentOverview: null,
   datasetImportJob: null,
+  selectedDatasetIsRemotePrepared: false,
   pollInterval: null,
 
   loadDatasets: async () => {
@@ -379,15 +132,28 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       selectedDataset: datasetId,
       datasetInfo: null,
       workflowState: null,
+      qualityDefaults: null,
       qualityResults: null,
       prototypeResults: null,
       propagationResults: null,
+      alignmentOverview: null,
+      selectedDatasetIsRemotePrepared: false,
     })
     const info = await fetchJson<DatasetRef>(
       `/api/curation/datasets/${encodeURIComponent(datasetId)}`,
     )
     set({ datasetInfo: info })
-    await get().refreshState()
+    try {
+      await get().loadQualityDefaults()
+    } catch (error) {
+      console.warn('Failed to load quality defaults', error)
+    }
+    try {
+      await get().refreshState()
+      set({ selectedDatasetIsRemotePrepared: true })
+    } catch {
+      set({ workflowState: null, selectedDatasetIsRemotePrepared: false })
+    }
   },
 
   importDatasetFromHf: async (datasetId: string, includeVideos = true) => {
@@ -436,6 +202,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     await get().loadDatasets()
     persistDataset(payload.dataset_name)
     await get().selectDataset(payload.dataset_name)
+    set({ selectedDatasetIsRemotePrepared: true })
     return payload
   },
 
@@ -469,6 +236,14 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     set({ selectedValidators: [...current, name] })
   },
 
+  setAlignmentSourceMode: (mode) => {
+    set({ alignmentSourceMode: mode })
+  },
+
+  setAlignmentQualityFilter: (mode) => {
+    set({ alignmentQualityFilter: mode })
+  },
+
   setQualityThreshold: (key: string, value: number) => {
     set((state) => ({
       qualityThresholds: {
@@ -476,6 +251,26 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
         [key]: value,
       },
     }))
+  },
+
+  loadQualityDefaults: async () => {
+    const { selectedDataset } = get()
+    if (!selectedDataset) return null
+    const defaults = await fetchJson<QualityDefaults>(
+      `/api/curation/quality-defaults?dataset=${encodeURIComponent(selectedDataset)}`,
+    )
+    set((state) => ({
+      qualityDefaults: defaults,
+      selectedValidators:
+        defaults.selected_validators.length > 0
+          ? defaults.selected_validators
+          : state.selectedValidators,
+      qualityThresholds: {
+        ...state.qualityThresholds,
+        ...defaults.threshold_overrides,
+      },
+    }))
+    return defaults
   },
 
   runQualityValidation: async () => {
@@ -504,6 +299,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dataset: selectedDataset }),
     })
+    await get().refreshState()
     get().startPolling()
   },
 
@@ -526,8 +322,18 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
   },
 
   runPrototypeDiscovery: async (clusterCount?: number) => {
-    const { selectedDataset } = get()
+    const { selectedDataset, datasetInfo, qualityResults, alignmentSourceMode, alignmentQualityFilter } = get()
     if (!selectedDataset) return
+    const qualityMode = alignmentSourceMode === 'raw' ? 'raw' : alignmentQualityFilter
+    const selectedEpisodeIndices =
+      alignmentSourceMode === 'raw'
+        ? Array.from({ length: datasetInfo?.stats.total_episodes ?? 0 }, (_, index) => index)
+        : (qualityResults?.episodes || [])
+            .filter((episode) => {
+              if (alignmentQualityFilter === 'all') return true
+              return alignmentQualityFilter === 'passed' ? episode.passed : !episode.passed
+            })
+            .map((episode) => episode.episode_index)
     set({ prototypeRunning: true })
     await fetchJson('/api/curation/prototype-run', {
       method: 'POST',
@@ -535,6 +341,8 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       body: JSON.stringify({
         dataset: selectedDataset,
         cluster_count: clusterCount ?? null,
+        episode_indices: selectedEpisodeIndices,
+        quality_filter_mode: qualityMode,
       }),
     })
     get().startPolling()
@@ -573,7 +381,15 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
         `/api/curation/prototype-results?dataset=${encodeURIComponent(selectedDataset)}`,
       ),
     )
-    set({ prototypeResults: results })
+    set({
+      prototypeResults: results,
+      ...(results?.quality_filter_mode
+        ? {
+            alignmentSourceMode: normalizeAlignmentSourceMode(results.quality_filter_mode),
+            alignmentQualityFilter: normalizeQualityFilterMode(results.quality_filter_mode),
+          }
+        : {}),
+    })
     return results
   },
 
@@ -589,20 +405,28 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     return results
   },
 
+  loadAlignmentOverview: async () => {
+    const { selectedDataset } = get()
+    if (!selectedDataset) return null
+    const results = await fetchJson<AlignmentOverview>(
+      `/api/curation/alignment-overview?dataset=${encodeURIComponent(selectedDataset)}`,
+    )
+    set({ alignmentOverview: results })
+    return results
+  },
+
   deleteQualityResults: async () => {
     const { selectedDataset } = get()
     if (!selectedDataset) {
       throw new Error('No dataset selected')
     }
     await fetchJson<{ status: string }>(
-      '/api/curation/quality-results/delete',
+      `/api/curation/quality-results?dataset=${encodeURIComponent(selectedDataset)}`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataset: selectedDataset }),
+        method: 'DELETE',
       },
     )
-    set({ qualityResults: null, qualityRunning: false })
+    set({ qualityResults: null, qualityRunning: false, prototypeResults: null, alignmentOverview: null })
     await get().refreshState()
   },
 
@@ -620,6 +444,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       },
     )
     await get().loadQualityResults()
+    await get().loadAlignmentOverview()
     return result
   },
 
@@ -637,6 +462,25 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       },
     )
     await get().loadPropagationResults()
+    await get().loadAlignmentOverview()
+    return result
+  },
+
+  applyTextAnnotationsToTrainingTasks: async () => {
+    const { selectedDataset } = get()
+    if (!selectedDataset) {
+      throw new Error('No dataset selected')
+    }
+    const result = await fetchJson<TrainingTaskApplyResult>(
+      '/api/curation/text-annotations-apply',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset: selectedDataset }),
+      },
+    )
+    await get().loadQualityResults()
+    await get().loadAlignmentOverview()
     return result
   },
 
@@ -684,6 +528,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     })
 
     await get().refreshState()
+    await get().loadAlignmentOverview()
     return saved
   },
 
@@ -711,15 +556,24 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     const state = await fetchJson<WorkflowState>(
       `/api/curation/state?dataset=${encodeURIComponent(selectedDataset)}`,
     )
+    const qualityStatus = state.stages.quality_validation.status
+    const savedQualityValidators = state.stages.quality_validation.selected_validators
+
     set((current) => ({
       workflowState: state,
+      selectedDatasetIsRemotePrepared: true,
+      alignmentSourceMode: normalizeAlignmentSourceMode(
+        state.stages.prototype_discovery.quality_filter_mode || current.alignmentSourceMode,
+      ),
+      alignmentQualityFilter: normalizeQualityFilterMode(
+        state.stages.prototype_discovery.quality_filter_mode || current.alignmentQualityFilter,
+      ),
       selectedValidators:
-        state.stages.quality_validation.selected_validators.length > 0
-          ? state.stages.quality_validation.selected_validators
+        ['running', 'paused', 'completed'].includes(qualityStatus) && savedQualityValidators.length > 0
+          ? savedQualityValidators
           : current.selectedValidators,
     }))
 
-    const qualityStatus = state.stages.quality_validation.status
     const prototypeStatus = state.stages.prototype_discovery.status
     const annotationStatus = state.stages.annotation.status
 
@@ -752,6 +606,17 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       await get().loadPropagationResults()
     }
 
+    if (
+      qualityStatus === 'completed'
+      || qualityStatus === 'paused'
+      || qualityStatus === 'running'
+      || prototypeStatus === 'completed'
+      || annotationStatus === 'completed'
+      || state.stages.annotation.annotated_episodes.length > 0
+    ) {
+      await get().loadAlignmentOverview()
+    }
+
     if (qualityStatus !== 'running' && prototypeStatus !== 'running' && annotationStatus !== 'running') {
       get().stopPolling()
     }
@@ -762,7 +627,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     if (existing) return
     const interval = setInterval(() => {
       void get().refreshState()
-    }, 1200)
+    }, WORKFLOW_REFRESH_INTERVAL_MS)
     set({ pollInterval: interval })
   },
 

@@ -1,1 +1,8 @@
-.curation-domain {}
+@import './workflow.css';
+@import './annotation.css';
+@import './annotation-timeline.css';
+@import './quality.css';
+@import './data-overview.css';
+@import './data-overview-charts.css';
+@import './pipeline-compact.css';
+@import './responsive.css';
