@@ -9,6 +9,7 @@ import DatasetExplorerPage from '@/domains/datasets/explorer/pages/DatasetExplor
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
 import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
+import DataOverviewPage from '@/domains/curation/data-overview/pages/DataOverviewPage'
 import SettingsOverviewPage from '@/domains/settings/pages/SettingsOverviewPage'
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
@@ -65,6 +66,7 @@ function App() {
                         <Route path="curation/datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="curation/quality" element={<QualityValidationPage />} />
                         <Route path="curation/text-alignment" element={<TextAlignmentPage />} />
+                        <Route path="curation/data-overview" element={<DataOverviewPage />} />
                         <Route path="settings" element={<SettingsOverviewPage />} />
                         <Route path="settings/hardware" element={<HardwareSettingsPage />} />
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />
