@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/i18n'
 import {
@@ -20,6 +19,7 @@ import { formatClipWindowLabel } from './datasetExplorerPlayback'
 import { DatasetInsightStack } from '@/domains/datasets/explorer/components/DatasetInsightStack'
 import { FeatureStatsTable, ModalityChips, TypeDistribution } from '../components/ExplorerSummaryBlocks'
 import { EpisodePlaybackSurface } from '../components/EpisodePlaybackSurface'
+import { EpisodeHoverPreview } from '../components/EpisodeHoverPreview'
 
 function cn(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ')
@@ -28,76 +28,6 @@ function cn(...values: Array<string | false | null | undefined>) {
 // ---------------------------------------------------------------------------
 // Episode browser
 // ---------------------------------------------------------------------------
-
-function EpisodeHoverPreview({
-  detail,
-  loading,
-  error,
-  playVideo,
-  videoCurrentTime,
-  onVideoTimeUpdate,
-  onClose,
-  onMouseEnter,
-  onMouseLeave,
-}: {
-  detail: EpisodeDetail | null
-  loading: boolean
-  error: string
-  playVideo: boolean
-  videoCurrentTime: number
-  onVideoTimeUpdate: (seconds: number) => void
-  onClose: () => void
-  onMouseEnter: () => void
-  onMouseLeave: () => void
-}) {
-  return createPortal(
-    <div className="explorer-hover-preview" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      <div className="explorer-hover-preview__dialog">
-        <button
-          type="button"
-          className="explorer-hover-preview__close"
-          onClick={onClose}
-          aria-label="Close preview"
-        >
-          ×
-        </button>
-
-        {!detail && loading && (
-          <div className="explorer-hover-preview__empty">Loading preview...</div>
-        )}
-
-        {!detail && error && (
-          <div className="explorer-hover-preview__empty explorer-hover-preview__empty--error">
-            {error}
-          </div>
-        )}
-
-        {detail && (
-          <>
-            <div className="explorer-hover-preview__header">
-              <h3>Episode #{detail.episode_index}</h3>
-              <div className="explorer-hover-preview__meta">
-                <span>{detail.summary.row_count} frames</span>
-                <span>{detail.summary.duration_s}s</span>
-                <span>{detail.summary.fps} fps</span>
-                <span>{detail.summary.video_count} videos</span>
-              </div>
-            </div>
-
-            <EpisodePlaybackSurface
-              detail={detail}
-              playVideo={playVideo}
-              videoCurrentTime={videoCurrentTime}
-              onVideoTimeUpdate={onVideoTimeUpdate}
-              emptyLabel="No video stream available for this episode."
-            />
-          </>
-        )}
-      </div>
-    </div>,
-    document.body,
-  )
-}
 
 function EpisodeBrowser({ datasetRef }: { datasetRef: ExplorerDatasetRef }) {
   const { t } = useI18n()
