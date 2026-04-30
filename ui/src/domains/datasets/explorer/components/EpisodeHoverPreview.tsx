@@ -2,9 +2,18 @@ import { createPortal } from 'react-dom'
 import type { EpisodeDetail } from '../store/useExplorerStore'
 import { EpisodePlaybackSurface } from './EpisodePlaybackSurface'
 
+function hasTrajectoryData(detail: EpisodeDetail | null | undefined): boolean {
+  if (!detail) return false
+  return (
+    detail.joint_trajectory.joint_trajectories.length > 0 ||
+    detail.joint_trajectory.total_points > 0
+  )
+}
+
 export function EpisodeHoverPreview({
   detail,
   loading,
+  trajectoryLoading,
   error,
   playVideo,
   videoCurrentTime,
@@ -15,6 +24,7 @@ export function EpisodeHoverPreview({
 }: {
   detail: EpisodeDetail | null
   loading: boolean
+  trajectoryLoading: boolean
   error: string
   playVideo: boolean
   videoCurrentTime: number
@@ -32,7 +42,7 @@ export function EpisodeHoverPreview({
           onClick={onClose}
           aria-label="Close preview"
         >
-          x
+          ×
         </button>
 
         {!detail && loading && (
@@ -64,6 +74,12 @@ export function EpisodeHoverPreview({
               onVideoTimeUpdate={onVideoTimeUpdate}
               emptyLabel="No video stream available for this episode."
             />
+
+            {!hasTrajectoryData(detail) && trajectoryLoading && (
+              <div className="explorer-hover-preview__empty">
+                Loading trajectory comparison...
+              </div>
+            )}
           </>
         )}
       </div>
