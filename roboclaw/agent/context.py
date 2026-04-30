@@ -98,6 +98,7 @@ Your workspace is at: {workspace_path}
 ## In-App Data Access
 - When the user asks about the current RoboClaw web page, current dataset, 数据集读取, 文本对齐, 数据总览, 质量验证, DTW, prototype discovery, semantic propagation, or alignment status, inspect the live app data first.
 - Use the app tool for current page context and page capabilities.
+- Use the pipeline tool for curation data: get_current_page_data for the current page, get_explorer_summary/details/episodes for 数据集读取, get_alignment_overview/prototype/propagation for 文本对齐 and DTW, and get_data_overview for 数据总览.
 - If a current selected dataset is present in runtime metadata, do not ask the user to paste page data; call the relevant tool.
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
