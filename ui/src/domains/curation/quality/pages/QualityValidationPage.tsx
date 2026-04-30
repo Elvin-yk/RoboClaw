@@ -1,145 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/i18n'
-import { useWorkflow, type QualityEpisodeResult } from '@/domains/curation/store/useCurationStore'
-import { ActionButton, GlassPanel, MetricCard } from '@/shared/ui'
-
-function cn(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(' ')
-}
-
-function formatIssueLabel(checkName: string, locale: 'zh' | 'en'): string {
-  const labels: Record<string, { zh: string; en: string }> = {
-    'info.json': { zh: '缺少信息文件', en: 'Missing info.json' },
-    'episode identity': { zh: '回合索引缺失', en: 'Missing episode identity' },
-    robot_type: { zh: '机器人类型缺失', en: 'Missing robot type' },
-    fps: { zh: '帧率缺失', en: 'Missing FPS' },
-    features: { zh: '特征定义缺失', en: 'Missing feature schema' },
-    parquet_data: { zh: 'Parquet 数据缺失', en: 'Missing parquet data' },
-    videos: { zh: '视频文件缺失', en: 'Missing video files' },
-    length: { zh: '回合时长异常', en: 'Episode duration issue' },
-    timestamps: { zh: '时间戳不足', en: 'Insufficient timestamps' },
-    monotonicity: { zh: '时间戳不单调', en: 'Timestamp monotonicity issue' },
-    interval_cv: { zh: '采样间隔不稳定', en: 'Sampling interval variance' },
-    estimated_frequency: { zh: '采样频率异常', en: 'Estimated frequency issue' },
-    gap_ratio: { zh: '大时间间隔过多', en: 'Too many timestamp gaps' },
-    frequency_consistency: { zh: '频率一致性差', en: 'Poor frequency consistency' },
-    joint_series: { zh: '缺少关节序列', en: 'Missing joint series' },
-    all_static_duration: { zh: '整体静止时间过长', en: 'All-joint static too long' },
-    key_static_duration: { zh: '关键关节静止过长', en: 'Key-joint static too long' },
-    max_velocity: { zh: '速度过高', en: 'Velocity too high' },
-    duration: { zh: '动作时长异常', en: 'Action duration issue' },
-    nan_ratio: { zh: '缺失值过多', en: 'Too many missing values' },
-    video_count: { zh: '视频数量异常', en: 'Unexpected video count' },
-    video_accessibility: { zh: '视频不可访问', en: 'Video accessibility issue' },
-    video_resolution: { zh: '视频分辨率不足', en: 'Video resolution issue' },
-    video_fps: { zh: '视频帧率不足', en: 'Video FPS issue' },
-    overexposure_ratio: { zh: '过曝比例过高', en: 'Overexposure ratio too high' },
-    underexposure_ratio: { zh: '欠曝比例过高', en: 'Underexposure ratio too high' },
-    abnormal_frame_ratio: { zh: '异常黑白帧过多', en: 'Too many abnormal black/white frames' },
-    color_shift: { zh: '色彩偏移过大', en: 'Color shift too high' },
-    depth_streams: { zh: '缺少深度流', en: 'Missing depth streams' },
-    depth_accessibility: { zh: '深度资源不可访问', en: 'Depth accessibility issue' },
-    depth_invalid_ratio: { zh: '深度无效像素过多', en: 'Too many invalid depth pixels' },
-    depth_continuity: { zh: '深度连续性不足', en: 'Depth continuity too low' },
-    grasp_event_count: { zh: '抓放事件不足', en: 'Too few grasp/place events' },
-    gripper_motion_span: { zh: '夹爪运动幅度不足', en: 'Gripper motion span too small' },
-  }
-  const label = labels[checkName]
-  return label ? label[locale] : checkName
-}
-
-function formatIssueDetail(issue: Record<string, unknown>): string {
-  const message = issue['message']
-  return typeof message === 'string' && message.trim() ? message : ''
-}
-
-function isFailingIssue(issue: Record<string, unknown>): boolean {
-  return issue['passed'] !== true
-}
-
-function collectIssueTypes(episodes: QualityEpisodeResult[]): string[] {
-  const issueTypes = new Set<string>()
-  episodes.forEach((episode) => {
-    ;(episode.issues || []).forEach((issue) => {
-      if (!isFailingIssue(issue)) {
-        return
-      }
-      const checkName = issue['check_name']
-      if (typeof checkName === 'string' && checkName.trim()) {
-        issueTypes.add(checkName)
-      }
-    })
-  })
-  return Array.from(issueTypes).sort()
-}
-
-function issueDistribution(episodes: QualityEpisodeResult[]): Array<{ label: string; count: number }> {
-  const counts = new Map<string, number>()
-  episodes.forEach((episode) => {
-    ;(episode.issues || []).forEach((issue) => {
-      if (!isFailingIssue(issue)) {
-        return
-      }
-      const checkName = issue['check_name']
-      if (typeof checkName !== 'string' || !checkName.trim()) {
-        return
-      }
-      counts.set(checkName, (counts.get(checkName) || 0) + 1)
-    })
-  })
-  return Array.from(counts.entries())
-    .map(([label, count]) => ({ label, count }))
-    .sort((left, right) => right.count - left.count)
-    .slice(0, 12)
-}
-
-function scoreHistogram(episodes: QualityEpisodeResult[]): Array<{ label: string; count: number }> {
-  const bins = [
-    { label: '0-20', min: 0, max: 20 },
-    { label: '20-40', min: 20, max: 40 },
-    { label: '40-60', min: 40, max: 60 },
-    { label: '60-80', min: 60, max: 80 },
-    { label: '80-100', min: 80, max: 101 },
-  ]
-  return bins.map((bin) => ({
-    label: bin.label,
-    count: episodes.filter((episode) => episode.score >= bin.min && episode.score < bin.max).length,
-  }))
-}
-
-function MiniBarChart({
-  title,
-  items,
-}: {
-  title: string
-  items: Array<{ label: string; count: number }>
-}) {
-  const maxValue = Math.max(...items.map((item) => item.count), 1)
-
-  return (
-    <GlassPanel className="quality-chart-card">
-      <div className="quality-chart-card__title">{title}</div>
-      <div className="quality-chart-card__bars">
-        {items.length === 0 ? (
-          <div className="quality-chart-card__empty">No data</div>
-        ) : (
-          items.map((item) => (
-            <div key={item.label} className="quality-chart-card__row">
-              <div className="quality-chart-card__label">{item.label}</div>
-              <div className="quality-chart-card__track">
-                <div
-                  className="quality-chart-card__fill"
-                  style={{ width: `${(item.count / maxValue) * 100}%` }}
-                />
-              </div>
-              <div className="quality-chart-card__value">{item.count}</div>
-            </div>
-          ))
-        )}
-      </div>
-    </GlassPanel>
-  )
-}
+import { useWorkflow } from '@/domains/curation/store/useCurationStore'
+import { ActionButton, GlassPanel } from '@/shared/ui'
+import PieChartCard from './PieChartCard'
+import QualityDetailInspector from './QualityDetailInspector'
+import {
+  clampPieSegments,
+  cn,
+  collectIssueTypes,
+  formatIssueDetail,
+  formatIssueLabel,
+  isFailingIssue,
+  issueDistribution,
+  scoreHistogram,
+  type PieSegment,
+} from './qualityValidationUtils'
 
 export default function QualityValidationView() {
   const { t, locale } = useI18n()
@@ -151,6 +26,8 @@ export default function QualityValidationView() {
     runQualityValidation,
     pauseQualityValidation,
     resumeQualityValidation,
+    qualityRunning,
+    qualityDefaults,
     qualityResults,
     workflowState,
     deleteQualityResults,
@@ -160,7 +37,9 @@ export default function QualityValidationView() {
     qualityThresholds,
     setQualityThreshold,
     selectDataset,
+    prepareRemoteDatasetForWorkflow,
     stopPolling,
+    selectedDatasetIsRemotePrepared,
   } = useWorkflow()
   const [failureOnly, setFailureOnly] = useState(false)
   const [issueType, setIssueType] = useState('')
@@ -173,6 +52,9 @@ export default function QualityValidationView() {
   const [reviewVideoLabel, setReviewVideoLabel] = useState('')
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState('')
+  const [runQualityError, setRunQualityError] = useState('')
+  const [rightRailCollapsed, setRightRailCollapsed] = useState(false)
+  const [hoveredEpisodeIndex, setHoveredEpisodeIndex] = useState<number | null>(null)
   const [collapsedThresholdValidators, setCollapsedThresholdValidators] = useState<string[]>([
     'metadata',
     'timing',
@@ -192,9 +74,11 @@ export default function QualityValidationView() {
   }, [selectedDataset, datasetInfo, selectDataset])
 
   const qStage = workflowState?.stages.quality_validation
-  const isRunning = qStage?.status === 'running'
+  const isRunning = qualityRunning || qStage?.status === 'running'
   const isPaused = qStage?.status === 'paused'
+  const isPauseRequested = isRunning && Boolean(qStage?.pause_requested)
   const controlsLocked = isRunning || isPaused
+  const datasetIsWorkflowReady = Boolean(workflowState) || selectedDatasetIsRemotePrepared
   const episodes = qualityResults?.episodes || []
   const canDeleteResults =
     Boolean(selectedDataset)
@@ -219,6 +103,54 @@ export default function QualityValidationView() {
       return true
     })
   }, [episodes, failureOnly, issueType])
+  const detailEpisode = useMemo(() => {
+    if (hoveredEpisodeIndex === null) {
+      return null
+    }
+    return filteredEpisodes.find((episode) => episode.episode_index === hoveredEpisodeIndex) || null
+  }, [filteredEpisodes, hoveredEpisodeIndex])
+  const displayedEpisodeCount = useMemo(() => {
+    if (failureOnly || issueType) {
+      return filteredEpisodes.length
+    }
+    const completed = qStage?.summary?.['completed']
+    if (typeof completed === 'number') {
+      return completed
+    }
+    if (episodes.length > 0) {
+      return episodes.length
+    }
+    return qualityResults?.total ?? '--'
+  }, [episodes.length, failureOnly, filteredEpisodes.length, issueType, qStage?.summary, qualityResults?.total])
+
+  const otherLabel = locale === 'zh' ? '其他' : 'Other'
+  const qualityPieSegments = useMemo<PieSegment[]>(() => ([
+    { label: t('passedEpisodes'), count: qualityResults?.passed ?? 0, color: '#33c36b' },
+    { label: t('failedEpisodes'), count: qualityResults?.failed ?? 0, color: '#f26b6b' },
+  ]).filter((segment) => segment.count > 0), [qualityResults, t])
+  const issuePieSegments = useMemo<PieSegment[]>(
+    () =>
+      clampPieSegments(
+        issueDistribution(episodes).map((item, index) => ({
+          label: formatIssueLabel(item.label, locale),
+          count: item.count,
+          color: ['#4d87ff', '#7c68ff', '#f59e0b', '#ec4899', '#14b8a6'][index % 5],
+        })),
+        { maxSegments: 4, otherLabel, otherColor: '#94a3b8' },
+      ),
+    [episodes, locale, otherLabel],
+  )
+  const scorePieSegments = useMemo<PieSegment[]>(
+    () =>
+      scoreHistogram(episodes)
+        .map((item, index) => ({
+          label: item.label,
+          count: item.count,
+          color: ['#1d4ed8', '#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe'][index % 5],
+        }))
+        .filter((segment) => segment.count > 0),
+    [episodes],
+  )
 
   async function handlePublishParquet(): Promise<void> {
     setPublishing(true)
@@ -257,6 +189,22 @@ export default function QualityValidationView() {
     }
   }
 
+  async function handleRunQualityAction(): Promise<void> {
+    setRunQualityError('')
+    try {
+      if (!datasetIsWorkflowReady && selectedDataset) {
+        await prepareRemoteDatasetForWorkflow(selectedDataset, false)
+      }
+      if (isPaused) {
+        await resumeQualityValidation()
+      } else {
+        await runQualityValidation()
+      }
+    } catch (error) {
+      setRunQualityError(error instanceof Error ? error.message : t('qualityRunFailed'))
+    }
+  }
+
   async function handleReviewEpisode(episodeIndex: number): Promise<void> {
     setSelectedEpisodeForReview(episodeIndex)
     setReviewLoading(true)
@@ -281,10 +229,18 @@ export default function QualityValidationView() {
     }
   }
 
-  const thresholdGroups = [
+  const thresholdGroups: Array<{
+    validator: string
+    fields: Array<{ key: string; label: string; step: number; kind?: 'boolean' }>
+  }> = [
     {
       validator: 'metadata',
       fields: [
+        { key: 'metadata_require_info_json', label: '检查 meta/info.json', step: 1, kind: 'boolean' },
+        { key: 'metadata_require_episode_metadata', label: '检查 episode 元数据', step: 1, kind: 'boolean' },
+        { key: 'metadata_require_data_files', label: '检查数据文件缺失', step: 1, kind: 'boolean' },
+        { key: 'metadata_require_videos', label: '检查视频文件缺失', step: 1, kind: 'boolean' },
+        { key: 'metadata_require_task_description', label: '检查任务描述', step: 1, kind: 'boolean' },
         { key: 'metadata_min_duration_s', label: '最小时长 (s)', step: 0.1 },
       ],
     },
@@ -352,14 +308,7 @@ export default function QualityValidationView() {
   }
 
   return (
-    <div className="page-enter quality-view">
-      <div className="quality-view__hero">
-        <div>
-          <h2 className="quality-view__title">{t('qualityPageTitle')}</h2>
-          <p className="quality-view__desc">{t('qualityPageDesc')}</p>
-        </div>
-      </div>
-
+    <div className="page-enter quality-view pipeline-page pipeline-compact-shell quality-validation-page pipeline-compact-quality">
       {selectedDataset && datasetInfo ? (
         <div className="workflow-view__info-bar">
           <span>{datasetInfo.label}</span>
@@ -373,42 +322,43 @@ export default function QualityValidationView() {
         </GlassPanel>
       )}
 
-      <div className="quality-layout">
-        <div className="quality-layout__main">
-          <div className="quality-kpis">
-            <MetricCard
-              label={t('totalEpisodes')}
-              value={qualityResults?.total ?? '--'}
-            />
-            <MetricCard
-              label={t('passedEpisodes')}
-              value={qualityResults?.passed ?? '--'}
-              accent="sage"
-            />
-            <MetricCard
-              label={t('failedEpisodes')}
-              value={qualityResults?.failed ?? '--'}
-              accent="coral"
-            />
-            <MetricCard
-              label={t('score')}
-              value={qualityResults ? qualityResults.overall_score.toFixed(1) : '--'}
-              accent="amber"
-            />
+      <div className={cn('quality-validation-shell', 'pipeline-compact-quality-shell', rightRailCollapsed && 'is-rail-collapsed')}>
+        <div className="quality-validation-shell__main">
+          <div className="quality-validation-overview pipeline-compact-quality-overview">
+            <GlassPanel className="quality-total-card">
+              <div className="quality-total-card__eyebrow">{t('totalEpisodes')}</div>
+              <div className="quality-total-card__value">{displayedEpisodeCount}</div>
+            </GlassPanel>
+
+            <div className="quality-validation-pies">
+              <PieChartCard
+                title={`${t('passedEpisodes')} / ${t('failedEpisodes')}`}
+                segments={qualityPieSegments}
+                centerLabel={t('episodes')}
+              />
+              <PieChartCard
+                title={t('issueDistribution')}
+                segments={issuePieSegments}
+                centerLabel={locale === 'zh' ? '问题' : 'Issues'}
+              />
+              <PieChartCard
+                title={t('scoreDistribution')}
+                segments={scorePieSegments}
+                centerLabel={locale === 'zh' ? '区间' : 'Bands'}
+              />
+            </div>
           </div>
 
-          <div className="quality-charts">
-            <MiniBarChart
-              title={t('issueDistribution')}
-              items={issueDistribution(filteredEpisodes)}
-            />
-            <MiniBarChart
-              title={t('scoreDistribution')}
-              items={scoreHistogram(filteredEpisodes)}
-            />
-          </div>
+          {runQualityError && (
+            <GlassPanel className="quality-results-card">
+              <div className="quality-sidebar__error">{runQualityError}</div>
+            </GlassPanel>
+          )}
 
-	          <GlassPanel className="quality-results-card">
+          <GlassPanel
+            className="quality-results-card"
+            onMouseLeave={() => setHoveredEpisodeIndex(null)}
+          >
             <div className="quality-results-card__head">
               <div>
                 <h3>{t('qualityResults')}</h3>
@@ -478,17 +428,31 @@ export default function QualityValidationView() {
                         }
                       })
                       .filter((item): item is { key: string; label: string; detail: string } => Boolean(item))
-	                    return (
-	                      <tr key={episode.episode_index}>
-	                        <td>
-                            <button
-                              type="button"
-                              className="quality-episode-link"
-                              onClick={() => void handleReviewEpisode(episode.episode_index)}
-                            >
-                              {episode.episode_index}
-                            </button>
-                          </td>
+                    return (
+                      <tr
+                        key={episode.episode_index}
+                        className={cn(
+                          'quality-result-row',
+                          detailEpisode?.episode_index === episode.episode_index && 'is-inspected',
+                        )}
+                        tabIndex={0}
+                        onMouseEnter={() => setHoveredEpisodeIndex(episode.episode_index)}
+                        onFocus={() => setHoveredEpisodeIndex(episode.episode_index)}
+                      >
+                        <td>
+                          <button
+                            type="button"
+                            className="quality-episode-link"
+                            onMouseEnter={() => setHoveredEpisodeIndex(episode.episode_index)}
+                            onFocus={() => setHoveredEpisodeIndex(episode.episode_index)}
+                            onClick={() => {
+                              setHoveredEpisodeIndex(episode.episode_index)
+                              void handleReviewEpisode(episode.episode_index)
+                            }}
+                          >
+                            {episode.episode_index}
+                          </button>
+                        </td>
                         <td>{episode.score.toFixed(1)}</td>
                         <td className={cn(episode.passed ? 'is-pass' : 'is-fail')}>
                           {episode.passed ? t('passed') : t('failed')}
@@ -523,195 +487,253 @@ export default function QualityValidationView() {
                 </tbody>
               </table>
             </div>
+
+            {detailEpisode && (
+              <QualityDetailInspector episode={detailEpisode} locale={locale} />
+            )}
           </GlassPanel>
         </div>
 
-	        <GlassPanel className="quality-layout__sidebar">
-          <div className="quality-sidebar__section">
-            <h3>{t('qualityValidation')}</h3>
-            <p>{t('qualityOverview')}</p>
-          </div>
+        <aside className={cn('quality-validation-rail', rightRailCollapsed && 'is-collapsed')}>
+          <GlassPanel className="quality-validation-rail__card">
+            <button
+              type="button"
+              className={cn(
+                'quality-validation-rail__toggle',
+                rightRailCollapsed && 'is-collapsed',
+              )}
+              onClick={() => setRightRailCollapsed((value) => !value)}
+              aria-expanded={!rightRailCollapsed}
+              aria-label={rightRailCollapsed ? 'Expand quality rail' : 'Collapse quality rail'}
+            >
+              <span className="quality-validation-rail__toggle-icon">‹</span>
+              <span className="quality-validation-rail__toggle-label">{t('qualityValidation')}</span>
+            </button>
 
-          <div className="quality-sidebar__section">
-            <div className="quality-sidebar__label">{t('validators')}</div>
-            <div className="quality-threshold-groups">
-              {thresholdGroups.map((group) => {
-                const collapsed = collapsedThresholdValidators.includes(group.validator)
-                const enabled = selectedValidators.includes(group.validator)
-                return (
-                  <div
-                    key={group.validator}
-                    className={cn(
-                      'quality-threshold-group',
-                      !enabled && 'is-disabled',
-                    )}
+            <div
+              className={cn(
+                'quality-validation-rail__panel',
+                rightRailCollapsed && 'is-collapsed',
+              )}
+              aria-hidden={rightRailCollapsed}
+            >
+              <div className="quality-sidebar__section">
+                <h3>{t('qualityValidation')}</h3>
+                <p>{t('qualityOverview')}</p>
+                {qualityDefaults && (
+                  <div className="quality-sidebar__path">
+                    自动默认值:
+                    {' '}
+                    {qualityDefaults.profile.fps > 0 ? `${qualityDefaults.profile.fps} fps` : 'fps --'}
+                    {qualityDefaults.profile.video_resolution
+                      ? ` · ${qualityDefaults.profile.video_resolution.width}x${qualityDefaults.profile.video_resolution.height}`
+                      : ''}
+                    {' · '}
+                    {qualityDefaults.checks.task_descriptions_present ? '任务描述存在' : '任务描述缺失'}
+                  </div>
+                )}
+              </div>
+
+              <div className="quality-sidebar__section">
+                {!datasetIsWorkflowReady && selectedDataset && (
+                  <div className="quality-sidebar__error">{t('qualityRequiresImportedDataset')}</div>
+                )}
+                <ActionButton
+                  type="button"
+                  disabled={
+                    !selectedDataset
+                    || isRunning
+                    || (!isPaused && selectedValidators.length === 0)
+                  }
+                  onClick={() => void handleRunQualityAction()}
+                  className="w-full justify-center"
+                >
+                  {isRunning ? t('running') : isPaused ? t('resumeQuality') : t('runQuality')}
+                </ActionButton>
+                {isRunning && (
+                  <ActionButton
+                    type="button"
+                    variant="warning"
+                    disabled={!selectedDataset || isPauseRequested}
+                    onClick={() => void pauseQualityValidation()}
+                    className="mt-3 w-full justify-center"
                   >
-                    <div className="quality-threshold-group__toggle">
-                      <label className="quality-threshold-group__check">
-                        <input
-                          type="checkbox"
-                          checked={enabled}
-                          onChange={() => toggleValidator(group.validator)}
-                          disabled={controlsLocked || !selectedDataset}
-                        />
-                        <span>
-                          {t(group.validator as 'metadata' | 'timing' | 'action' | 'visual' | 'depth' | 'ee_trajectory')}
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        className="quality-threshold-group__chevron-btn"
-                        onClick={() => toggleThresholdValidator(group.validator)}
+                    {isPauseRequested ? t('pauseRequested') : t('pauseQuality')}
+                  </ActionButton>
+                )}
+                {isPauseRequested && (
+                  <div className="quality-sidebar__path">{t('pauseRequestedHint')}</div>
+                )}
+                {isPaused && (
+                  <div className="quality-sidebar__path">
+                    {t('paused')}
+                    {typeof qStage?.summary?.['completed'] === 'number' && typeof qStage?.summary?.['total'] === 'number'
+                      ? ` · ${qStage.summary['completed']} / ${qStage.summary['total']}`
+                      : ''}
+                  </div>
+                )}
+              </div>
+
+              <div className="quality-sidebar__section">
+                <div className="quality-sidebar__label">{t('validators')}</div>
+                <div className="quality-threshold-groups">
+                  {thresholdGroups.map((group) => {
+                    const collapsed = collapsedThresholdValidators.includes(group.validator)
+                    const enabled = selectedValidators.includes(group.validator)
+                    return (
+                      <div
+                        key={group.validator}
+                        className={cn(
+                          'quality-threshold-group',
+                          !enabled && 'is-disabled',
+                        )}
                       >
-                        <span className={cn('quality-threshold-group__chevron', !collapsed && 'is-open')}>
-                          ▾
-                        </span>
-                      </button>
-                    </div>
-                    {!collapsed && (
-                      <div className="quality-threshold-group__body">
-                        {group.fields.length > 0 ? (
-                          <div className="quality-threshold-list">
-                            {group.fields.map((field) => (
-                              <label key={field.key} className="quality-threshold-field">
-                                <span>{field.label}</span>
-                                <input
-                                  type="number"
-                                  step={field.step}
-                                  value={qualityThresholds[field.key]}
-                                  disabled={!enabled || controlsLocked}
-                                  onChange={(event) =>
-                                    setQualityThreshold(field.key, Number(event.target.value))
-                                  }
-                                />
-                              </label>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="quality-threshold-empty">
-                            这个验证器当前没有可调阈值
+                        <div className="quality-threshold-group__toggle">
+                          <label className="quality-threshold-group__check">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={() => toggleValidator(group.validator)}
+                              disabled={controlsLocked || !selectedDataset}
+                            />
+                            <span>
+                              {t(group.validator as 'metadata' | 'timing' | 'action' | 'visual' | 'depth' | 'ee_trajectory')}
+                            </span>
+                          </label>
+                          <button
+                            type="button"
+                            className="quality-threshold-group__chevron-btn"
+                            onClick={() => toggleThresholdValidator(group.validator)}
+                          >
+                            <span className={cn('quality-threshold-group__chevron', !collapsed && 'is-open')}>
+                              ▾
+                            </span>
+                          </button>
+                        </div>
+                        {!collapsed && (
+                          <div className="quality-threshold-group__body">
+                            {group.fields.length > 0 ? (
+                              <div className="quality-threshold-list">
+                                {group.fields.map((field) => {
+                                  const value = qualityThresholds[field.key] ?? 0
+                                  return (
+                                    <label key={field.key} className="quality-threshold-field">
+                                      <span>{field.label}</span>
+                                      {field.kind === 'boolean' ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={value >= 0.5}
+                                          disabled={!enabled || controlsLocked}
+                                          onChange={(event) =>
+                                            setQualityThreshold(field.key, event.target.checked ? 1 : 0)
+                                          }
+                                        />
+                                      ) : (
+                                        <input
+                                          type="number"
+                                          step={field.step}
+                                          value={value}
+                                          disabled={!enabled || controlsLocked}
+                                          onChange={(event) =>
+                                            setQualityThreshold(field.key, Number(event.target.value))
+                                          }
+                                        />
+                                      )}
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <div className="quality-threshold-empty">
+                                这个验证器当前没有可调阈值
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="quality-sidebar__section">
-	            <ActionButton
-	              type="button"
-	              disabled={
-                  !selectedDataset
-                  || isRunning
-                  || (!isPaused && selectedValidators.length === 0)
-                }
-              onClick={() =>
-                void (isPaused ? resumeQualityValidation() : runQualityValidation())
-              }
-              className="w-full justify-center"
-            >
-              {isRunning ? t('running') : isPaused ? t('resumeQuality') : t('runQuality')}
-            </ActionButton>
-            {isRunning && (
-              <ActionButton
-                type="button"
-                variant="warning"
-                disabled={!selectedDataset}
-                onClick={() => void pauseQualityValidation()}
-                className="mt-3 w-full justify-center"
-              >
-                {t('pauseQuality')}
-              </ActionButton>
-            )}
-            {isPaused && (
-              <div className="quality-sidebar__path">
-                {t('paused')}
-                {typeof qStage?.summary?.['completed'] === 'number' && typeof qStage?.summary?.['total'] === 'number'
-                  ? ` · ${qStage.summary['completed']} / ${qStage.summary['total']}`
-                  : ''}
-              </div>
-            )}
-          </div>
-
-          <div className="quality-sidebar__section">
-            <a
-              href={getQualityCsvUrl(failureOnly)}
-              className={cn(
-                'quality-sidebar__link',
-                !selectedDataset && 'is-disabled',
-              )}
-              onClick={(event) => {
-                if (!selectedDataset) {
-                  event.preventDefault()
-                }
-              }}
-            >
-              {t('exportCsv')}
-            </a>
-            <ActionButton
-              type="button"
-              variant="secondary"
-              disabled={!selectedDataset || publishing}
-              onClick={() => void handlePublishParquet()}
-              className="w-full justify-center"
-            >
-              {publishing ? t('publishing') : t('publishQualityParquet')}
-            </ActionButton>
-            <ActionButton
-              type="button"
-              variant="danger"
-              disabled={!canDeleteResults || deleting}
-              onClick={() => void handleDeleteQualityResults()}
-              className="w-full justify-center"
-            >
-              {deleting ? t('deleting') : t('deleteQualityResults')}
-            </ActionButton>
-            {qualityResults?.working_parquet_path && (
-              <div className="quality-sidebar__path">
-                working: {qualityResults.working_parquet_path}
-              </div>
-            )}
-            {qualityResults?.published_parquet_path && (
-              <div className="quality-sidebar__path">
-                published: {qualityResults.published_parquet_path}
-              </div>
-            )}
-	            {publishMessage && (
-	              <div className="quality-sidebar__path">{publishMessage}</div>
-	            )}
-	            {publishError && (
-	              <div className="quality-sidebar__error">{publishError}</div>
-	            )}
-	          </div>
-
-          <div className="quality-sidebar__section">
-            <div className="quality-sidebar__label">视频验证</div>
-            {reviewLoading ? (
-              <div className="quality-sidebar__path">加载视频中...</div>
-            ) : reviewError ? (
-              <div className="quality-sidebar__error">{reviewError}</div>
-            ) : reviewVideoUrl ? (
-              <div className="quality-review-video">
-                <video
-                  className="quality-review-video__player"
-                  controls
-                  preload="metadata"
-                  playsInline
-                  src={reviewVideoUrl}
-                />
-                <div className="quality-sidebar__path">
-                  episode {selectedEpisodeForReview} · {reviewVideoLabel}
+                    )
+                  })}
                 </div>
               </div>
-            ) : (
-              <div className="quality-sidebar__path">点击结果表中的 episode 编号开始验证视频</div>
-            )}
-          </div>
-	        </GlassPanel>
-	      </div>
-	    </div>
+
+              <div className="quality-sidebar__section">
+                <a
+                  href={getQualityCsvUrl(failureOnly)}
+                  className={cn(
+                    'quality-sidebar__link',
+                    !selectedDataset && 'is-disabled',
+                  )}
+                  onClick={(event) => {
+                    if (!selectedDataset) {
+                      event.preventDefault()
+                    }
+                  }}
+                >
+                  {t('exportCsv')}
+                </a>
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  disabled={!selectedDataset || publishing}
+                  onClick={() => void handlePublishParquet()}
+                  className="w-full justify-center"
+                >
+                  {publishing ? t('publishing') : t('publishQualityParquet')}
+                </ActionButton>
+                <ActionButton
+                  type="button"
+                  variant="danger"
+                  disabled={!canDeleteResults || deleting}
+                  onClick={() => void handleDeleteQualityResults()}
+                  className="w-full justify-center"
+                >
+                  {deleting ? t('deleting') : t('deleteQualityResults')}
+                </ActionButton>
+                {qualityResults?.working_parquet_path && (
+                  <div className="quality-sidebar__path">
+                    working: {qualityResults.working_parquet_path}
+                  </div>
+                )}
+                {qualityResults?.published_parquet_path && (
+                  <div className="quality-sidebar__path">
+                    published: {qualityResults.published_parquet_path}
+                  </div>
+                )}
+                {publishMessage && (
+                  <div className="quality-sidebar__path">{publishMessage}</div>
+                )}
+                {publishError && (
+                  <div className="quality-sidebar__error">{publishError}</div>
+                )}
+              </div>
+
+              <div className="quality-sidebar__section">
+                <div className="quality-sidebar__label">视频验证</div>
+                {reviewLoading ? (
+                  <div className="quality-sidebar__path">加载视频中...</div>
+                ) : reviewError ? (
+                  <div className="quality-sidebar__error">{reviewError}</div>
+                ) : reviewVideoUrl ? (
+                  <div className="quality-review-video">
+                    <video
+                      className="quality-review-video__player"
+                      controls
+                      preload="metadata"
+                      playsInline
+                      src={reviewVideoUrl}
+                    />
+                    <div className="quality-sidebar__path">
+                      episode {selectedEpisodeForReview} · {reviewVideoLabel}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="quality-sidebar__path">点击结果表中的 episode 编号开始验证视频</div>
+                )}
+              </div>
+            </div>
+          </GlassPanel>
+        </aside>
+      </div>
+    </div>
   )
 }
