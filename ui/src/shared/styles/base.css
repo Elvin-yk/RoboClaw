@@ -4,6 +4,24 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #f3f7fc;
+  --sf: #ffffff;
+  --sf-strong: #f9fbff;
+  --bd: rgba(55, 97, 182, 0.16);
+  --tx: #111111;
+  --tx2: #5f6b7a;
+  --ac: #2f6fe4;
+  --gn: #2f6fe4;
+  --rd: #2f6fe4;
+  --yl: #2f6fe4;
+  --or: #2f6fe4;
+  --bg-spot-1: rgba(47, 111, 228, 0.14);
+  --bg-spot-2: rgba(221, 236, 255, 0.72);
+  --bg-spot-3: rgba(47, 111, 228, 0.08);
+  --card-shadow: 0 20px 48px rgba(47, 111, 228, 0.1);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -19,6 +37,25 @@ body {
   font-size: 15px;
   line-height: 1.6;
   color: var(--tx);
+  background:
+    radial-gradient(circle at top left, var(--bg-spot-1), transparent 32%),
+    radial-gradient(circle at 82% 14%, var(--bg-spot-2), transparent 26%),
+    radial-gradient(circle at 78% 72%, var(--bg-spot-3), transparent 24%),
+    linear-gradient(180deg, #fbfdff 0%, #edf4ff 100%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.4), transparent 88%);
+  opacity: 0.35;
 }
 
 button,
