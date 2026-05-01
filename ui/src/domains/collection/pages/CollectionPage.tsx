@@ -37,6 +37,8 @@ export default function CollectionPage() {
   const totalTargetSeconds = assignments.reduce((sum, item) => sum + item.target_seconds, 0)
   const totalCompletedSeconds = assignments.reduce((sum, item) => sum + item.completed_seconds, 0)
   const totalProgress = totalTargetSeconds > 0 ? Math.min(100, Math.round((totalCompletedSeconds / totalTargetSeconds) * 100)) : 0
+  const canControlEpisode = session.record_phase === 'recording' && !session.record_pending_command
+  const canSkipResetWait = session.record_phase === 'resetting' && !session.record_pending_command
   const activeAssignment = useMemo(
     () => assignments.find((item) => item.id === activeAssignmentId) || null,
     [activeAssignmentId, assignments],
@@ -201,9 +203,11 @@ export default function CollectionPage() {
             <span>{session.record_phase}</span>
           </div>
           <div className="collection-active__actions">
-            <ActionButton variant="success" onClick={() => episodeAction(doSaveEpisode)} disabled={loading}>保存 episode</ActionButton>
-            <ActionButton variant="warning" onClick={() => episodeAction(doSkipReset)} disabled={loading}>跳过 reset</ActionButton>
-            <ActionButton variant="danger" onClick={() => episodeAction(doDiscardEpisode)} disabled={loading}>丢弃 episode</ActionButton>
+            <ActionButton variant="success" onClick={() => episodeAction(doSaveEpisode)} disabled={loading || !canControlEpisode}>保存 episode</ActionButton>
+            <ActionButton variant="warning" onClick={() => episodeAction(doDiscardEpisode)} disabled={loading || !canControlEpisode}>重置 episode</ActionButton>
+            {session.record_phase === 'resetting' && (
+              <ActionButton variant="primary" onClick={() => episodeAction(doSkipReset)} disabled={loading || !canSkipResetWait}>跳过等待</ActionButton>
+            )}
             <ActionButton variant="danger" onClick={stop} disabled={loading}>结束采集</ActionButton>
           </div>
         </section>

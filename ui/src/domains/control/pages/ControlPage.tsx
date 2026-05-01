@@ -151,6 +151,8 @@ function CollectionRunPanel({
   const totalProgress = totalTargetSeconds > 0 ? Math.min(100, Math.round((totalCompletedSeconds / totalTargetSeconds) * 100)) : 0
   const targetEpisodes = session.target_episodes || active?.task_params.num_episodes || 0
   const pct = targetEpisodes > 0 ? Math.min(100, Math.round((session.saved_episodes / targetEpisodes) * 100)) : 0
+  const canControlEpisode = session.record_phase === 'recording' && !session.record_pending_command
+  const canSkipResetWait = session.record_phase === 'resetting' && !session.record_pending_command
 
   if (!active) {
     return (
@@ -259,15 +261,17 @@ function CollectionRunPanel({
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <ActionBtn color="gn" disabled={loading || session.record_phase !== 'recording' || !!session.record_pending_command} onClick={onSave}>
+        <ActionBtn color="gn" disabled={loading || !canControlEpisode} onClick={onSave}>
           保存 episode
         </ActionBtn>
-        <ActionBtn color="yl" disabled={loading || session.record_phase !== 'recording' || !!session.record_pending_command} onClick={onSkipReset}>
-          跳过 reset
+        <ActionBtn color="yl" disabled={loading || !canControlEpisode} onClick={onDiscard}>
+          重置 episode
         </ActionBtn>
-        <ActionBtn color="yl" disabled={loading || session.record_phase !== 'recording' || !!session.record_pending_command} onClick={onDiscard}>
-          丢弃 episode
-        </ActionBtn>
+        {session.record_phase === 'resetting' && (
+          <ActionBtn color="ac" disabled={loading || !canSkipResetWait} onClick={onSkipReset}>
+            跳过等待
+          </ActionBtn>
+        )}
         <ActionBtn color="rd" disabled={loading} onClick={onStop}>
           结束采集
         </ActionBtn>
