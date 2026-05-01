@@ -33,6 +33,13 @@ function invalidPhones(phones: string[]) {
 const emptyTask: TaskPayload = {
   description: '',
   task_prompt: '',
+  num_episodes: 1,
+  fps: 30,
+  episode_time_s: 300,
+  reset_time_s: 10,
+  use_cameras: true,
+  dataset_prefix: 'rec',
+  is_active: true,
 }
 
 export default function CollectionAdminPage() {
@@ -210,6 +217,34 @@ export default function CollectionAdminPage() {
               <span>任务描述</span>
               <textarea className="collection-input collection-textarea" value={taskForm.task_prompt} onChange={(event) => setTaskForm({ ...taskForm, task_prompt: event.target.value })} required />
             </label>
+            <div className="collection-form-grid">
+              <label>
+                <span>Episodes</span>
+                <input className="collection-input" type="number" min={1} value={taskForm.num_episodes} onChange={(event) => setTaskForm({ ...taskForm, num_episodes: Number(event.target.value) })} />
+              </label>
+              <label>
+                <span>FPS</span>
+                <input className="collection-input" type="number" min={1} value={taskForm.fps} onChange={(event) => setTaskForm({ ...taskForm, fps: Number(event.target.value) })} />
+              </label>
+              <label>
+                <span>Episode 秒</span>
+                <input className="collection-input" type="number" min={1} value={taskForm.episode_time_s} onChange={(event) => setTaskForm({ ...taskForm, episode_time_s: Number(event.target.value) })} />
+              </label>
+              <label>
+                <span>Reset 秒</span>
+                <input className="collection-input" type="number" min={0} value={taskForm.reset_time_s} onChange={(event) => setTaskForm({ ...taskForm, reset_time_s: Number(event.target.value) })} />
+              </label>
+            </div>
+            <div className="collection-form-grid">
+              <label>
+                <span>Dataset prefix</span>
+                <input className="collection-input" value={taskForm.dataset_prefix} onChange={(event) => setTaskForm({ ...taskForm, dataset_prefix: event.target.value })} required />
+              </label>
+              <label className="collection-checkbox">
+                <input type="checkbox" checked={taskForm.use_cameras} onChange={(event) => setTaskForm({ ...taskForm, use_cameras: event.target.checked })} />
+                <span>使用相机</span>
+              </label>
+            </div>
             <ActionButton type="submit" disabled={loading}>创建</ActionButton>
           </form>
 
