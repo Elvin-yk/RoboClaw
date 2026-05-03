@@ -7,7 +7,7 @@ import {
   getRelativePlaybackTime,
   shouldLoopVideo,
   type EpisodeVideo,
-} from '../pages/datasetExplorerPlayback'
+} from '@/domains/datasets/shared/playback/playbackWindow'
 
 function formatAngle(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '--'

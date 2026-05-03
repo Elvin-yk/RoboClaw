@@ -6,7 +6,7 @@ import {
   type ExplorerDatasetRef,
   useExplorer,
 } from '../store/useExplorerStore'
-import { formatClipWindowLabel } from '../pages/datasetExplorerPlayback'
+import { formatClipWindowLabel } from '@/domains/datasets/shared/playback/playbackWindow'
 import { EpisodeHoverPreview } from './EpisodeHoverPreview'
 import { EpisodePlaybackSurface } from './EpisodePlaybackSurface'
 
