@@ -27,3 +27,7 @@ node_modules/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .codex
+
+# Local-only private overrides
+CLAUDE.local.md
+data.local.md
