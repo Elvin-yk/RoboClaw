@@ -28,6 +28,11 @@ from roboclaw.data.curation.exports import (
     publish_text_annotations_metadata_parquet,
 )
 from roboclaw.data.curation.paths import datasets_root
+from roboclaw.data.curation.review.models import (
+    CommitDeletionRequest as ReviewCommitDeletionRequest,
+    ReviewState,
+)
+from roboclaw.data.curation.review.service import OutputDatasetExistsError, ReviewService
 from roboclaw.data.curation.service import CurationService
 from roboclaw.data.curation.state import load_annotations
 from roboclaw.data.curation.validators import (
@@ -45,6 +50,17 @@ from roboclaw.data.datasets import (
 # Module-level service singleton
 _service = CurationService()
 _catalog = DatasetCatalog(root_resolver=lambda: datasets_root())
+_review_service = ReviewService(
+    dataset_path_resolver=lambda dataset_id: _ensure_dataset_workspace(dataset_id),
+    list_summaries=lambda: list_curation_dataset_summaries(),
+    datasets_root_provider=lambda: datasets_root(),
+)
+
+
+def _load_state_with_info(dataset: str, dataset_path: Path) -> tuple[dict[str, Any], ReviewState]:
+    info = load_dataset_info(dataset_path)
+    state = _review_service.load_state(dataset)
+    return info, state
 DEFAULT_PROTOTYPE_CANDIDATE_LIMIT = 200
 
 
@@ -88,6 +104,31 @@ class HFDatasetImportRequest(BaseModel):
 
 class DatasetPublishRequest(BaseModel):
     dataset: str
+
+
+class ReviewMarkRequest(BaseModel):
+    dataset: str
+    abnormal: bool
+
+
+class ReviewMarkBulkItem(BaseModel):
+    episode_index: int
+    abnormal: bool
+
+
+class ReviewMarkBulkRequest(BaseModel):
+    dataset: str
+    marks: list[ReviewMarkBulkItem]
+
+
+class ReviewCommitDeletionBody(BaseModel):
+    dataset_id: str
+    output_dataset_id: str
+    task: str
+    source_repo_id: str = "local/review_src"
+    output_repo_id: str = "local/review_out"
+    vcodec: str = "h264"
+    dry_run: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +542,82 @@ def register_curation_routes(app: FastAPI) -> None:
             return publish_text_annotations_as_training_tasks(body.dataset, dataset_path)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # -----------------------------------------------------------------------
+    # Stage 4: Human review (abnormal-mark + commit-deletion)
+    # -----------------------------------------------------------------------
+
+    @app.get("/api/curation/review/datasets")
+    async def review_datasets(critical_only: bool = True) -> list[dict[str, Any]]:
+        summaries = await asyncio.to_thread(
+            _review_service.list_candidate_datasets, critical_only=critical_only
+        )
+        return [summary.to_dict() for summary in summaries]
+
+    @app.get("/api/curation/review/state")
+    async def review_state(dataset: str) -> dict[str, Any]:
+        dataset_path = _ensure_dataset_workspace(dataset)
+        info, state = await asyncio.to_thread(_load_state_with_info, dataset, dataset_path)
+        summary = _review_service.summarize(
+            state, int(info.get("total_episodes", 0) or 0)
+        )
+        return {"state": state.to_dict(), "summary": summary.to_dict()}
+
+    @app.get("/api/curation/review/episodes")
+    async def review_episodes(
+        dataset: str, page: int = 1, page_size: int = 100
+    ) -> dict[str, Any]:
+        _ensure_dataset_workspace(dataset)
+        return await asyncio.to_thread(_review_service.list_episodes, dataset, page, page_size)
+
+    @app.get("/api/curation/review/episode")
+    async def review_episode(dataset: str, episode_index: int) -> dict[str, Any]:
+        _ensure_dataset_workspace(dataset)
+        return await asyncio.to_thread(
+            _review_service.get_episode_detail, dataset, episode_index
+        )
+
+    @app.put("/api/curation/review/marks/{episode_index}")
+    async def review_set_mark(
+        episode_index: int,
+        body: ReviewMarkRequest,
+    ) -> dict[str, Any]:
+        _ensure_dataset_workspace(body.dataset)
+        new_state = await asyncio.to_thread(
+            _review_service.set_mark, body.dataset, episode_index, body.abnormal
+        )
+        return {"state": new_state.to_dict()}
+
+    @app.put("/api/curation/review/marks")
+    async def review_set_marks_bulk(body: ReviewMarkBulkRequest) -> dict[str, Any]:
+        _ensure_dataset_workspace(body.dataset)
+        pairs = [(item.episode_index, item.abnormal) for item in body.marks]
+        new_state = await asyncio.to_thread(
+            _review_service.set_marks_bulk, body.dataset, pairs
+        )
+        return {"state": new_state.to_dict()}
+
+    @app.post("/api/curation/review/commit-deletion")
+    async def review_commit_deletion(
+        body: ReviewCommitDeletionBody,
+    ) -> dict[str, Any]:
+        _ensure_dataset_workspace(body.dataset_id)
+        request = ReviewCommitDeletionRequest(
+            dataset_id=body.dataset_id,
+            output_dataset_id=body.output_dataset_id,
+            task=body.task,
+            source_repo_id=body.source_repo_id,
+            output_repo_id=body.output_repo_id,
+            vcodec=body.vcodec,
+            dry_run=body.dry_run,
+        )
+        try:
+            result = await asyncio.to_thread(_review_service.commit_deletion, request)
+        except OutputDatasetExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return result.to_dict()
 
     # -----------------------------------------------------------------------
     # Video serving
