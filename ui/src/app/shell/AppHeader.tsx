@@ -41,6 +41,7 @@ export default function AppHeader() {
     if (location.pathname.startsWith('/datasets')) return t('datasetReader')
     if (location.pathname.startsWith('/curation/datasets')) return t('datasetReader')
     if (location.pathname.startsWith('/curation/data-overview')) return t('dataOverview')
+    if (location.pathname.startsWith('/curation/review')) return t('humanReview')
     if (location.pathname.startsWith('/curation/text-alignment')) return t('textAlignment')
     if (location.pathname.startsWith('/curation/quality')) return t('qualityWorkbench')
     if (location.pathname.startsWith('/curation')) return t('pipelineNav')
