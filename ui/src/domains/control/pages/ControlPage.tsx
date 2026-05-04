@@ -57,13 +57,36 @@ function formatSeconds(seconds: number) {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`
 }
 
-function sessionHasError(session: SessionStatus) {
+function sessionHasError(session: SessionStatus, collectionStatus: CollectionStatus | null) {
   return session.state === 'error'
     || Boolean(session.error)
+    || collectionStatus?.session.state === 'error'
+    || Boolean(collectionStatus?.session.error)
 }
 
-function sessionErrorText(session: SessionStatus) {
-  return session.error || '本地 session 处于 error 状态'
+function sessionErrorText(session: SessionStatus, collectionStatus: CollectionStatus | null) {
+  return session.error || collectionStatus?.session.error || '本地 session 处于 error 状态'
+}
+
+function DeviceDots({ label, dots }: {
+  label: string
+  dots: Array<{ key: string; className: string; title: string }>
+}) {
+  return (
+    <div className="min-w-[86px]">
+      <div className="text-[11px] font-semibold leading-none text-tx2">{label}</div>
+      <div className="mt-2 flex h-3 items-center gap-1.5">
+        {dots.map((dot) => (
+          <span
+            key={dot.key}
+            className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${dot.className}`}
+            title={dot.title}
+          />
+        ))}
+        {dots.length === 0 && <span className="text-xs font-semibold text-tx3">--</span>}
+      </div>
+    </div>
+  )
 }
 
 function HardwareSummary({ hwStatus, busy, state, owner }: {
@@ -75,36 +98,24 @@ function HardwareSummary({ hwStatus, busy, state, owner }: {
   const { t } = useI18n()
   const hwReady = hwStatus?.ready ?? false
   const accent = !hwStatus ? 'shadow-inset-ac' : hwReady ? 'shadow-inset-gn' : 'shadow-inset-yl'
+  const armDots = hwStatus?.arms.map((arm: any) => ({
+    key: arm.alias,
+    title: arm.alias,
+    className: !arm.connected ? 'bg-rd' : !arm.calibrated ? 'bg-yl' : 'bg-gn',
+  })) ?? []
+  const cameraDots = hwStatus?.cameras.map((camera: any) => ({
+    key: camera.alias,
+    title: camera.alias,
+    className: camera.connected ? 'bg-gn' : 'bg-rd',
+  })) ?? []
 
   return (
-    <div className={`bg-sf rounded-lg p-3.5 ${accent}`}>
-      <div className="flex flex-wrap items-center gap-5">
-        <div>
-          <div className="text-2xs font-mono uppercase tracking-widest text-tx3">{t('arms')}</div>
-          <div className="mt-2 flex items-center gap-1.5">
-            {hwStatus?.arms.map((arm: any) => (
-              <span
-                key={arm.alias}
-                className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${!arm.connected ? 'bg-rd' : !arm.calibrated ? 'bg-yl' : 'bg-gn'}`}
-                title={arm.alias}
-              />
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="text-2xs font-mono uppercase tracking-widest text-tx3">{t('cameras')}</div>
-          <div className="mt-2 flex items-center gap-1.5">
-            {hwStatus?.cameras.map((camera: any) => (
-              <span
-                key={camera.alias}
-                className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${camera.connected ? 'bg-gn' : 'bg-rd'}`}
-                title={camera.alias}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="ml-auto text-right">
-          <div className="text-xs font-semibold text-tx">
+    <div className={`rounded-lg border border-bd/50 bg-white/85 px-4 py-3 shadow-card ${accent}`}>
+      <div className="grid grid-cols-[auto_auto_minmax(82px,1fr)] items-center gap-4">
+        <DeviceDots label={t('arms')} dots={armDots} />
+        <DeviceDots label={t('cameras')} dots={cameraDots} />
+        <div className="justify-self-end text-right">
+          <div className="text-xs font-bold text-tx">
             {hwReady ? t('hwReady') : `${hwStatus?.missing?.length ?? 0} ${t('warnings')}`}
           </div>
           {busy && <div className="mt-1 text-2xs font-mono text-tx3">{state}{owner ? ` · ${owner}` : ''}</div>}
@@ -173,7 +184,6 @@ function CollectionRunPanel({
   selectedAssignmentId,
   session,
   loading,
-  onDateChange,
   onSelect,
   onStart,
   onStop,
@@ -189,7 +199,6 @@ function CollectionRunPanel({
   selectedAssignmentId: string
   session: SessionStatus
   loading: boolean
-  onDateChange: (value: string) => void
   onSelect: (assignmentId: string) => void
   onStart: (assignment: Assignment) => void
   onStop: () => void
@@ -203,15 +212,12 @@ function CollectionRunPanel({
     () => assignments.find((assignment) => assignment.id === selectedAssignmentId) || null,
     [assignments, selectedAssignmentId],
   )
-  const totalTargetSeconds = assignments.reduce((sum, item) => sum + item.target_seconds, 0)
-  const totalCompletedSeconds = assignments.reduce((sum, item) => sum + item.completed_seconds, 0)
-  const totalProgress = totalTargetSeconds > 0 ? Math.min(100, Math.round((totalCompletedSeconds / totalTargetSeconds) * 100)) : 0
   const targetEpisodes = session.target_episodes || active?.task_params.num_episodes || 0
   const pct = targetEpisodes > 0 ? Math.min(100, Math.round((session.saved_episodes / targetEpisodes) * 100)) : 0
   const canControlEpisode = session.record_phase === 'recording' && !session.record_pending_command
   const canSkipResetWait = session.record_phase === 'resetting' && !session.record_pending_command
-  const hasError = sessionHasError(session)
-  const errorText = sessionErrorText(session)
+  const hasError = sessionHasError(session, collectionStatus)
+  const errorText = sessionErrorText(session, collectionStatus)
   const busyWithoutActive = session.state !== 'idle'
   const viewingToday = targetDate === serverToday
   const taskSelectionDisabled = loading || hasError || busyWithoutActive
@@ -227,36 +233,6 @@ function CollectionRunPanel({
   if (!active) {
     return (
       <>
-        <section className="bg-sf rounded-lg p-5 shadow-card">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-2xs font-mono uppercase tracking-widest text-tx3">Collection</div>
-              <h2 className="mt-2 text-xl font-bold text-tx">数采</h2>
-            </div>
-            <input
-              className="collection-input collection-input--date"
-              type="date"
-              value={targetDate}
-              onChange={(event) => onDateChange(event.target.value)}
-            />
-          </div>
-
-          <div className="mt-4 grid items-center gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(180px,320px)_auto]">
-            <div>
-              <div className="text-xs font-bold text-tx2">总进度</div>
-              <div className="mt-1 text-2xl font-black text-tx">
-                {formatHours(totalCompletedSeconds)} / {formatHours(totalTargetSeconds)}
-              </div>
-            </div>
-            <div className="collection-progress">
-              <span style={{ width: `${totalProgress}%` }} />
-            </div>
-            <div className="rounded-full border border-bd/50 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-tx2">
-              Idle
-            </div>
-          </div>
-        </section>
-
         {collectionStatus && collectionStatus.pending_finish_count > 0 && (
           <div className="collection-warning">
             <span>{collectionStatus.pending_finish_count} 个 finish 等待同步</span>
@@ -340,9 +316,12 @@ function CollectionRunPanel({
         </div>
 
         {assignments.length === 0 && (
-          <div className="collection-empty">
-            <div className="collection-empty__title">没有任务</div>
-            <div className="collection-empty__caption">{targetDate}</div>
+          <div className="collection-empty collection-empty--control">
+            <div className="collection-empty__eyebrow">数据采集</div>
+            <div className="collection-empty__center">
+              <div className="collection-empty__title">没有任务</div>
+              <div className="collection-empty__caption">{targetDate}</div>
+            </div>
           </div>
         )}
       </>
@@ -427,7 +406,6 @@ export default function ControlPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [serverToday, setServerToday] = useState(todayIso())
   const [targetDate, setTargetDate] = useState(todayIso())
-  const [autoToday, setAutoToday] = useState(true)
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
   const [collectionError, setCollectionError] = useState('')
   const [collectionNotice, setCollectionNotice] = useState('')
@@ -448,9 +426,7 @@ export default function ControlPage() {
   async function refreshToday() {
     const next = await collectionApi.getToday()
     setServerToday(next.today)
-    if (autoToday) {
-      setTargetDate(next.today)
-    }
+    setTargetDate(next.today)
   }
 
   useEffect(() => {
@@ -473,7 +449,7 @@ export default function ControlPage() {
       }
     }, TODAY_REFRESH_MS)
     return () => clearInterval(timer)
-  }, [autoToday])
+  }, [])
 
   useEffect(() => {
     const activeAssignmentId = collectionStatus?.active_run?.assignment_id
@@ -537,11 +513,6 @@ export default function ControlPage() {
     })
   }
 
-  function handleDateChange(value: string) {
-    setAutoToday(value === serverToday)
-    setTargetDate(value)
-  }
-
   return (
     <div className="page-enter flex h-full flex-col overflow-y-auto">
       {collectionError && (
@@ -556,7 +527,7 @@ export default function ControlPage() {
       )}
 
       <div className="space-y-3 p-4">
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="grid items-start gap-3 xl:grid-cols-[minmax(320px,420px)_220px] xl:justify-start">
           <HardwareSummary
             hwStatus={hwStatus}
             busy={busy}
@@ -581,7 +552,6 @@ export default function ControlPage() {
           selectedAssignmentId={selectedAssignmentId}
           session={session}
           loading={collectionLoading || Boolean(loading)}
-          onDateChange={handleDateChange}
           onSelect={setSelectedAssignmentId}
           onStart={(assignment) => { void startCollectionRun(assignment) }}
           onStop={() => { void stopCollectionRun() }}

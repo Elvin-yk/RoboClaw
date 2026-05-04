@@ -4,11 +4,27 @@ import { postJson } from '@/shared/api/client'
 const RECOVERY = '/api/recovery'
 const RUNTIME_INFO = '/api/system/runtime-info'
 
+export const RECOVERY_FAULT_TYPES = {
+  ARM_DISCONNECTED: 'arm_disconnected',
+  ARM_MOTOR_DISCONNECTED: 'arm_motor_disconnected',
+  ARM_TIMEOUT: 'arm_timeout',
+  ARM_NOT_CALIBRATED: 'arm_not_calibrated',
+  CAMERA_DISCONNECTED: 'camera_disconnected',
+  CAMERA_FRAME_DROP: 'camera_frame_drop',
+  RECORD_CRASHED: 'record_crashed',
+} as const
+
+export type RecoveryFaultType = typeof RECOVERY_FAULT_TYPES[keyof typeof RECOVERY_FAULT_TYPES]
+
 export interface RecoveryFault {
-  fault_type: string
+  fault_type: RecoveryFaultType
   device_alias: string
   message: string
   timestamp: number
+}
+
+export function recoveryFaultKey(faultType: RecoveryFaultType, deviceAlias: string) {
+  return `${faultType}:${deviceAlias}`
 }
 
 interface RecoveryStore {

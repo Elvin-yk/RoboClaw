@@ -119,7 +119,7 @@ def min_images_per_camera(images_per_camera: dict[str, int]) -> int:
 
 def count_video_files(dataset_dir: Path) -> int:
     videos_dir = dataset_dir / "videos"
-    return len(list(videos_dir.rglob("*.mp4"))) if videos_dir.exists() else 0
+    return sum(1 for _path in videos_dir.rglob("*.mp4")) if videos_dir.exists() else 0
 
 
 def get_video_keys(info: dict[str, Any]) -> list[str]:

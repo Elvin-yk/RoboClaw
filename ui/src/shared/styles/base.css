@@ -12,10 +12,10 @@
   --tx: #111111;
   --tx2: #5f6b7a;
   --ac: #2f6fe4;
-  --gn: #2f6fe4;
-  --rd: #2f6fe4;
-  --yl: #2f6fe4;
-  --or: #2f6fe4;
+  --gn: #16a34a;
+  --rd: #dc2626;
+  --yl: #d97706;
+  --or: #f97316;
   --bg-spot-1: rgba(47, 111, 228, 0.14);
   --bg-spot-2: rgba(221, 236, 255, 0.72);
   --bg-spot-3: rgba(47, 111, 228, 0.08);
@@ -62,6 +62,38 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: center;
+  transition:
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    opacity 0.16s ease,
+    filter 0.16s ease;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.015);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.975);
+  filter: brightness(0.985);
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(47, 111, 228, 0.42);
+  outline-offset: 2px;
 }
 
 a {

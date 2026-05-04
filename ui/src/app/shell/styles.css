@@ -37,17 +37,38 @@
 
 .app-sidebar__header {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .app-sidebar--collapsed .app-sidebar__header {
-  justify-content: center;
+  align-items: center;
+}
+
+.app-sidebar__brand-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-sidebar__brand {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tx);
+  font-size: 25px;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-sidebar__toggle {
   display: inline-flex;
   width: 32px;
   height: 32px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border: none;
@@ -566,13 +587,14 @@
 }
 
 .status-pill--live {
-  background: rgba(47, 111, 228, 0.12);
-  color: #2f6fe4;
+  border-color: rgba(22, 163, 74, 0.18);
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
 }
 
 .status-pill--live .status-pill__dot {
-  background: #2f6fe4;
-  box-shadow: 0 0 0 0 rgba(47, 111, 228, 0.22);
+  background: #16a34a;
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.22);
   animation: pulse-ring 2.2s infinite;
 }
 
@@ -762,9 +784,26 @@
   padding: 18px 24px 6px;
 }
 
-.app-topbar__title {
+.app-topbar__connection {
   display: flex;
+  min-width: 0;
   align-items: center;
+  gap: 10px;
+}
+
+.app-topbar__network {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid rgba(47, 111, 228, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0 14px;
+  color: var(--tx2);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .app-topbar__actions {
@@ -791,6 +830,99 @@
 
 .app-topbar__locale:hover {
   background: #fff;
+}
+
+.header-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 6px;
+  border: 1px solid rgba(47, 111, 228, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.header-user-badge__avatar {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.header-user-badge__phone {
+  max-width: 100px;
+  overflow: hidden;
+  color: var(--tx2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-logout-btn {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(47, 111, 228, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 0 12px;
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.header-logout-btn__icon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-logout-btn__label {
+  display: inline-flex;
+  align-items: center;
+}
+
+.header-logout-btn:hover {
+  border-color: rgba(220, 53, 69, 0.2);
+  background: rgba(220, 53, 69, 0.08);
+  color: #dc3545;
+}
+
+.header-login-btn {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #3e7bf0, #2f6fe4);
+  box-shadow: 0 6px 16px rgba(47, 111, 228, 0.22);
+  padding: 0 16px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.header-login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(47, 111, 228, 0.28);
 }
 
 @keyframes page-enter {
@@ -898,5 +1030,150 @@
     min-width: 58px;
     height: 58px;
     padding: 0 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    overflow: visible;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(18px);
+  }
+
+  .app-sidebar__header {
+    width: 100%;
+  }
+
+  .app-sidebar__brand-row {
+    width: 100%;
+  }
+
+  .app-sidebar__brand {
+    font-size: 22px;
+  }
+
+  .app-sidebar__nav {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .app-sidebar__nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-sidebar__group {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .app-sidebar__link {
+    width: max-content;
+    height: 36px;
+    border-radius: 999px;
+    padding: 0 12px;
+  }
+
+  .app-sidebar__children {
+    flex-direction: row;
+    gap: 6px;
+    margin-left: 0;
+    overflow-x: auto;
+    border-left: 0;
+    padding-left: 0;
+    scrollbar-width: none;
+  }
+
+  .app-sidebar__children::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-sidebar__child-link {
+    flex: 0 0 auto;
+    min-height: 32px;
+    border-radius: 999px;
+    padding: 0 11px;
+  }
+
+  .app-sidebar__child-dot {
+    display: none;
+  }
+
+  .app-topbar {
+    gap: 8px;
+    padding: 12px 14px 6px;
+  }
+
+  .app-topbar__connection {
+    flex: 0 0 auto;
+    gap: 0;
+  }
+
+  .app-topbar__connection .status-pill {
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    font-size: 0;
+    letter-spacing: 0;
+  }
+
+  .app-topbar__connection .status-pill__dot {
+    width: 11px;
+    height: 11px;
+  }
+
+  .app-topbar__network {
+    display: none;
+  }
+
+  .app-topbar__actions {
+    gap: 8px;
+  }
+
+  .header-user-badge {
+    width: 40px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .header-user-badge__avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .header-user-badge__phone {
+    display: none;
+  }
+
+  .header-logout-btn {
+    width: 40px;
+    padding: 0;
+  }
+
+  .header-logout-btn__label {
+    display: none;
+  }
+
+  .header-logout-btn__icon {
+    display: inline-flex;
+  }
+
+  .app-topbar__locale {
+    min-width: 44px;
+    height: 40px;
   }
 }

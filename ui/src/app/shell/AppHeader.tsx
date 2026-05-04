@@ -1,10 +1,10 @@
-import { useEffect, useMemo } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useChatSocket } from '@/domains/chat/store/useChatSocket'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
 import { useI18n } from '@/i18n'
-import { StatusPill } from '@/shared/ui'
 import { useAuthStore } from '@/shared/lib/authStore'
+import { StatusPill } from '@/shared/ui'
 
 /** 手机号脱敏：138****8888 */
 function maskPhone(phone: string): string {
@@ -20,106 +20,92 @@ function levelColor(level: string): string {
 }
 
 export default function AppHeader() {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const { connected } = useChatSocket()
-  const networkInfo = useHardwareStore((state) => state.networkInfo)
-  const fetchNetworkInfo = useHardwareStore((state) => state.fetchNetworkInfo)
-  const { t, locale, setLocale } = useI18n()
-  const { user, isLoggedIn, isChecking, logout } = useAuthStore()
+    const navigate = useNavigate()
+    const { connected } = useChatSocket()
+    const networkInfo = useHardwareStore((state) => state.networkInfo)
+    const fetchNetworkInfo = useHardwareStore((state) => state.fetchNetworkInfo)
+    const { t, locale, setLocale } = useI18n()
+    const { user, isLoggedIn, isChecking, logout } = useAuthStore()
 
-  useEffect(() => {
-    fetchNetworkInfo()
-  }, [fetchNetworkInfo])
+    useEffect(() => {
+        void fetchNetworkInfo()
+    }, [fetchNetworkInfo])
 
-  const pageTitle = useMemo(() => {
-    if (location.pathname.startsWith('/collection/publish')) return '采集中心 / 任务发布'
-    if (location.pathname.startsWith('/collection/recovery')) return '采集中心 / 修复平台'
-    if (location.pathname.startsWith('/collection/control')) return '采集中心 / 控制平台'
-    if (location.pathname.startsWith('/collection')) return '采集中心'
-    if (location.pathname.startsWith('/datasets/explorer')) return t('datasetExplorer')
-    if (location.pathname.startsWith('/datasets')) return t('datasetReader')
-    if (location.pathname.startsWith('/curation/datasets')) return t('datasetReader')
-    if (location.pathname.startsWith('/curation/data-overview')) return t('dataOverview')
-    if (location.pathname.startsWith('/curation/review')) return t('humanReview')
-    if (location.pathname.startsWith('/curation/text-alignment')) return t('textAlignment')
-    if (location.pathname.startsWith('/curation/quality')) return t('qualityWorkbench')
-    if (location.pathname.startsWith('/curation')) return t('pipelineNav')
-    if (location.pathname.startsWith('/logs')) return t('logs')
-    if (location.pathname.startsWith('/settings/hardware')) return t('settingsHardware')
-    if (location.pathname.startsWith('/settings/provider')) return t('settingsProvider')
-    if (location.pathname.startsWith('/settings/hub')) return t('hfConfig')
-    if (location.pathname.startsWith('/settings')) return t('settings')
-    return 'RoboClaw'
-  }, [location.pathname, t])
+    /** 用户头像首字母（昵称优先，否则取手机号前3位）*/
+    const avatarInitial = user
+        ? (user.nickname ? user.nickname.slice(0, 1).toUpperCase() : user.phone.slice(0, 3))
+        : '?'
 
-  /** 用户头像首字母（昵称优先，否则取手机号前3位）*/
-  const avatarInitial = user
-    ? (user.nickname ? user.nickname.slice(0, 1).toUpperCase() : user.phone.slice(0, 3))
-    : '?'
+    function handleLogout() {
+        logout()
+        navigate('/login', { replace: true })
+    }
 
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
+    return (
+        <header className="app-topbar">
+            <div className="app-topbar__connection">
+                <StatusPill active={connected}>
+                    {connected ? t('connected') : t('disconnected')}
+                </StatusPill>
+                {networkInfo && (
+                    <div className="app-topbar__network">
+                        {networkInfo.lan_ip}:{networkInfo.port}
+                    </div>
+                )}
+            </div>
+            <div className="app-topbar__actions">
+                {!isChecking && (
+                    isLoggedIn && user ? (
+                        <>
+                            <div className="header-user-badge" title={maskPhone(user.phone)}>
+                                <div
+                                    className="header-user-badge__avatar"
+                                    style={{ background: `linear-gradient(180deg, ${levelColor(user.level)}cc, ${levelColor(user.level)})` }}
+                                >
+                                    {avatarInitial}
+                                </div>
+                                <span className="header-user-badge__phone">{maskPhone(user.phone)}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                className="header-logout-btn"
+                                title={t('authLogout')}
+                            >
+                                <span className="header-logout-btn__icon" aria-hidden="true">
+                                    <svg
+                                        width="17"
+                                        height="17"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.9"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
+                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                        <polyline points="16 17 21 12 16 7" />
+                                        <line x1="21" y1="12" x2="9" y2="12" />
+                                    </svg>
+                                </span>
+                                <span className="header-logout-btn__label">{t('authLogout')}</span>
+                            </button>
+                        </>
+                    ) : (
+                        <Link to="/login" className="header-login-btn">
+                            {t('authLoginPrompt')}
+                        </Link>
+                    )
+                )}
 
-  return (
-    <header className="app-topbar">
-      <div className="app-topbar__title">
-        <div className="space-y-2">
-          <Link to="/collection/control" className="display-title text-[1.95rem] text-tx">
-            RoboClaw
-          </Link>
-          <div className="eyebrow">{pageTitle}</div>
-        </div>
-      </div>
-
-      <div className="app-topbar__actions">
-        {networkInfo && (
-          <div className="rounded-full bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-tx2">
-            {networkInfo.lan_ip}:{networkInfo.port}
-          </div>
-        )}
-
-        <StatusPill active={connected}>
-          {connected ? t('connected') : t('disconnected')}
-        </StatusPill>
-
-        {!isChecking && (
-          isLoggedIn && user ? (
-            <>
-              <div className="header-user-badge">
-                <div
-                  className="header-user-badge__avatar"
-                  style={{ background: `linear-gradient(180deg, ${levelColor(user.level)}cc, ${levelColor(user.level)})` }}
+                <button
+                    type="button"
+                    onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+                    className="app-topbar__locale"
                 >
-                  {avatarInitial}
-                </div>
-                <span className="header-user-badge__phone">{maskPhone(user.phone)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="header-logout-btn"
-                title={t('authLogout')}
-              >
-                {t('authLogout')}
-              </button>
-            </>
-          ) : (
-            <Link to="/login" className="header-login-btn">
-              {t('authLoginPrompt')}
-            </Link>
-          )
-        )}
-
-        <button
-          onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
-          className="app-topbar__locale"
-        >
-          {locale === 'zh' ? 'EN' : '中文'}
-        </button>
-      </div>
-    </header>
-  )
+                    {locale === 'zh' ? 'EN' : '中文'}
+                </button>
+            </div>
+        </header>
+    )
 }

@@ -74,7 +74,7 @@ def register_train_routes(
             evo_data_config.remote_training_host,
             evo_data_config.remote_training_port,
         )
-        payload = json.dumps(body.model_dump(exclude_none=True), ensure_ascii=False).encode("utf-8")
+        payload = (json.dumps(body.model_dump(exclude_none=True), ensure_ascii=False) + "\n").encode("utf-8")
         writer.write(payload)
         await writer.drain()
         response = await reader.read(64 * 1024)

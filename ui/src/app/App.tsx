@@ -5,6 +5,7 @@ import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
 import RecoveryCenterPage from '@/domains/recovery/pages/RecoveryCenterPage'
 import DatasetExplorerPage from '@/domains/datasets/explorer/pages/DatasetExplorerPage'
+import DataWorkshopPage from '@/domains/data-workshop/pages/DataWorkshopPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
 import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
@@ -61,7 +62,8 @@ function App() {
                         <Route path="datasets" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="training" element={<TrainingCenterPage />} />
-                        <Route path="curation" element={<Navigate to="/curation/datasets" replace />} />
+                        <Route path="curation" element={<Navigate to="/curation/workshop" replace />} />
+                        <Route path="curation/workshop" element={<DataWorkshopPage />} />
                         <Route path="curation/datasets" element={<DatasetExplorerPage />} />
                         <Route path="curation/datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="curation/quality" element={<QualityValidationPage />} />

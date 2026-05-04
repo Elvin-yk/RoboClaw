@@ -7,6 +7,7 @@ export const inlineZh = {
         recoveryNav: '恢复中心',
         datasetReader: '数据集读取',
         datasetExplorer: '数据集浏览',
+        dataWorkshop: '数据车间',
         qualityWorkbench: '质量验证',
         workflow: '工作流',
         pipelineNav: '数据中心',

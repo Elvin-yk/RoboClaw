@@ -299,7 +299,7 @@ export async function listExplorerDatasets(
   source: Extract<ExplorerSource, 'local'> = 'local',
 ): Promise<DatasetSuggestion[]> {
   return fetchJson<DatasetSuggestion[]>(
-    `/api/explorer/datasets?source=${encodeURIComponent(source)}`,
+    `/api/explorer/datasets?source=${encodeURIComponent(source)}&limit=500`,
   )
 }
 
