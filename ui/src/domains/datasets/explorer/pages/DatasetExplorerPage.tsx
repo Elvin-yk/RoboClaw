@@ -5,7 +5,7 @@ import {
   buildExplorerRefKey,
   listExplorerDatasets,
   searchDatasetSuggestions,
-  type DatasetSuggestion,
+  type ExplorerDatasetSuggestion,
   type ExplorerDatasetRef,
   type ExplorerPageState,
   type ExplorerSource,
@@ -50,8 +50,8 @@ export default function DatasetExplorerView() {
     loadDashboard,
     loadEpisodePage,
   } = useExplorer()
-  const [localDatasets, setLocalDatasets] = useState<DatasetSuggestion[]>([])
-  const [datasetSuggestions, setDatasetSuggestions] = useState<DatasetSuggestion[]>([])
+  const [localDatasets, setLocalDatasets] = useState<ExplorerDatasetSuggestion[]>([])
+  const [datasetSuggestions, setDatasetSuggestions] = useState<ExplorerDatasetSuggestion[]>([])
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1)
