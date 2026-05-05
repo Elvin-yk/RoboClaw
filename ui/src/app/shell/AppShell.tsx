@@ -190,6 +190,7 @@ export default function AppShell() {
     { path: '/curation/quality', label: t('qualityWorkbench') },
     { path: '/curation/text-alignment', label: t('textAlignment') },
     { path: '/curation/data-overview', label: t('dataOverview') },
+    { path: '/curation/trajectory-viz', label: t('trajectoryReplay') },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },

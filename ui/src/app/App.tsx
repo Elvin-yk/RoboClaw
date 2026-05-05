@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
@@ -11,6 +11,7 @@ import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
 import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
 import DataOverviewPage from '@/domains/curation/data-overview/pages/DataOverviewPage'
+const TrajectoryVizPage = lazy(() => import('@/domains/curation/trajectory-viz/pages/TrajectoryVizPage'))
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
 import HubSettingsPage from '@/domains/settings/pages/HubSettingsPage'
@@ -69,6 +70,14 @@ function App() {
                         <Route path="curation/quality" element={<QualityValidationPage />} />
                         <Route path="curation/text-alignment" element={<TextAlignmentPage />} />
                         <Route path="curation/data-overview" element={<DataOverviewPage />} />
+                        <Route
+                            path="curation/trajectory-viz"
+                            element={
+                                <Suspense fallback={<div style={{ padding: 16 }}>Loading viewer…</div>}>
+                                    <TrajectoryVizPage />
+                                </Suspense>
+                            }
+                        />
                         <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
                         <Route path="settings/hardware" element={<HardwareSettingsPage />} />
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />

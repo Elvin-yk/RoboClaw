@@ -54,6 +54,7 @@ def register_all_routes(
     from roboclaw.http.routes.data_workshop import register_data_workshop_routes
     from roboclaw.http.routes.dataset_repair import register_dataset_repair_routes
     from roboclaw.http.routes.explorer import register_explorer_routes
+    from roboclaw.http.routes.trajectory_viz import register_trajectory_viz_routes
     from roboclaw.data.repair.service import DatasetRepairCoordinator
 
     register_data_workshop_routes(app)
@@ -67,3 +68,4 @@ def register_all_routes(
         ),
     )
     register_explorer_routes(app)
+    register_trajectory_viz_routes(app)

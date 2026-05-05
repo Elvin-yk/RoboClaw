@@ -95,6 +95,8 @@ include = [
     "roboclaw/templates/**/*.md",
     "roboclaw/skills/**/*.md",
     "roboclaw/skills/**/*.sh",
+    "roboclaw/embodied/trajectory_viz/assets/**/*.urdf",
+    "roboclaw/embodied/trajectory_viz/assets/**/*.stl",
 ]
 
 [tool.hatch.build.targets.wheel]
