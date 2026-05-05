@@ -29,10 +29,10 @@ export function listDatasets(filters: DatasetRepairFilters): Promise<ListDataset
   return api<ListDatasetsResponse>(buildListUrl(filters))
 }
 
-export async function startDiagnose(
+function buildJobRequestBody(
   filters: DatasetRepairFilters,
   datasetIds?: string[],
-): Promise<RepairJobState> {
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     filters: {
       root: filters.root.trim() || null,
@@ -45,13 +45,21 @@ export async function startDiagnose(
   if (datasetIds && datasetIds.length > 0) {
     body.dataset_ids = datasetIds
   }
-  // Phase 1 backend returns 409 + RepairJobState in `detail` when a job is
+  return body
+}
+
+async function postJobStart(
+  endpoint: 'diagnose' | 'repair',
+  filters: DatasetRepairFilters,
+  datasetIds?: string[],
+): Promise<RepairJobState> {
+  // The backend returns 409 + RepairJobState in `detail` when a job is
   // already running. The shared api client stringifies non-string detail to
   // "[object Object]" — bypass it so callers can react to the conflict.
-  const response = await fetch(`${BASE}/diagnose`, {
+  const response = await fetch(`${BASE}/${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(buildJobRequestBody(filters, datasetIds)),
   })
   if (response.status === 409) {
     const payload = (await response.json()) as { detail: RepairJobState }
@@ -62,6 +70,20 @@ export async function startDiagnose(
     throw new Error(text || `HTTP ${response.status}`)
   }
   return (await response.json()) as RepairJobState
+}
+
+export function startDiagnose(
+  filters: DatasetRepairFilters,
+  datasetIds?: string[],
+): Promise<RepairJobState> {
+  return postJobStart('diagnose', filters, datasetIds)
+}
+
+export function startRepair(
+  filters: DatasetRepairFilters,
+  datasetIds?: string[],
+): Promise<RepairJobState> {
+  return postJobStart('repair', filters, datasetIds)
 }
 
 export function getCurrentJob(): Promise<{ job: RepairJobState | null }> {

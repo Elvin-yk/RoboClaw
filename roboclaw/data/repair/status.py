@@ -111,14 +111,22 @@ def mark_checked(
     *,
     damage_type: str = HEALTHY_DAMAGE,
     job_id: str | None = None,
+    cleaned_dataset_id: str | None = None,
 ) -> DatasetRepairStatus:
-    """Set ``tag=checked`` plus ``last_checked_at``."""
+    """Set ``tag=checked`` plus ``last_checked_at``.
+
+    When the source dataset was cleaned into a sibling repaired copy, pass
+    ``cleaned_dataset_id`` so downstream views can hop from the dirty record to
+    its repaired output.
+    """
     status = load_status(dataset_dir) or DatasetRepairStatus()
     status.tag = "checked"
     status.last_checked_at = utc_now_iso()
     status.last_damage_type = damage_type
     if job_id is not None:
         status.last_repair_job_id = job_id
+    if cleaned_dataset_id is not None:
+        status.cleaned_dataset_id = cleaned_dataset_id
     write_status(dataset_dir, status)
     return status
 

@@ -7,6 +7,7 @@ export type DamageType =
   | 'empty_shell'
   | 'crash_no_save'
   | 'tmp_videos_stuck'
+  | 'partial_tmp_videos_stuck'
   | 'parquet_no_video'
   | 'meta_stale'
   | 'frame_mismatch'
@@ -38,6 +39,7 @@ export interface DamageSummary {
   empty_shell: number
   crash_no_save: number
   tmp_videos_stuck: number
+  partial_tmp_videos_stuck: number
   parquet_no_video: number
   meta_stale: number
   frame_mismatch: number
@@ -111,6 +113,7 @@ export const DAMAGE_TYPE_LABELS_ZH: Record<DamageType, string> = {
   empty_shell: '空壳',
   crash_no_save: '崩溃未保存',
   tmp_videos_stuck: '视频卡死',
+  partial_tmp_videos_stuck: '视频部分卡死',
   parquet_no_video: '缺视频',
   meta_stale: '元数据过期',
   frame_mismatch: '帧数不一致',
@@ -122,6 +125,7 @@ export const ALL_DAMAGE_TYPES: ReadonlyArray<DamageType> = [
   'empty_shell',
   'crash_no_save',
   'tmp_videos_stuck',
+  'partial_tmp_videos_stuck',
   'parquet_no_video',
   'meta_stale',
   'frame_mismatch',

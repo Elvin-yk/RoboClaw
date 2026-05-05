@@ -5,6 +5,7 @@ interface ActionBarProps {
   isJobActive: boolean
   acting: boolean
   onDiagnose: () => void
+  onRepair: () => void
   onCancel: () => void
 }
 
@@ -13,9 +14,11 @@ export default function ActionBar({
   isJobActive,
   acting,
   onDiagnose,
+  onRepair,
   onCancel,
 }: ActionBarProps) {
   const diagnoseDisabled = !hasDatasets || isJobActive || acting
+  const repairDisabled = !hasDatasets || isJobActive || acting
   const cancelDisabled = !isJobActive || acting
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -28,8 +31,8 @@ export default function ActionBar({
       </ActionButton>
       <ActionButton
         variant="secondary"
-        disabled
-        title="Phase 3 启用"
+        onClick={onRepair}
+        disabled={repairDisabled}
       >
         一键修复
       </ActionButton>
@@ -41,7 +44,7 @@ export default function ActionBar({
         取消
       </ActionButton>
       {!hasDatasets && (
-        <span className="text-xs text-tx2">先扫描得到数据集才能开始诊断</span>
+        <span className="text-xs text-tx2">先扫描得到数据集才能开始诊断或修复</span>
       )}
     </div>
   )

@@ -20,6 +20,7 @@ function emptyByDamage(): Record<DamageType, number> {
     empty_shell: 0,
     crash_no_save: 0,
     tmp_videos_stuck: 0,
+    partial_tmp_videos_stuck: 0,
     parquet_no_video: 0,
     meta_stale: 0,
     frame_mismatch: 0,

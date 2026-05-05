@@ -13,6 +13,7 @@ DamageTypeStr = Literal[
     "empty_shell",
     "crash_no_save",
     "tmp_videos_stuck",
+    "partial_tmp_videos_stuck",
     "parquet_no_video",
     "meta_stale",
     "frame_mismatch",
@@ -49,6 +50,7 @@ class DamageSummary(BaseModel):
     empty_shell: int = 0
     crash_no_save: int = 0
     tmp_videos_stuck: int = 0
+    partial_tmp_videos_stuck: int = 0
     parquet_no_video: int = 0
     meta_stale: int = 0
     frame_mismatch: int = 0
@@ -87,9 +89,9 @@ class RepairJobState(BaseModel):
     processed: int
     summary: DamageSummary = Field(default_factory=DamageSummary)
     items: list[DatasetJobItem] = Field(default_factory=list)
-    error: str | None = None
     started_at: str
     updated_at: str
+    error: str | None = None
 
 
 class DiagnoseRequest(BaseModel):

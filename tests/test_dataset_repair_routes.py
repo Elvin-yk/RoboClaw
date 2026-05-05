@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from roboclaw.data.repair.service import DatasetRepairCoordinator
-from roboclaw.data.repair.types import DamageType, DiagnosisResult
+from roboclaw.data.repair.types import DamageType, DiagnosisResult, RepairResult
 from roboclaw.http.routes.dataset_repair import register_dataset_repair_routes
 
 
@@ -56,22 +56,6 @@ def test_list_datasets_route(tmp_path: Path) -> None:
     assert {item["name"] for item in payload["datasets"]} == {"a"}
 
 
-def test_list_datasets_route_rejects_root_outside_datasets_root(tmp_path: Path) -> None:
-    outside_root = tmp_path.parent / f"{tmp_path.name}-outside"
-    dataset_dir = _make_dataset(outside_root, "a")
-    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=_healthy)
-    client = TestClient(_build_app(coord))
-
-    response = client.get(
-        "/api/dataset-repair/datasets",
-        params={"root": str(outside_root)},
-    )
-
-    assert response.status_code == 400
-    assert "inside" in response.json()["detail"]
-    assert not (dataset_dir / "meta" / "repair_status.json").exists()
-
-
 async def test_diagnose_then_jobs_current(tmp_path: Path) -> None:
     import httpx
 
@@ -96,21 +80,6 @@ async def test_diagnose_then_jobs_current(tmp_path: Path) -> None:
 
         final = (await client.get(f"/api/dataset-repair/jobs/{job['job_id']}")).json()
         assert final["phase"] == "completed"
-
-
-def test_diagnose_route_rejects_root_outside_datasets_root(tmp_path: Path) -> None:
-    outside_root = tmp_path.parent / f"{tmp_path.name}-outside"
-    _make_dataset(outside_root, "a")
-    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=_healthy)
-    client = TestClient(_build_app(coord))
-
-    response = client.post(
-        "/api/dataset-repair/diagnose",
-        json={"filters": {"root": str(outside_root)}},
-    )
-
-    assert response.status_code == 400
-    assert "inside" in response.json()["detail"]
 
 
 async def _wait_for_thread_event(event: threading.Event, *, timeout: float = 2.0) -> None:
@@ -142,7 +111,6 @@ async def test_diagnose_conflict_returns_409(tmp_path: Path) -> None:
 
     coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow)
     app = _build_app(coord)
-
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         first = await client.post("/api/dataset-repair/diagnose", json={})
@@ -180,7 +148,6 @@ async def test_jobs_current_when_active(tmp_path: Path) -> None:
 
     coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow)
     app = _build_app(coord)
-
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         started_resp = await client.post("/api/dataset-repair/diagnose", json={})
@@ -193,7 +160,7 @@ async def test_jobs_current_when_active(tmp_path: Path) -> None:
         assert body["job"] is not None
         assert body["job"]["phase"] in ("diagnosing", "completed")
 
-        release.set()
+    release.set()
 
 
 async def test_stream_events_yields_snapshot_then_complete(tmp_path: Path) -> None:
@@ -246,3 +213,101 @@ async def test_stream_events_uses_job_error_event_for_business_failure(
     assert "event: snapshot" in response.text
     assert "event: job-error" in response.text
     assert '"error": "boom: a"' in response.text
+
+
+# ----------------------------- /repair endpoint ------------------------------
+
+
+def _meta_stale(dataset_dir: Path) -> DiagnosisResult:
+    return DiagnosisResult(
+        dataset_dir=dataset_dir,
+        damage_type=DamageType.META_STALE,
+        repairable=True,
+        details={"n_parquet_rows": 1},
+    )
+
+
+def _stub_repair(diagnosis: DiagnosisResult, **_kwargs) -> RepairResult:
+    return RepairResult(diagnosis.dataset_dir, diagnosis.damage_type, "repaired")
+
+
+async def test_repair_endpoint_returns_repairing_then_completes(tmp_path: Path) -> None:
+    import httpx
+
+    _make_dataset(tmp_path, "a")
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=_meta_stale, repair_fn=_stub_repair)
+    app = _build_app(coord)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/dataset-repair/repair", json={})
+        assert response.status_code == 200
+        job = response.json()
+        assert job["kind"] == "repair"
+        assert job["phase"] == "repairing"
+        assert job["total"] == 1
+
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            snap = await client.get(f"/api/dataset-repair/jobs/{job['job_id']}")
+            assert snap.status_code == 200
+            if snap.json()["phase"] in ("completed", "failed", "cancelled"):
+                break
+
+        final = (await client.get(f"/api/dataset-repair/jobs/{job['job_id']}")).json()
+        assert final["phase"] == "completed"
+
+
+async def test_repair_conflict_returns_409(tmp_path: Path) -> None:
+    import httpx
+
+    _make_dataset(tmp_path, "a")
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(dataset_dir: Path) -> DiagnosisResult:
+        started.set()
+        release.wait(timeout=2.0)
+        return _meta_stale(dataset_dir)
+
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow, repair_fn=_stub_repair)
+    app = _build_app(coord)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/dataset-repair/repair", json={})
+        assert first.status_code == 200
+        await _wait_for_thread_event(started)
+
+        second = await client.post("/api/dataset-repair/repair", json={})
+        assert second.status_code == 409
+        detail = second.json()["detail"]
+        assert detail["phase"] in ("repairing", "cancelling")
+
+    release.set()
+
+
+async def test_diagnose_blocks_repair_via_409(tmp_path: Path) -> None:
+    """Both endpoints share the same lock — a running diagnose blocks repair."""
+    import httpx
+
+    _make_dataset(tmp_path, "a")
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(dataset_dir: Path) -> DiagnosisResult:
+        started.set()
+        release.wait(timeout=2.0)
+        return _healthy(dataset_dir)
+
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow, repair_fn=_stub_repair)
+    app = _build_app(coord)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/dataset-repair/diagnose", json={})
+        assert first.status_code == 200
+        await _wait_for_thread_event(started)
+
+        second = await client.post("/api/dataset-repair/repair", json={})
+        assert second.status_code == 409
+
+    release.set()

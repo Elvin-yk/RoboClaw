@@ -94,6 +94,7 @@ class DataWorkshopService:
             vcodec=vcodec,
             dry_run=dry_run,
             force=force,
+            output_dir=dataset_path.parent / f"{dataset_path.name}_repaired",
         )
         gates = self._gates_from_state(state)
         gate_status: GateStatus = "passed" if repair_result.outcome in {"repaired", "healthy"} else "failed"

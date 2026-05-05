@@ -71,7 +71,7 @@ export default function ProgressPanel({ job, errorBanner }: ProgressPanelProps) 
 
       {job.phase === 'failed' && errorBanner && (
         <div className="rounded-2xl border border-[color:rgba(204,68,68,0.2)] bg-[rgba(204,68,68,0.06)] px-4 py-3 text-sm text-[color:#b13838]">
-          诊断失败：{errorBanner}
+          {job.kind === 'repair' ? '修复失败' : '诊断失败'}：{errorBanner}
         </div>
       )}
 

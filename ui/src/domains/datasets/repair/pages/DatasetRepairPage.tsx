@@ -28,6 +28,7 @@ export default function DatasetRepairPage() {
   const loadDatasets = useDatasetRepairStore((state) => state.loadDatasets)
   const refreshCurrentJob = useDatasetRepairStore((state) => state.refreshCurrentJob)
   const startDiagnosis = useDatasetRepairStore((state) => state.startDiagnosis)
+  const startRepairJob = useDatasetRepairStore((state) => state.startRepairJob)
   const cancelCurrent = useDatasetRepairStore((state) => state.cancelCurrent)
   const teardown = useDatasetRepairStore((state) => state.teardown)
   const resetError = useDatasetRepairStore((state) => state.resetError)
@@ -52,6 +53,9 @@ export default function DatasetRepairPage() {
   const filtersDisabled = isJobActive
   const handleDiagnose = () => {
     void startDiagnosis()
+  }
+  const handleRepair = () => {
+    void startRepairJob()
   }
   const handleCancel = () => {
     void cancelCurrent()
@@ -81,6 +85,7 @@ export default function DatasetRepairPage() {
         isJobActive={isJobActive}
         acting={acting}
         onDiagnose={handleDiagnose}
+        onRepair={handleRepair}
         onCancel={handleCancel}
       />
 
