@@ -85,12 +85,23 @@ def _detect_one_episode(
     ee_provider: EpisodeEEDistanceProvider,
 ) -> tuple[list[CriticalEvent], int]:
     ordered = grp.sort_values("frame_index", kind="stable")
+    _validate_frame_indexes(ep_idx, ordered["frame_index"].to_numpy())
     action_arr = np.stack(ordered["action"].to_numpy())
     episode_length = int(action_arr.shape[0])
     gripper_trace = action_arr[:, gripper_dim].astype(np.float64, copy=False)
     ee_trace = ee_provider.distance_trace(ep_idx, action_arr, episode_length)
     events = detector.detect(ep_idx, gripper_trace, ee_trace, episode_length)
     return events, episode_length
+
+
+def _validate_frame_indexes(ep_idx: int, frame_indexes: np.ndarray) -> None:
+    expected = np.arange(frame_indexes.shape[0])
+    if not np.array_equal(frame_indexes, expected):
+        preview = frame_indexes[:10].tolist()
+        raise ValueError(
+            f"episode {ep_idx} frame_index values must be contiguous from 0 "
+            f"(got first values {preview}, count {frame_indexes.shape[0]})"
+        )
 
 
 def run(

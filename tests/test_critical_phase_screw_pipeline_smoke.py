@@ -28,11 +28,13 @@ from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.cli import (
 )
 from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.detectors import (
     GripperEEEventConfig,
+    GripperEEEventDetector,
     GripperOpenMaskConfig,
 )
 from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.pipeline import (
     ExtractionRequest,
     run,
+    scan_screw_events,
 )
 
 
@@ -270,6 +272,38 @@ def test_pipeline_handles_shuffled_frame_rows_in_parquet(tmp_path: Path) -> None
         == report_shuffled.episodes_with_fewer_than_min_events
     )
     assert report_ordered.output_segment_count == 10
+
+
+def test_pipeline_rejects_non_contiguous_frame_indexes(tmp_path: Path) -> None:
+    """Catch malformed parquet (frame_index gaps) at scan time, not silently."""
+    src = tmp_path / "src"
+    parquet_dir = src / "data" / "chunk-000"
+    parquet_dir.mkdir(parents=True)
+    parquet_path = parquet_dir / "file-000.parquet"
+    table = pa.table(
+        {
+            "episode_index": pa.array([0, 0], type=pa.int64()),
+            "frame_index": pa.array([0, 2], type=pa.int64()),
+            "action": pa.array(
+                [_make_action(0.0), _make_action(12.0)],
+                type=pa.list_(pa.float32()),
+            ),
+        }
+    )
+    pq.write_table(table, parquet_path)
+    config = GripperEEEventConfig(
+        gripper=GripperOpenMaskConfig(open_threshold=10.0, reset_threshold=10.0),
+        ee_close_threshold_m=0.1,
+        edge=RisingEdgeConfig(min_separation_frames=0),
+    )
+    with pytest.raises(ValueError, match="frame_index values must be contiguous"):
+        scan_screw_events(
+            data_parquet=parquet_path,
+            gripper_dim=_GRIPPER_DIM,
+            detector=GripperEEEventDetector(config),
+            ee_provider=_CloseEEProvider(),
+            exclude_episodes=set(),
+        )
 
 
 def test_cli_main_raises_not_implemented(tmp_path: Path) -> None:
