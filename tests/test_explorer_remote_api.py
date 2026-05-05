@@ -778,11 +778,21 @@ def test_explorer_local_path_session_registers_container_without_upload(
         called["path"] = path
         called["display_name"] = display_name
         return {
-            "dataset_name": "session:local_path:first",
-            "display_name": "4090-a/local/rec_a",
-            "local_path": f"{path}/4090-a/local/rec_a",
+            "dataset_name": "session:local_collection:root",
+            "display_name": "container",
+            "local_path": path,
+            "dataset_count": 2,
             "summary": {},
             "datasets": [
+                {
+                    "id": "session:local_collection:root",
+                    "label": "container (all datasets)",
+                    "path": path,
+                    "source": "local",
+                    "source_kind": "local_path_collection",
+                    "dataset_count": 2,
+                    "is_collection": True,
+                },
                 {
                     "id": "session:local_path:first",
                     "label": "4090-a/local/rec_a",
@@ -813,7 +823,18 @@ def test_explorer_local_path_session_registers_container_without_upload(
     )
 
     assert response.status_code == 200
+    assert response.json()["dataset_name"] == "session:local_collection:root"
+    assert response.json()["dataset_count"] == 2
     assert response.json()["datasets"] == [
+        {
+            "id": "session:local_collection:root",
+            "label": "container (all datasets)",
+            "path": str(container),
+            "source": "local",
+            "source_kind": "local_path_collection",
+            "dataset_count": 2,
+            "is_collection": True,
+        },
         {
             "id": "session:local_path:first",
             "label": "4090-a/local/rec_a",
@@ -830,6 +851,61 @@ def test_explorer_local_path_session_registers_container_without_upload(
         },
     ]
     assert called == {"path": str(container), "display_name": None}
+
+
+def test_explorer_collection_defaults_to_all_child_datasets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dataset_sessions, "get_roboclaw_home", lambda: tmp_path / "home")
+    container = tmp_path / "container"
+    dataset_a = container / "4090-a" / "local" / "rec_a"
+    dataset_b = container / "4090-b" / "local" / "rec_b"
+    for dataset_dir, total_frames in ((dataset_a, 10), (dataset_b, 20)):
+        (dataset_dir / "meta").mkdir(parents=True)
+        (dataset_dir / "meta" / "info.json").write_text(
+            json.dumps({
+                "total_episodes": 1,
+                "total_frames": total_frames,
+                "fps": 30,
+                "robot_type": "so101",
+                "features": {"action": {"dtype": "float32"}},
+            }),
+            encoding="utf-8",
+        )
+        (dataset_dir / "meta" / "episodes.jsonl").write_text(
+            json.dumps({"episode_index": 0, "length": total_frames}) + "\n",
+            encoding="utf-8",
+        )
+        (dataset_dir / "meta" / "stats.json").write_text("{}", encoding="utf-8")
+        (dataset_dir / "videos").mkdir()
+        (dataset_dir / "videos" / "front.mp4").write_bytes(b"video")
+
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    prepared = client.post("/api/explorer/local-path-session", json={"path": str(container)})
+    assert prepared.status_code == 200
+    collection_id = prepared.json()["dataset_name"]
+    assert collection_id.startswith("session:local_collection:")
+
+    summary = client.get("/api/explorer/summary", params={"source": "local", "dataset": collection_id})
+    details = client.get("/api/explorer/details", params={"source": "local", "dataset": collection_id})
+    episodes = client.get(
+        "/api/explorer/episodes",
+        params={"source": "local", "dataset": collection_id, "page": 1, "page_size": 10},
+    )
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"]["total_episodes"] == 2
+    assert details.status_code == 200
+    assert details.json()["files"]["video_files"] == 2
+    assert episodes.status_code == 200
+    assert [item["source_label"] for item in episodes.json()["episodes"]] == [
+        "4090-a/local/rec_a",
+        "4090-b/local/rec_b",
+    ]
 
 
 def test_remote_episode_meta_falls_back_to_parquet_index(

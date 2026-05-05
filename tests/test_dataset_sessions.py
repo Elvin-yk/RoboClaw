@@ -128,16 +128,26 @@ def test_local_path_session_discovers_container_datasets_without_copy(
 
     payload = dataset_sessions.create_local_path_session(path=container)
 
-    assert payload["dataset_name"].startswith("session:local_path:")
-    assert payload["local_path"] == str(dataset_a.resolve())
+    assert payload["dataset_name"].startswith("session:local_collection:")
+    assert payload["local_path"] == str(container.resolve())
+    assert payload["dataset_count"] == 2
     assert [item["label"] for item in payload["datasets"]] == [
+        "roboclaw_0501_datasets_20260502 (all datasets)",
         "4090-a/local/rec_20260501_102204",
         "4090-b/local/rec_20260501_102512",
     ]
     assert [item["path"] for item in payload["datasets"]] == [
+        str(container.resolve()),
         str(dataset_a.resolve()),
         str(dataset_b.resolve()),
     ]
-    assert all(item["id"].startswith("session:local_path:") for item in payload["datasets"])
-    assert dataset_sessions.resolve_session_dataset_path(payload["datasets"][1]["id"]) == dataset_b.resolve()
+    assert payload["datasets"][0]["is_collection"] is True
+    assert payload["datasets"][0]["source_kind"] == "local_path_collection"
+    assert payload["datasets"][1]["id"].startswith("session:local_path:")
+    assert dataset_sessions.resolve_session_dataset_path(payload["datasets"][2]["id"]) == dataset_b.resolve()
+    collection_summary = dataset_sessions.get_dataset_summary(payload["dataset_name"])
+    assert collection_summary["dataset_count"] == 2
+    assert collection_summary["total_episodes"] == 8
+    assert collection_summary["total_frames"] == 54151
+    assert dataset_sessions.resolve_session_dataset_path(payload["dataset_name"]) == container.resolve()
     assert not (tmp_path / "home" / "cache" / "dataset-sessions" / "local_path" / "dataset").exists()

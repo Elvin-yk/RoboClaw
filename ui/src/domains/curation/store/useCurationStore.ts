@@ -245,8 +245,7 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
       }),
     })
     await get().loadDatasets()
-    const preparedDatasets = payload.datasets ?? []
-    if (preparedDatasets.length <= 1) {
+    if ((payload.dataset_count ?? 1) <= 1) {
       persistDataset(payload.dataset_name)
       await get().selectDataset(payload.dataset_name)
     }

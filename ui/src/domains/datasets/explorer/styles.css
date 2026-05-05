@@ -605,6 +605,15 @@
   font-weight: 600;
 }
 
+.explorer-episode-item__source {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--tx);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .explorer-episode-item__len {
   color: var(--tx2);
 }

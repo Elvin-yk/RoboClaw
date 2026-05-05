@@ -488,6 +488,51 @@ def test_curation_dataset_list_includes_session_datasets(
     assert payload[1]["display_name"] == "cadene/droid_1.0.1"
 
 
+def test_curation_dataset_list_excludes_local_collection_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _dataset_path = _build_client(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(
+        curation_routes.dataset_sessions,
+        "list_session_dataset_summaries",
+        lambda **kwargs: [
+            {
+                "name": "session:local_path:child",
+                "display_name": "4090-a/local/rec",
+                "source_kind": "local_path_session",
+                "total_episodes": 1,
+                "total_frames": 2,
+                "fps": 30,
+            },
+            {
+                "name": "session:local_collection:root",
+                "display_name": "root",
+                "source_kind": "local_path_collection",
+                "total_episodes": 2,
+                "total_frames": 4,
+                "fps": 30,
+            },
+        ] if kwargs.get("include_local_collection") else [
+            {
+                "name": "session:local_path:child",
+                "display_name": "4090-a/local/rec",
+                "source_kind": "local_path_session",
+                "total_episodes": 1,
+                "total_frames": 2,
+                "fps": 30,
+            }
+        ],
+    )
+
+    response = client.get("/api/curation/datasets")
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert "session:local_path:child" in ids
+    assert "session:local_collection:root" not in ids
+
+
 def test_quality_detail_can_resolve_session_dataset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

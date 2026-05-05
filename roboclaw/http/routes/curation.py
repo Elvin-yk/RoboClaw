@@ -122,6 +122,11 @@ def resolve_dataset_path(name: str) -> Path:
     - Workspace datasets under ``datasets_root()`` (including nested HF names).
     - Prepared dataset sessions (e.g. ``session:remote:...``).
     """
+    if dataset_sessions.is_local_collection_handle(name):
+        raise HTTPException(
+            status_code=409,
+            detail="Dataset collections are browsable; choose a child LeRobot dataset for curation.",
+        )
     if dataset_sessions.is_session_handle(name):
         return dataset_sessions.resolve_session_dataset_path(name)
 

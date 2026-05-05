@@ -474,6 +474,9 @@ export function EpisodeBrowser({ datasetRef }: { datasetRef: ExplorerDatasetRef 
             onMouseLeave={scheduleClosePreview}
           >
             <span className="explorer-episode-item__idx">#{ep.episode_index}</span>
+            {ep.source_label && (
+              <span className="explorer-episode-item__source">{ep.source_label}</span>
+            )}
             <span className="explorer-episode-item__len">{ep.length} frames</span>
           </button>
         ))}

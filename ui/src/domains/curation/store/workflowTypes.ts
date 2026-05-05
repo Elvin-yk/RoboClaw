@@ -202,12 +202,15 @@ export interface LocalPathSessionResult {
   dataset_name: string
   display_name: string
   local_path: string
+  dataset_count?: number
   datasets?: Array<{
     id: string
     label: string
     path: string
     source: 'local'
     source_kind: string
+    dataset_count?: number
+    is_collection?: boolean
   }>
 }
 export interface AnnotationItem {

@@ -39,6 +39,14 @@ function formatPreparedLocalPathStatus(displayName: string, datasetCount: number
   return `${displayName} - ${datasetCount} datasets found`
 }
 
+function formatLocalDatasetOptionLabel(item: DatasetSuggestion): string {
+  const label = item.label || item.id
+  if (item.is_collection || item.source_kind === 'local_path_collection') {
+    return `${label} (${item.dataset_count ?? 0} datasets)`
+  }
+  return label
+}
+
 export default function DatasetExplorerView() {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -291,25 +299,21 @@ export default function DatasetExplorerView() {
       if (preparedDatasets.length > 0) {
         setLocalDatasets((items) => mergeDatasetSuggestions(items, preparedDatasets))
       }
-      const selectedDataset = preparedDatasets.length === 1
-        ? preparedDatasets[0].id
-        : ''
+      const selectedDataset = payload.dataset_name
       setPageState({
         source: 'local',
         localDatasetInput: selectedDataset,
         localDatasetPathInput: payload.local_path,
         localDatasetPathSelected: payload.local_path,
         localPathDatasetLabel: selectedDataset,
-        prepareStatus: formatPreparedLocalPathStatus(payload.display_name, preparedDatasets.length),
+        prepareStatus: formatPreparedLocalPathStatus(
+          payload.display_name,
+          payload.dataset_count ?? preparedDatasets.length,
+        ),
       })
-      if (selectedDataset) {
-        nextRef = {
-          source: 'local',
-          dataset: selectedDataset,
-        }
-      } else {
-        setActiveDatasetRef(null)
-        return
+      nextRef = {
+        source: 'local',
+        dataset: selectedDataset,
       }
     }
     if (nextSource === 'remote' && nextRef.dataset) {
@@ -589,7 +593,7 @@ export default function DatasetExplorerView() {
                 <option value="">{t('selectDataset')}</option>
                 {localDatasets.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.label || item.id}
+                    {formatLocalDatasetOptionLabel(item)}
                   </option>
                 ))}
               </select>
