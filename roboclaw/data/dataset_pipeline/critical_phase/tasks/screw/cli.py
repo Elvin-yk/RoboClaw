@@ -1,16 +1,22 @@
 """CLI: extract per-event critical-phase windows from a screw-task LeRobot dataset.
 
-For every left-gripper open event detected on ``action[--gripper-dim]`` of
-each source episode, emit a window of ``--pre-event-seconds * fps`` frames
-ending at and INCLUDING the event frame. All extracted segments are merged
-into a single output dataset via the lerobot helper.
+For every (gripper-open AND EE-close) rising edge detected in each source
+episode, emit a window of ``--pre-event-seconds * fps`` frames ending at and
+INCLUDING the event frame. All extracted segments are merged into a single
+output dataset via the lerobot helper.
+
+NB: real inter-EE distance computation lands via ``shuyuan/traj-viz``. Until
+that branch supplies an :class:`EpisodeEEDistanceProvider`, this CLI uses the
+:class:`NotImplementedEEDistanceProvider` stub, which raises ``NotImplementedError``
+the moment ``run()`` walks the first episode. This is intentional: refusing
+to silently degrade to gripper-only is the whole point of the rewrite.
 
 Example::
 
     python -m roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.cli \\
         --src /path/to/source_dataset \\
         --dst /path/to/output_dataset \\
-        --gripper-dim 5 --open-threshold 10.0 \\
+        --gripper-dim 5 --open-threshold 10.0 --ee-close-threshold-m 0.08 \\
         --task "Insert the copper screw into the black sleeve" \\
         --exclude-episodes 90,124,142,176,218,236
 """
@@ -24,10 +30,12 @@ from pathlib import Path
 from roboclaw.data.dataset_pipeline.critical_phase import (
     ExtractionReport,
     OverlapPolicy,
+    RisingEdgeConfig,
     load_dataset_fps,
 )
 
-from .events import GripperEventConfig
+from .detectors import GripperEEEventConfig, GripperOpenMaskConfig
+from .ee_distance import NotImplementedEEDistanceProvider
 from .pipeline import ExtractionRequest, run
 
 
@@ -69,6 +77,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gripper-dim", type=int, required=True)
     parser.add_argument("--open-threshold", type=float, required=True)
     parser.add_argument("--reset-threshold", type=float, default=None)
+    parser.add_argument(
+        "--ee-close-threshold-m",
+        type=_positive_float,
+        required=True,
+        help="Inter-EE distance (meters) below which the gripper-open event counts.",
+    )
     parser.add_argument("--min-event-separation-s", type=_non_negative_float, default=0.5)
     parser.add_argument("--pre-event-seconds", type=_positive_float, default=10.0)
     parser.add_argument(
@@ -93,9 +107,10 @@ def _build_request(args: argparse.Namespace, log: logging.Logger) -> ExtractionR
     )
     min_separation_frames = int(round(args.min_event_separation_s * fps))
     log.info(
-        "Detector: open=%.3f reset=%.3f min_sep=%d frames (%.3fs * %.3ffps)",
+        "Detector: open=%.3f reset=%.3f ee_close=%.4fm min_sep=%d frames (%.3fs * %.3ffps)",
         args.open_threshold,
         reset_threshold,
+        args.ee_close_threshold_m,
         min_separation_frames,
         args.min_event_separation_s,
         fps,
@@ -103,16 +118,20 @@ def _build_request(args: argparse.Namespace, log: logging.Logger) -> ExtractionR
     exclude = _parse_int_set(args.exclude_episodes)
     if exclude:
         log.info("Excluding %d episode(s): %s", len(exclude), sorted(exclude))
+    event_config = GripperEEEventConfig(
+        gripper=GripperOpenMaskConfig(
+            open_threshold=args.open_threshold,
+            reset_threshold=reset_threshold,
+        ),
+        ee_close_threshold_m=args.ee_close_threshold_m,
+        edge=RisingEdgeConfig(min_separation_frames=min_separation_frames),
+    )
     return ExtractionRequest(
         src=args.src,
         dst=args.dst,
         task=args.task,
         gripper_dim=args.gripper_dim,
-        event_config=GripperEventConfig(
-            open_threshold=args.open_threshold,
-            reset_threshold=reset_threshold,
-            min_separation_frames=min_separation_frames,
-        ),
+        event_config=event_config,
         pre_event_seconds=args.pre_event_seconds,
         overlap_policy=OverlapPolicy(args.overlap_policy),
         min_events_per_episode=args.min_events_per_episode,
@@ -167,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("Destination already exists, refusing to overwrite: %s", args.dst)
         return 1
     request = _build_request(args, log)
-    report, output_path = run(request)
+    report, output_path = run(request, ee_provider=NotImplementedEEDistanceProvider())
     _log_report(log, report, output_path)
     if args.dry_run:
         log.info("--dry-run: not building output dataset.")

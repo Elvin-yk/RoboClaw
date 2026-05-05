@@ -1,7 +1,10 @@
-"""Smoke tests for the multi-event extractor orchestrator.
+"""Smoke tests for the screw extractor orchestrator with a compound detector.
 
 Use a synthetic in-memory parquet so we never touch a real dataset, never
 import lerobot, and can verify both detector wiring and reporting end to end.
+The inter-EE distance trace is supplied via injectable provider stubs so we
+can exercise both "always close" (degenerate to gripper-only) and
+"always far" (zero events) baselines.
 """
 from __future__ import annotations
 
@@ -16,11 +19,13 @@ import pytest
 
 from roboclaw.data.dataset_pipeline.critical_phase import (
     OverlapPolicy,
+    RisingEdgeConfig,
     load_dataset_fps,
     resolve_single_data_parquet,
 )
-from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.events import (
-    GripperEventConfig,
+from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.detectors import (
+    GripperEEEventConfig,
+    GripperOpenMaskConfig,
 )
 from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.pipeline import (
     ExtractionRequest,
@@ -32,13 +37,33 @@ _GRIPPER_DIM = 5
 _ACTION_DIM = 6
 
 
+class _CloseEEProvider:
+    """Always-close provider: AND of (gripper, ee_close) collapses to gripper."""
+
+    def distance_trace(
+        self, parquet: pa.Table, episode_index: int, num_frames: int
+    ) -> np.ndarray:
+        return np.zeros(num_frames, dtype=np.float64)
+
+
+class _FarEEProvider:
+    """Always-far provider: AND with gripper is identically False."""
+
+    def distance_trace(
+        self, parquet: pa.Table, episode_index: int, num_frames: int
+    ) -> np.ndarray:
+        return np.full(num_frames, 1.0, dtype=np.float64)
+
+
 def _make_action(gripper_value: float) -> list[float]:
     a = [0.0] * _ACTION_DIM
     a[_GRIPPER_DIM] = gripper_value
     return a
 
 
-def _episode_trace(num_frames: int, peak_frames: list[int], peak_value: float = 12.0) -> np.ndarray:
+def _episode_trace(
+    num_frames: int, peak_frames: list[int], peak_value: float = 12.0
+) -> np.ndarray:
     trace = np.zeros(num_frames, dtype=np.float64)
     for s in peak_frames:
         end = min(num_frames, s + 3)
@@ -77,15 +102,25 @@ def _write_dataset(
     return parquet_path
 
 
-def _request(src: Path, dst: Path, *, min_events: int = 5, dry_run: bool = True) -> ExtractionRequest:
+def _request(
+    src: Path,
+    dst: Path,
+    *,
+    min_events: int = 5,
+    dry_run: bool = True,
+    ee_close_threshold_m: float = 0.5,
+) -> ExtractionRequest:
+    event_config = GripperEEEventConfig(
+        gripper=GripperOpenMaskConfig(open_threshold=10.0, reset_threshold=10.0),
+        ee_close_threshold_m=ee_close_threshold_m,
+        edge=RisingEdgeConfig(min_separation_frames=5),
+    )
     return ExtractionRequest(
         src=src,
         dst=dst,
         task="synthetic",
         gripper_dim=_GRIPPER_DIM,
-        event_config=GripperEventConfig(
-            open_threshold=10.0, reset_threshold=10.0, min_separation_frames=5
-        ),
+        event_config=event_config,
         pre_event_seconds=2.0,
         overlap_policy=OverlapPolicy.KEEP,
         min_events_per_episode=min_events,
@@ -102,13 +137,20 @@ def tiny_dataset(tmp_path: Path) -> Path:
     return src
 
 
-def test_dry_run_returns_report_without_lerobot_import(
-    tiny_dataset: Path, tmp_path: Path
-) -> None:
+def _purge_lerobot() -> None:
     for mod in [k for k in sys.modules if k == "lerobot" or k.startswith("lerobot.")]:
         sys.modules.pop(mod, None)
+
+
+def test_close_ee_provider_collapses_to_gripper_only_baseline(
+    tiny_dataset: Path, tmp_path: Path
+) -> None:
+    _purge_lerobot()
     dst = tmp_path / "dst"
-    report, output_path = run(_request(tiny_dataset, dst, dry_run=True))
+    report, output_path = run(
+        _request(tiny_dataset, dst, dry_run=True),
+        ee_provider=_CloseEEProvider(),
+    )
     assert output_path is None
     assert not any(k == "lerobot" or k.startswith("lerobot.") for k in sys.modules)
     assert report.source_episode_count == 2
@@ -116,11 +158,42 @@ def test_dry_run_returns_report_without_lerobot_import(
     assert report.episodes_with_fewer_than_min_events == {}
 
 
-def test_dry_run_warns_when_episode_has_few_events(tmp_path: Path) -> None:
-    src = tmp_path / "src"
-    _write_dataset(src, fps=30.0, episodes={0: [50, 150, 250], 1: [50, 150, 250, 350, 450]})
+def test_far_ee_provider_emits_no_events(
+    tiny_dataset: Path, tmp_path: Path
+) -> None:
     dst = tmp_path / "dst"
-    report, output_path = run(_request(src, dst, min_events=5, dry_run=True))
+    report, output_path = run(
+        _request(tiny_dataset, dst, dry_run=True),
+        ee_provider=_FarEEProvider(),
+    )
+    assert output_path is None
+    assert report.source_episode_count == 2
+    assert report.output_segment_count == 0
+    assert sorted(report.episodes_with_no_events) == [0, 1]
+
+
+def test_default_provider_raises_not_implemented_without_lerobot(
+    tiny_dataset: Path, tmp_path: Path
+) -> None:
+    _purge_lerobot()
+    dst = tmp_path / "dst"
+    with pytest.raises(NotImplementedError):
+        run(_request(tiny_dataset, dst, dry_run=True))
+    assert not any(k == "lerobot" or k.startswith("lerobot.") for k in sys.modules)
+
+
+def test_close_ee_provider_warns_when_episode_has_few_events(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    _write_dataset(
+        src,
+        fps=30.0,
+        episodes={0: [50, 150, 250], 1: [50, 150, 250, 350, 450]},
+    )
+    dst = tmp_path / "dst"
+    report, output_path = run(
+        _request(src, dst, min_events=5, dry_run=True),
+        ee_provider=_CloseEEProvider(),
+    )
     assert output_path is None
     assert report.episodes_with_fewer_than_min_events == {0: 3}
     assert report.output_segment_count == 3 + 5

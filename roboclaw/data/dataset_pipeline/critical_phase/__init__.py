@@ -4,6 +4,7 @@ Top-level building blocks here are task-agnostic. Per-task event detectors
 live under ``tasks/<task_name>/``; e.g. screw insertion uses gripper-open
 events under ``tasks/screw/``.
 """
+from .edge import RisingEdgeConfig, RisingEdgeDetector
 from .event import CriticalEvent
 from .extractor import (
     extract_event_windows_dataset,
@@ -24,6 +25,8 @@ __all__ = [
     "CriticalWindowBuilder",
     "ExtractionReport",
     "OverlapPolicy",
+    "RisingEdgeConfig",
+    "RisingEdgeDetector",
     "WindowSpec",
     "extract_event_windows_dataset",
     "load_dataset_fps",
