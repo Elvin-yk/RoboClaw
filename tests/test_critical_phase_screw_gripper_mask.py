@@ -66,7 +66,7 @@ def test_reset_threshold_strict_inequality() -> None:
 
 
 def test_reset_above_open_rejected() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="reset_threshold"):
         GripperOpenMaskDetector(
             GripperOpenMaskConfig(open_threshold=5.0, reset_threshold=10.0)
         )
@@ -76,8 +76,17 @@ def test_non_1d_trace_rejected() -> None:
     detector = GripperOpenMaskDetector(
         GripperOpenMaskConfig(open_threshold=10.0, reset_threshold=10.0)
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="trace must be 1-D"):
         detector.open_mask(np.zeros((3, 4), dtype=np.float64))
+
+
+def test_empty_trace_returns_empty_mask() -> None:
+    detector = GripperOpenMaskDetector(
+        GripperOpenMaskConfig(open_threshold=10.0, reset_threshold=10.0)
+    )
+    out = detector.open_mask(np.zeros(0, dtype=np.float64))
+    assert out.dtype == np.bool_
+    assert out.shape == (0,)
 
 
 def test_mask_dtype_is_bool() -> None:

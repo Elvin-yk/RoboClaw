@@ -66,15 +66,21 @@ def test_all_false_emits_nothing() -> None:
 
 
 def test_negative_min_separation_rejected() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="min_separation_frames"):
         RisingEdgeDetector(RisingEdgeConfig(min_separation_frames=-1))
 
 
 def test_mask_length_mismatch_raises() -> None:
     detector = RisingEdgeDetector(RisingEdgeConfig(min_separation_frames=0))
     arr = np.asarray([True, False, True], dtype=np.bool_)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="mask shape"):
         detector.detect(0, arr, episode_length=5)
+
+
+def test_empty_mask_returns_empty() -> None:
+    detector = RisingEdgeDetector(RisingEdgeConfig(min_separation_frames=0))
+    events = detector.detect(0, np.empty(0, dtype=np.bool_), episode_length=0)
+    assert events == []
 
 
 def test_event_carries_episode_index_and_length() -> None:
@@ -89,7 +95,7 @@ def test_event_carries_episode_index_and_length() -> None:
 
 def test_non_bool_dtype_rejected() -> None:
     detector = RisingEdgeDetector(RisingEdgeConfig(min_separation_frames=0))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="mask dtype must be bool"):
         detector.detect(0, np.asarray([0, 1, 0], dtype=np.int64), episode_length=3)
 
 

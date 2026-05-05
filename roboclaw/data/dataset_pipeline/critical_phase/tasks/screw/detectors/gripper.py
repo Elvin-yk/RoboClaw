@@ -32,15 +32,17 @@ class GripperOpenMaskDetector:
                 f"reset_threshold ({config.reset_threshold}) must be <= "
                 f"open_threshold ({config.open_threshold})"
             )
-        self.config = config
+        self._cfg = config
 
     def open_mask(self, trace: np.ndarray) -> np.ndarray:
         if trace.ndim != 1:
             raise ValueError(f"trace must be 1-D (got shape {trace.shape})")
+        open_t = self._cfg.open_threshold
+        reset_t = self._cfg.reset_threshold
+        if open_t == reset_t:
+            return trace >= open_t
         mask = np.zeros(trace.shape, dtype=np.bool_)
         is_open = False
-        open_t = self.config.open_threshold
-        reset_t = self.config.reset_threshold
         for i in range(trace.shape[0]):
             value = float(trace[i])
             if not is_open and value >= open_t:

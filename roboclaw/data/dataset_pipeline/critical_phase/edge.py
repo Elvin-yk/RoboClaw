@@ -36,7 +36,7 @@ class RisingEdgeDetector:
             raise ValueError(
                 f"min_separation_frames must be >= 0 (got {config.min_separation_frames})"
             )
-        self.config = config
+        self._cfg = config
 
     def detect(
         self,
@@ -88,8 +88,8 @@ class RisingEdgeDetector:
             return armed, reset_seen
         if not value:
             reset_seen = True
-        gap_ok = (frame - last_event_frame) >= self.config.min_separation_frames
-        low_ok = reset_seen or not self.config.require_low_between_events
+        gap_ok = (frame - last_event_frame) >= self._cfg.min_separation_frames
+        low_ok = reset_seen or not self._cfg.require_low_between_events
         if low_ok and gap_ok:
             return True, reset_seen
         return False, reset_seen

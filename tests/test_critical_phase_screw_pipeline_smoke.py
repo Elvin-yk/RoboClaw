@@ -23,6 +23,9 @@ from roboclaw.data.dataset_pipeline.critical_phase import (
     load_dataset_fps,
     resolve_single_data_parquet,
 )
+from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.cli import (
+    main as cli_main,
+)
 from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.detectors import (
     GripperEEEventConfig,
     GripperOpenMaskConfig,
@@ -41,7 +44,7 @@ class _CloseEEProvider:
     """Always-close provider: AND of (gripper, ee_close) collapses to gripper."""
 
     def distance_trace(
-        self, parquet: pa.Table, episode_index: int, num_frames: int
+        self, episode_index: int, action: np.ndarray, num_frames: int
     ) -> np.ndarray:
         return np.zeros(num_frames, dtype=np.float64)
 
@@ -50,7 +53,7 @@ class _FarEEProvider:
     """Always-far provider: AND with gripper is identically False."""
 
     def distance_trace(
-        self, parquet: pa.Table, episode_index: int, num_frames: int
+        self, episode_index: int, action: np.ndarray, num_frames: int
     ) -> np.ndarray:
         return np.full(num_frames, 1.0, dtype=np.float64)
 
@@ -76,6 +79,8 @@ def _write_dataset(
     fps: float,
     episodes: dict[int, list[int]],
     num_frames: int = 600,
+    shuffle: bool = False,
+    rng_seed: int = 0,
 ) -> Path:
     (root / "meta").mkdir(parents=True, exist_ok=True)
     (root / "data" / "chunk-000").mkdir(parents=True, exist_ok=True)
@@ -84,11 +89,15 @@ def _write_dataset(
     rows_episode: list[int] = []
     rows_frame: list[int] = []
     rows_action: list[list[float]] = []
+    rng = np.random.default_rng(rng_seed)
     for ep_idx in sorted(episodes.keys()):
         trace = _episode_trace(num_frames, episodes[ep_idx])
-        for f in range(num_frames):
+        order = np.arange(num_frames)
+        if shuffle:
+            order = rng.permutation(num_frames)
+        for f in order.tolist():
             rows_episode.append(ep_idx)
-            rows_frame.append(f)
+            rows_frame.append(int(f))
             rows_action.append(_make_action(float(trace[f])))
     table = pa.table(
         {
@@ -149,7 +158,7 @@ def test_close_ee_provider_collapses_to_gripper_only_baseline(
     dst = tmp_path / "dst"
     report, output_path = run(
         _request(tiny_dataset, dst, dry_run=True),
-        ee_provider=_CloseEEProvider(),
+        _CloseEEProvider(),
     )
     assert output_path is None
     assert not any(k == "lerobot" or k.startswith("lerobot.") for k in sys.modules)
@@ -164,7 +173,7 @@ def test_far_ee_provider_emits_no_events(
     dst = tmp_path / "dst"
     report, output_path = run(
         _request(tiny_dataset, dst, dry_run=True),
-        ee_provider=_FarEEProvider(),
+        _FarEEProvider(),
     )
     assert output_path is None
     assert report.source_episode_count == 2
@@ -172,13 +181,14 @@ def test_far_ee_provider_emits_no_events(
     assert sorted(report.episodes_with_no_events) == [0, 1]
 
 
-def test_default_provider_raises_not_implemented_without_lerobot(
+def test_run_without_ee_provider_raises_type_error(
     tiny_dataset: Path, tmp_path: Path
 ) -> None:
+    """``ee_provider`` is a required positional arg — no fallback stub."""
     _purge_lerobot()
     dst = tmp_path / "dst"
-    with pytest.raises(NotImplementedError):
-        run(_request(tiny_dataset, dst, dry_run=True))
+    with pytest.raises(TypeError):
+        run(_request(tiny_dataset, dst, dry_run=True))  # type: ignore[call-arg]
     assert not any(k == "lerobot" or k.startswith("lerobot.") for k in sys.modules)
 
 
@@ -192,7 +202,7 @@ def test_close_ee_provider_warns_when_episode_has_few_events(tmp_path: Path) -> 
     dst = tmp_path / "dst"
     report, output_path = run(
         _request(src, dst, min_events=5, dry_run=True),
-        ee_provider=_CloseEEProvider(),
+        _CloseEEProvider(),
     )
     assert output_path is None
     assert report.episodes_with_fewer_than_min_events == {0: 3}
@@ -209,3 +219,71 @@ def test_load_dataset_fps_reads_meta_info(tmp_path: Path) -> None:
 def test_resolve_single_data_parquet_missing_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         resolve_single_data_parquet(tmp_path)
+
+
+class _ActionAwareEEProvider:
+    """Returns 0 (close) when action[:, GRIPPER_DIM] >= peak; else 1 (far).
+
+    Using the gripper-channel value as the "close-EE" signal lets us assert
+    that the provider sees frames in canonical order: a shuffled parquet must
+    be sorted by ``frame_index`` BEFORE the action array reaches the provider,
+    otherwise the close-EE mask aligns to row order rather than frame order
+    and the rising edges land at the wrong frame indices.
+    """
+
+    def __init__(self, peak_value: float) -> None:
+        self._peak = peak_value
+
+    def distance_trace(
+        self, episode_index: int, action: np.ndarray, num_frames: int
+    ) -> np.ndarray:
+        gripper_col = action[:, _GRIPPER_DIM]
+        return np.where(gripper_col >= self._peak, 0.0, 1.0)
+
+
+def test_pipeline_handles_shuffled_frame_rows_in_parquet(tmp_path: Path) -> None:
+    """Parquet rows are shuffled within each episode; pipeline must sort by
+    ``frame_index`` before handing arrays to the detector or EE provider so
+    events still land at the correct frame indices.
+    """
+    peaks = [50, 150, 250, 350, 450]
+    src_ordered = tmp_path / "src_ordered"
+    src_shuffled = tmp_path / "src_shuffled"
+    _write_dataset(src_ordered, fps=30.0, episodes={0: peaks, 1: peaks}, shuffle=False)
+    _write_dataset(
+        src_shuffled, fps=30.0, episodes={0: peaks, 1: peaks}, shuffle=True, rng_seed=42
+    )
+    provider = _ActionAwareEEProvider(peak_value=12.0)
+
+    report_ordered, _ = run(
+        _request(src_ordered, tmp_path / "dst_ordered", dry_run=True),
+        provider,
+    )
+    report_shuffled, _ = run(
+        _request(src_shuffled, tmp_path / "dst_shuffled", dry_run=True),
+        provider,
+    )
+
+    assert report_ordered.output_segment_count == report_shuffled.output_segment_count
+    assert (
+        report_ordered.episodes_with_fewer_than_min_events
+        == report_shuffled.episodes_with_fewer_than_min_events
+    )
+    assert report_ordered.output_segment_count == 10
+
+
+def test_cli_main_raises_not_implemented(tmp_path: Path) -> None:
+    """CLI must refuse to run end-to-end: real EE provider lands later."""
+    src = tmp_path / "src"
+    src.mkdir()
+    dst = tmp_path / "dst"
+    argv = [
+        "--src", str(src),
+        "--dst", str(dst),
+        "--task", "synthetic",
+        "--gripper-dim", "5",
+        "--open-threshold", "10.0",
+        "--ee-close-threshold-m", "0.08",
+    ]
+    with pytest.raises(NotImplementedError, match="EpisodeEEDistanceProvider"):
+        cli_main(argv)

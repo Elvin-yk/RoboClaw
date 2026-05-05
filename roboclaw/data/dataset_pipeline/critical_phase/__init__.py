@@ -1,8 +1,8 @@
 """Critical-phase dataset extraction.
 
 Top-level building blocks here are task-agnostic. Per-task event detectors
-live under ``tasks/<task_name>/``; e.g. screw insertion uses gripper-open
-events under ``tasks/screw/``.
+live under ``tasks/<task_name>/``; e.g. screw insertion uses compound
+(gripper-open AND EE-close) events under ``tasks/screw/``.
 """
 from .edge import RisingEdgeConfig, RisingEdgeDetector
 from .event import CriticalEvent
