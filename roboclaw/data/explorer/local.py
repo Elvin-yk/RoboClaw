@@ -231,15 +231,37 @@ def load_json_file(path: Path) -> dict[str, Any]:
 
 def load_episodes_list_file(dataset_path: Path) -> list[dict[str, Any]]:
     episodes_path = dataset_path / "meta" / "episodes.jsonl"
-    if not episodes_path.exists():
+    if episodes_path.exists():
+        result: list[dict[str, Any]] = []
+        for line in episodes_path.read_text(encoding="utf-8").strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            result.append(entry)
+        return result
+    return _load_episodes_list_parquet(dataset_path)
+
+
+def _load_episodes_list_parquet(dataset_path: Path) -> list[dict[str, Any]]:
+    """Fallback for LeRobot v3 layout: meta/episodes/chunk-*/file-*.parquet."""
+    episodes_dir = dataset_path / "meta" / "episodes"
+    if not episodes_dir.is_dir():
         return []
+    files = sorted(episodes_dir.rglob("file-*.parquet"))
+    if not files:
+        return []
+    import pyarrow.parquet as pq
+
+    keep = {"episode_index", "length", "tasks", "dataset_from_index", "dataset_to_index"}
     result: list[dict[str, Any]] = []
-    for line in episodes_path.read_text(encoding="utf-8").strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        entry = json.loads(line)
-        result.append(entry)
+    for fp in files:
+        schema_names = pq.read_metadata(fp).schema.names
+        cols = [c for c in schema_names if c in keep]
+        table = pq.read_table(fp, columns=cols)
+        for row in table.to_pylist():
+            result.append({k: v for k, v in row.items() if v is not None})
+    result.sort(key=lambda e: int(e.get("episode_index", 0) or 0))
     return result
 
 
