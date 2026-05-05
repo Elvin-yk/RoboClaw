@@ -82,7 +82,6 @@ export function AutoCalibrationPanel({ onRefresh }: { onRefresh: () => Promise<v
           <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-tx">
             {t('autoCalibrateAll')}
           </h3>
-          <p className="mt-2 text-sm text-tx3">{t('autoCalibrateAllDesc')}</p>
         </div>
         {isRunning ? (
           <button
@@ -167,9 +166,7 @@ export function AutoCalibrationPanel({ onRefresh }: { onRefresh: () => Promise<v
             </div>
           )}
         </div>
-      ) : (
-        <p className="mt-5 text-sm text-tx3">{t('autoCalibrateAllHint')}</p>
-      )}
+      ) : null}
     </section>
   )
 }

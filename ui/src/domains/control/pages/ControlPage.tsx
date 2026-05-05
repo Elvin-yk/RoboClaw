@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collectionApi, type Assignment, type CollectionStatus } from '@/domains/collection/api/collectionApi'
 import { assignmentProgressPct, formatHours, todayIso } from '@/domains/collection/lib/metrics'
-import { useHardwareStore, type OperationCapability } from '@/domains/hardware/store/useHardwareStore'
+import { useHardwareStore, type HardwareStatus, type OperationCapability } from '@/domains/hardware/store/useHardwareStore'
 import { useSessionStore, type SessionState, type SessionStatus } from '@/domains/session/store/useSessionStore'
 import { useI18n } from '@/i18n'
 import { ActionButton } from '@/shared/ui'
@@ -73,53 +73,52 @@ function DeviceDots({ label, dots }: {
   dots: Array<{ key: string; className: string; title: string }>
 }) {
   return (
-    <div className="min-w-[86px]">
-      <div className="text-[11px] font-semibold leading-none text-tx2">{label}</div>
-      <div className="mt-2 flex h-3 items-center gap-1.5">
+    <div className="control-device-row">
+      <div className="control-device-label">{label}</div>
+      <div className="control-device-dots">
         {dots.map((dot) => (
           <span
             key={dot.key}
-            className={`h-2.5 w-2.5 rounded-full ring-2 ring-white ${dot.className}`}
+            className={`control-device-dot ${dot.className}`}
             title={dot.title}
           />
         ))}
-        {dots.length === 0 && <span className="text-xs font-semibold text-tx3">--</span>}
+        {dots.length === 0 && <span className="control-device-empty">--</span>}
       </div>
     </div>
   )
 }
 
 function HardwareSummary({ hwStatus, busy, state, owner }: {
-  hwStatus: any
+  hwStatus: HardwareStatus | null
   busy: boolean
   state: string
   owner: string
 }) {
   const { t } = useI18n()
   const hwReady = hwStatus?.ready ?? false
-  const accent = !hwStatus ? 'shadow-inset-ac' : hwReady ? 'shadow-inset-gn' : 'shadow-inset-yl'
-  const armDots = hwStatus?.arms.map((arm: any) => ({
+  const warningCount = hwStatus?.missing.length ?? 0
+  const readinessText = hwReady ? t('hwReady') : `${warningCount} ${t('warnings')}`
+  const armDots = hwStatus?.arms.map((arm) => ({
     key: arm.alias,
     title: arm.alias,
     className: !arm.connected ? 'bg-rd' : !arm.calibrated ? 'bg-yl' : 'bg-gn',
   })) ?? []
-  const cameraDots = hwStatus?.cameras.map((camera: any) => ({
+  const cameraDots = hwStatus?.cameras.map((camera) => ({
     key: camera.alias,
     title: camera.alias,
     className: camera.connected ? 'bg-gn' : 'bg-rd',
   })) ?? []
 
   return (
-    <div className={`rounded-lg border border-bd/50 bg-white/85 px-4 py-3 shadow-card ${accent}`}>
-      <div className="grid grid-cols-[auto_auto_minmax(82px,1fr)] items-center gap-4">
-        <DeviceDots label={t('arms')} dots={armDots} />
-        <DeviceDots label={t('cameras')} dots={cameraDots} />
-        <div className="justify-self-end text-right">
-          <div className="text-xs font-bold text-tx">
-            {hwReady ? t('hwReady') : `${hwStatus?.missing?.length ?? 0} ${t('warnings')}`}
-          </div>
-          {busy && <div className="mt-1 text-2xs font-mono text-tx3">{state}{owner ? ` · ${owner}` : ''}</div>}
+    <div className="control-hardware-summary">
+      <DeviceDots label={t('arms')} dots={armDots} />
+      <DeviceDots label={t('cameras')} dots={cameraDots} />
+      <div className="control-hardware-state">
+        <div className={`control-hardware-readiness ${hwReady ? 'is-ready' : 'is-warning'}`}>
+          {readinessText}
         </div>
+        {busy && <div className="control-hardware-busy">{state}{owner ? ` · ${owner}` : ''}</div>}
       </div>
     </div>
   )
@@ -147,7 +146,7 @@ function TeleopPanel({
   const busyReason = busy ? `${state}${owner ? ` · ${owner}` : ''}` : ''
 
   return (
-    <section className="bg-sf rounded-lg p-3.5 shadow-card">
+    <section className="control-teleop-panel bg-sf rounded-lg p-3.5 shadow-card">
       <h3 className="mb-3 text-2xs font-mono uppercase tracking-widest text-tx3">{t('teleoperation')}</h3>
       <div className="grid gap-2">
         <ActionBtn
@@ -514,7 +513,7 @@ export default function ControlPage() {
   }
 
   return (
-    <div className="page-enter flex h-full flex-col overflow-y-auto">
+    <div className="control-page page-enter flex h-full flex-col overflow-y-auto">
       {collectionError && (
         <div className="border-b border-rd/30 border-l-4 border-l-rd bg-rd/10 px-4 py-2 text-sm font-medium text-rd">
           {collectionError}
@@ -527,7 +526,7 @@ export default function ControlPage() {
       )}
 
       <div className="space-y-3 p-4">
-        <div className="grid items-start gap-3 xl:grid-cols-[minmax(320px,420px)_220px] xl:justify-start">
+        <div className="control-status-stack">
           <HardwareSummary
             hwStatus={hwStatus}
             busy={busy}

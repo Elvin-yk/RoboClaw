@@ -30,10 +30,93 @@ export interface UserInfo {
     id: string
     phone: string
     nickname: string | null
-    level: 'normal' | 'contributor' | 'admin'
-    rank: number
+    status: 'active' | 'disabled'
+    memberships: MembershipInfo[]
+    current_membership: MembershipInfo | null
     has_password: boolean
     created_at: string
+}
+
+export type MembershipRole = 'owner' | 'admin' | 'member'
+export type InviteRole = 'admin' | 'member'
+export type MembershipStatus = 'active' | 'invited' | 'disabled'
+export type MembershipInvitationStatus = Extract<MembershipStatus, 'active' | 'disabled'>
+
+export const INVITE_ROLES: readonly InviteRole[] = ['admin', 'member']
+export const MEMBERSHIP_ROLE_LABELS: Record<MembershipRole, string> = {
+    owner: 'Owner',
+    admin: 'Admin',
+    member: 'Member',
+}
+
+export interface OrganizationInfo {
+    id: string
+    name: string
+    status: 'active' | 'disabled'
+}
+
+export interface MembershipInviterInfo {
+    id: string
+    phone: string
+    nickname: string | null
+}
+
+export interface MembershipInfo {
+    id: string
+    org_id: string
+    role_code: MembershipRole
+    status: MembershipStatus
+    invited_by_user_id: string | null
+    invited_by_user: MembershipInviterInfo | null
+    organization: OrganizationInfo
+}
+
+export interface OrganizationMember {
+    id: string
+    user_id: string
+    phone: string
+    nickname: string | null
+    role_code: MembershipRole
+    status: MembershipStatus
+    joined_at: string | null
+}
+
+export interface CurrentOrganization {
+    id: string
+    name: string
+    role_code: MembershipRole
+    members: OrganizationMember[]
+}
+
+export function currentMembershipRole(user: UserInfo | null): MembershipRole | null {
+    return user?.current_membership?.role_code ?? null
+}
+
+export function membershipRoleLabel(role: MembershipRole): string {
+    return MEMBERSHIP_ROLE_LABELS[role]
+}
+
+export function isInviteRole(value: string): value is InviteRole {
+    return (INVITE_ROLES as readonly string[]).includes(value)
+}
+
+function hasActiveOrganizationRole(user: UserInfo | null, roles: readonly MembershipRole[]): boolean {
+    const membership = user?.current_membership
+    return membership?.status === 'active'
+        && membership.organization.status === 'active'
+        && roles.includes(membership.role_code)
+}
+
+export function canManageCollection(user: UserInfo | null): boolean {
+    return hasActiveOrganizationRole(user, ['owner', 'admin'])
+}
+
+export function canManageOrganization(user: UserInfo | null): boolean {
+    return hasActiveOrganizationRole(user, ['owner'])
+}
+
+export function canManageOrganizationMembers(user: UserInfo | null): boolean {
+    return hasActiveOrganizationRole(user, ['owner', 'admin'])
 }
 
 // ─── Core request ─────────────────────────────────────────────────────────────
@@ -143,5 +226,32 @@ export const evoApi = {
         evoRequest('/auth/me/nickname', {
             method: 'PATCH',
             body: JSON.stringify({ nickname }),
+        }, true),
+
+    getCurrentOrganization: (): Promise<CurrentOrganization> =>
+        evoRequest('/organizations/current', {}, true),
+
+    upsertOrganizationMember: (phone: string, roleCode: InviteRole): Promise<OrganizationMember> =>
+        evoRequest('/organizations/current/members', {
+            method: 'POST',
+            body: JSON.stringify({ phone, role_code: roleCode }),
+        }, true),
+
+    updateOrganizationMember: (
+        membershipId: string,
+        payload: { role_code?: InviteRole; status?: MembershipStatus },
+    ): Promise<OrganizationMember> =>
+        evoRequest(`/organizations/current/members/${membershipId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }, true),
+
+    respondMembershipInvitation: (
+        membershipId: string,
+        status: MembershipInvitationStatus,
+    ): Promise<OrganizationMember> =>
+        evoRequest(`/organizations/memberships/${membershipId}/response`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
         }, true),
 }
