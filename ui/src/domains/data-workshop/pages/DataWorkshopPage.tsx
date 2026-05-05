@@ -35,6 +35,24 @@ const stageText = {
   excluded: '剔除候选',
 }
 
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const
+const DEFAULT_PAGE_SIZE = 5
+
+interface PaginationControlsState {
+  totalItems: number
+  pageSize: number
+  currentPage: number
+  pageCount: number
+  rangeStart: number
+  rangeEnd: number
+  setPage: (page: number) => void
+  setPageSize: (pageSize: number) => void
+}
+
+interface ClientPagination<T> extends PaginationControlsState {
+  pageItems: T[]
+}
+
 export default function DataWorkshopPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -98,6 +116,9 @@ export default function DataWorkshopPage() {
     () => visibleDatasets.filter((dataset) => dataset.stage === 'complete').length,
     [visibleDatasets],
   )
+  const dirtyPagination = useClientPagination(dirtyDatasets)
+  const cleanPagination = useClientPagination(cleanDatasets)
+  const assemblyPagination = useClientPagination(visibleAssemblies)
 
   function openCurationRoute(route: string): void {
     if (selectedDataset) {
@@ -178,8 +199,12 @@ export default function DataWorkshopPage() {
       {error && <div className="data-workshop-error">{error}</div>}
 
       <main className="data-workshop-grid">
-        <WorkshopColumn title="脏数据车间" count={dirtyDatasets.length}>
-          {dirtyDatasets.map((dataset) => (
+        <WorkshopColumn
+          title="脏数据车间"
+          count={dirtyDatasets.length}
+          pager={<PaginationControls title="脏数据车间" pagination={dirtyPagination} />}
+        >
+          {dirtyPagination.pageItems.map((dataset) => (
             <DatasetCard
               key={dataset.id}
               dataset={dataset}
@@ -189,7 +214,11 @@ export default function DataWorkshopPage() {
           ))}
         </WorkshopColumn>
 
-        <WorkshopColumn title="干净数据车间" count={cleanDatasets.length}>
+        <WorkshopColumn
+          title="干净数据车间"
+          count={cleanDatasets.length}
+          pager={<PaginationControls title="干净数据车间" pagination={cleanPagination} />}
+        >
           <div className="data-workshop-assembly-form">
             <input
               value={assemblyName}
@@ -206,7 +235,7 @@ export default function DataWorkshopPage() {
               生成完整数据包
             </ActionButton>
           </div>
-          {cleanDatasets.map((dataset) => (
+          {cleanPagination.pageItems.map((dataset) => (
             <DatasetCard
               key={dataset.id}
               dataset={dataset}
@@ -218,8 +247,12 @@ export default function DataWorkshopPage() {
           ))}
         </WorkshopColumn>
 
-        <WorkshopColumn title="完整数据车间" count={visibleAssemblies.length}>
-          {visibleAssemblies.map((assembly) => (
+        <WorkshopColumn
+          title="完整数据车间"
+          count={visibleAssemblies.length}
+          pager={<PaginationControls title="完整数据车间" pagination={assemblyPagination} />}
+        >
+          {assemblyPagination.pageItems.map((assembly) => (
             <AssemblyCard
               key={assembly.id}
               assembly={assembly}
@@ -314,13 +347,58 @@ function matchesAssemblyQuery(assembly: DatasetAssembly, query: string): boolean
   return text.includes(query)
 }
 
+function useClientPagination<T>(items: T[]): ClientPagination<T> {
+  const [pageSize, setPageSizeState] = useState(DEFAULT_PAGE_SIZE)
+  const [page, setPageState] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageItems = useMemo(
+    () => items.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [items, currentPage, pageSize],
+  )
+  const rangeStart = items.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const rangeEnd = Math.min(currentPage * pageSize, items.length)
+
+  useEffect(() => {
+    setPageState((current) => Math.min(current, pageCount))
+  }, [pageCount])
+
+  function setPage(pageNumber: number): void {
+    setPageState(clampPage(pageNumber, pageCount))
+  }
+
+  function setPageSize(nextPageSize: number): void {
+    setPageSizeState(nextPageSize)
+    setPageState(1)
+  }
+
+  return {
+    totalItems: items.length,
+    pageSize,
+    currentPage,
+    pageCount,
+    pageItems,
+    rangeStart,
+    rangeEnd,
+    setPage,
+    setPageSize,
+  }
+}
+
+function clampPage(page: number, pageCount: number): number {
+  if (!Number.isFinite(page)) return 1
+  return Math.min(Math.max(1, Math.trunc(page)), pageCount)
+}
+
 function WorkshopColumn({
   title,
   count,
+  pager,
   children,
 }: {
   title: string
   count: number
+  pager?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -329,12 +407,64 @@ function WorkshopColumn({
         <h3>{title}</h3>
         <span>{count}</span>
       </div>
+      {pager}
       <div className="data-workshop-column__body">
         {children}
       </div>
     </section>
   )
 }
+
+function PaginationControls({
+  title,
+  pagination,
+}: {
+  title: string
+  pagination: PaginationControlsState
+}) {
+  if (pagination.totalItems === 0) return null
+
+  return (
+    <div className="data-workshop-column__pager">
+      <label>
+        每页
+        <select value={pagination.pageSize} onChange={(event) => pagination.setPageSize(Number(event.target.value))}>
+          {PAGE_SIZE_OPTIONS.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+      <div className="data-workshop-page-picker">
+        <button
+          type="button"
+          onClick={() => pagination.setPage(pagination.currentPage - 1)}
+          disabled={pagination.currentPage === 1}
+        >
+          上页
+        </button>
+        <input
+          type="number"
+          min={1}
+          max={pagination.pageCount}
+          value={pagination.currentPage}
+          onChange={(event) => pagination.setPage(Number(event.target.value))}
+          className="data-workshop-page-input"
+          aria-label={`${title} 页码`}
+        />
+        <span>/ {pagination.pageCount}</span>
+        <button
+          type="button"
+          onClick={() => pagination.setPage(pagination.currentPage + 1)}
+          disabled={pagination.currentPage === pagination.pageCount}
+        >
+          下页
+        </button>
+      </div>
+      <span className="data-workshop-page-range">{pagination.rangeStart}-{pagination.rangeEnd}</span>
+    </div>
+  )
+}
+
 
 function DatasetCard({
   dataset,

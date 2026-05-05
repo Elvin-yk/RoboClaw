@@ -29,7 +29,7 @@
 }
 
 .collection-toolbar--actions-only {
-    justify-content: flex-end;
+    justify-content: center;
     padding: 0 0 2px;
 }
 
@@ -49,9 +49,15 @@
     gap: 10px;
 }
 
+.collection-toolbar--actions-only .collection-toolbar__actions {
+    width: 100%;
+    justify-content: center;
+}
+
 .collection-mode-tabs {
-    display: inline-grid;
-    grid-template-columns: repeat(2, minmax(128px, 1fr));
+    display: grid;
+    width: min(100%, 456px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
 }
 
@@ -93,6 +99,12 @@
     outline: none;
 }
 
+.collection-input--compact {
+    min-height: 36px;
+    width: 138px;
+    padding: 6px 9px;
+}
+
 .collection-input:focus {
     border-color: rgba(47, 111, 228, 0.5);
     box-shadow: 0 0 0 3px rgba(47, 111, 228, 0.12);
@@ -116,6 +128,84 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) 40px 40px;
     gap: 8px;
+}
+
+.collection-field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.collection-field > span,
+.collection-member-invite label span {
+    color: var(--tx2);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.collection-member-picker {
+    position: relative;
+    min-width: 0;
+}
+
+.collection-member-picker__menu {
+    position: absolute;
+    z-index: 90;
+    top: calc(100% + 6px);
+    right: 0;
+    left: 0;
+    display: grid;
+    max-height: 250px;
+    overflow: auto;
+    gap: 4px;
+    border: 1px solid rgba(47, 111, 228, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 18px 42px rgba(31, 61, 112, 0.15);
+    padding: 6px;
+}
+
+.collection-member-picker__option {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    padding: 8px 10px;
+    color: var(--tx);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.collection-member-picker__option:hover {
+    background: rgba(47, 111, 228, 0.08);
+}
+
+.collection-member-picker__option span {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.collection-member-picker__option strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.collection-member-picker__option small,
+.collection-member-picker__option i {
+    color: var(--tx2);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 750;
 }
 
 .collection-icon-button {
@@ -733,9 +823,18 @@ button.collection-task-card:disabled {
 
 .collection-progress-filters {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 10px;
+}
+
+.collection-progress-filters .collection-link-button {
+    flex: 0 0 auto;
+}
+
+.collection-progress-filters .collection-input--date {
+    flex: 0 0 168px;
+    width: 168px;
 }
 
 .collection-progress-list {
@@ -790,6 +889,8 @@ button.collection-task-card:disabled {
 
 .collection-progress-row__actions {
     display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
@@ -798,6 +899,260 @@ button.collection-task-card:disabled {
 .collection-progress-row__actions .collection-link-button {
     min-height: 32px;
     padding: 0 10px;
+}
+
+.collection-members-panel {
+    gap: 16px;
+    padding: 20px;
+}
+
+.collection-members-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid rgba(31, 61, 112, 0.08);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 250, 255, 0.78));
+    padding: 16px;
+}
+
+.collection-members-hero__eyebrow {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--tx2);
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.collection-members-hero h3 {
+    margin: 0;
+    color: var(--tx);
+    font-size: 22px;
+    font-weight: 850;
+    letter-spacing: 0;
+}
+
+.collection-members-hero p {
+    margin: 4px 0 0;
+    color: var(--tx2);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.collection-member-invite {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(120px, 180px) auto;
+    align-items: end;
+    gap: 12px;
+    border: 1px solid rgba(47, 111, 228, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 14px;
+}
+
+.collection-member-invite label {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.collection-member-invite__submit {
+    min-height: 42px;
+    border-radius: 8px !important;
+    white-space: nowrap;
+}
+
+.collection-member-invite__fixed-role {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    border: 1px solid rgba(31, 157, 138, 0.16);
+    border-radius: 8px;
+    background: rgba(31, 157, 138, 0.07);
+    padding: 0 12px;
+    color: #15776a;
+    font-size: 13px;
+    font-weight: 850;
+}
+
+.collection-member-list {
+    display: grid;
+    gap: 10px;
+}
+
+.collection-member-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    border: 1px solid rgba(31, 61, 112, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 14px;
+}
+
+.collection-member-card__identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+}
+
+.collection-member-card__avatar {
+    display: inline-flex;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(47, 111, 228, 0.1);
+    color: var(--ac);
+    font-size: 15px;
+    font-weight: 850;
+}
+
+.collection-member-card__identity div {
+    min-width: 0;
+}
+
+.collection-member-card__identity strong {
+    display: block;
+    overflow: hidden;
+    color: var(--tx);
+    font-size: 14px;
+    font-weight: 850;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.collection-member-card__identity span:not(.collection-member-card__avatar) {
+    display: block;
+    margin-top: 3px;
+    color: var(--tx2);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.collection-member-card__meta,
+.collection-member-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.collection-member-card__remove {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(220, 53, 69, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.95);
+    color: #dc3545;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0;
+    cursor: pointer;
+    transform: scale(0.92);
+    transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+}
+
+.collection-member-card:hover .collection-member-card__remove,
+.collection-member-card__remove:focus-visible {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.collection-member-card__remove:hover {
+    background: rgba(220, 53, 69, 0.08);
+}
+
+.collection-member-card__remove:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+.collection-role-pill,
+.collection-status-pill {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.collection-role-pill--owner {
+    border-color: rgba(217, 119, 6, 0.18);
+    background: rgba(217, 119, 6, 0.1);
+    color: #9a5b05;
+}
+
+.collection-role-pill--admin {
+    border-color: rgba(47, 111, 228, 0.2);
+    background: rgba(47, 111, 228, 0.1);
+    color: var(--ac);
+}
+
+.collection-role-pill--member {
+    border-color: rgba(100, 116, 139, 0.18);
+    background: rgba(100, 116, 139, 0.09);
+    color: #475569;
+}
+
+.collection-status-pill--active {
+    border-color: rgba(31, 157, 138, 0.16);
+    background: rgba(31, 157, 138, 0.09);
+    color: #15776a;
+}
+
+.collection-status-pill--invited {
+    border-color: rgba(47, 111, 228, 0.18);
+    background: rgba(47, 111, 228, 0.08);
+    color: var(--ac);
+}
+
+.collection-status-pill--disabled {
+    border-color: rgba(31, 61, 112, 0.12);
+    background: rgba(31, 61, 112, 0.06);
+    color: var(--tx2);
+}
+
+@media (max-width: 820px) {
+    .collection-progress-row {
+        grid-template-columns: 1fr;
+    }
+
+    .collection-progress-row__value {
+        text-align: left;
+    }
+
+    .collection-progress-row__actions {
+        justify-content: flex-start;
+    }
+
+    .collection-member-invite,
+    .collection-member-card {
+        grid-template-columns: 1fr;
+    }
+
+    .collection-member-card__meta,
+    .collection-member-card__actions {
+        justify-content: flex-start;
+    }
 }
 
 .collection-assignment-switch {
@@ -897,11 +1252,15 @@ button.collection-task-card:disabled {
 .collection-modal-backdrop {
     position: fixed;
     z-index: 60;
-    inset: 0;
+    inset: 0 0 0 220px;
     display: grid;
     place-items: center;
     background: rgba(15, 27, 48, 0.26);
     padding: 28px;
+}
+
+.app-sidebar--collapsed + .app-shell__main .collection-modal-backdrop {
+    left: 56px;
 }
 
 .collection-modal {
@@ -1020,13 +1379,18 @@ button.collection-task-card:disabled {
     }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
+    .collection-modal-backdrop {
+        inset: 0;
+    }
+}
+
+@media (max-width: 720px) {
     .collection-toolbar,
     .collection-summary,
     .collection-active,
     .collection-publish-stage,
     .collection-panel__head,
-    .collection-progress-row,
     .collection-progress-edit__grid {
         grid-template-columns: 1fr;
     }
@@ -1042,6 +1406,10 @@ button.collection-task-card:disabled {
 
     .collection-input--date {
         width: 100%;
+    }
+
+    .collection-panel__head--progress {
+        grid-template-columns: minmax(0, 1fr) auto;
     }
 
     .collection-mode-tabs {
@@ -1068,16 +1436,35 @@ button.collection-task-card:disabled {
         width: auto;
     }
 
-    .collection-progress-row__value {
-        text-align: left;
-    }
-
-    .collection-progress-row__actions {
-        justify-content: flex-start;
-    }
-
     .collection-progress-edit__actions,
     .collection-modal__actions {
         justify-content: stretch;
+    }
+}
+
+@media (max-width: 560px) {
+    .collection-mode-tabs {
+        grid-template-columns: 1fr;
+    }
+
+    .collection-mode-tab {
+        min-height: 46px;
+    }
+
+}
+
+@media (max-width: 460px) {
+    .collection-panel__head--progress {
+        grid-template-columns: 1fr;
+    }
+
+    .collection-progress-filters {
+        justify-content: stretch;
+    }
+
+    .collection-progress-filters .collection-link-button,
+    .collection-progress-filters .collection-input--date {
+        flex: 1 1 100%;
+        width: 100%;
     }
 }

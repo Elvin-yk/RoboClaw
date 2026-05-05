@@ -42,7 +42,10 @@ def register_dataset_repair_routes(
             task=task,
             tag=tag,  # type: ignore[arg-type]
         )
-        datasets = await service.list_datasets(filters)
+        try:
+            datasets = await service.list_datasets(filters)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         effective_root = filters.root or str(service.datasets_root)
         return {
             "root": effective_root,
@@ -55,6 +58,8 @@ def register_dataset_repair_routes(
             return await service.start_diagnosis(req)
         except JobConflictError as exc:
             raise HTTPException(status_code=409, detail=exc.current.model_dump()) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/dataset-repair/jobs/current")
     async def current_job() -> dict:

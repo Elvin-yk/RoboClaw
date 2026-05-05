@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 from uuid import uuid4
 
@@ -56,6 +56,7 @@ class DatasetRepairCoordinator:
         diagnose_fn: DiagnoseFn | None = None,
     ) -> None:
         self._datasets_root = datasets_root
+        self._resolved_datasets_root = datasets_root.expanduser().resolve()
         self._diagnose_fn: DiagnoseFn = diagnose_fn or diagnose_dataset
         self._lock = asyncio.Lock()
         self._active_job: RepairJobState | None = None
@@ -72,8 +73,13 @@ class DatasetRepairCoordinator:
         self,
         filters: DatasetRepairFilter,
     ) -> list[DatasetRepairDataset]:
-        root = Path(filters.root) if filters.root else self._datasets_root
-        return await asyncio.to_thread(selection.list_datasets, root, filters)
+        root = self._resolve_scan_root(filters)
+        return await asyncio.to_thread(
+            selection.list_datasets,
+            root,
+            filters,
+            id_root=self._resolved_datasets_root,
+        )
 
     async def get_current_job(self) -> RepairJobState | None:
         return self._active_job
@@ -176,8 +182,22 @@ class DatasetRepairCoordinator:
         """Phase 3 will write repairs here; we expose it now so the UI can
         preview the target path on every job item.
         """
-        slug = dataset_id.rsplit("/", 1)[-1]
-        return self._datasets_root / "cleaned" / "local" / slug
+        return self._resolved_datasets_root / "cleaned" / _safe_dataset_id_path(dataset_id)
+
+    def _resolve_scan_root(self, filters: DatasetRepairFilter) -> Path:
+        if not filters.root:
+            return self._resolved_datasets_root
+        requested = Path(filters.root).expanduser()
+        if not requested.is_absolute():
+            requested = self._resolved_datasets_root / requested
+        resolved = requested.resolve()
+        try:
+            resolved.relative_to(self._resolved_datasets_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Dataset repair root must stay inside {self._resolved_datasets_root}"
+            ) from exc
+        return resolved
 
     async def _run_diagnosis(
         self,
@@ -272,6 +292,17 @@ def _bump_summary(summary: DamageSummary, damage: str, repairable: bool) -> None
         setattr(summary, damage, getattr(summary, damage) + 1)
     if not repairable and damage != "healthy":
         summary.unrepairable += 1
+
+
+def _safe_dataset_id_path(dataset_id: str) -> PurePosixPath:
+    path = PurePosixPath(dataset_id)
+    if (
+        not dataset_id
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ValueError(f"Invalid dataset id: {dataset_id!r}")
+    return path
 
 
 def _consume_task_exception(task: asyncio.Task) -> None:

@@ -11,6 +11,7 @@ export interface TaskParams {
 
 export interface CollectionTask {
   id: string
+  org_id: string
   name: string
   description: string | null
   task_prompt: string
@@ -28,6 +29,7 @@ export interface CollectionTask {
 
 export interface Assignment {
   id: string
+  org_id: string
   user_id: string | null
   phone: string
   task_id: string

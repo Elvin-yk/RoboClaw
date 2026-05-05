@@ -385,28 +385,28 @@ export default function TrainingCenterPage() {
               <option key={d.id} value={d.runtime!.name}>{d.label}</option>
             ))}
           </select>
-          <div className="flex gap-3 mb-3 max-[700px]:flex-col">
-            <label className="flex flex-col gap-1 text-2xs text-tx3 font-mono flex-1">
+          <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(86px,96px)] gap-3 max-[700px]:grid-cols-1">
+            <label className="flex min-w-0 flex-col gap-1 text-2xs text-tx3 font-mono">
               {t('policyType')}
               <select
                 value={policyType}
                 onChange={(e) => setPolicyType(e.target.value)}
-                className="bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-ac"
+                className="min-w-0 w-full bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-ac"
               >
                 {POLICY_TYPES.map(type => (
                   <option key={type} value={type}>{type}</option>
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-2xs text-tx3 font-mono flex-1">
+            <label className="flex min-w-0 flex-col gap-1 text-2xs text-tx3 font-mono">
               {t('steps')}
               <input type="number" value={trainSteps} onChange={(e) => setTrainSteps(Number(e.target.value) || 100000)}
-                className="bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:border-ac" />
+                className="min-w-0 w-full bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:border-ac" />
             </label>
-            <label className="flex flex-col gap-1 text-2xs text-tx3 font-mono w-[90px]">
+            <label className="flex min-w-0 flex-col gap-1 text-2xs text-tx3 font-mono">
               {t('device')}
               <select value={trainDevice} onChange={(e) => setTrainDevice(e.target.value)}
-                className="bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-ac">
+                className="min-w-0 w-full bg-bg border border-bd text-tx px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-ac">
                 <option value="cuda">cuda</option>
                 <option value="cpu">cpu</option>
               </select>
