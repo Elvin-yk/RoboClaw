@@ -1,12 +1,5 @@
 import { api } from '@/shared/api/client'
-import type {
-    So101Model,
-    Signal,
-    TrajectoryDatasetOption,
-    TrajectoryDatasetRef,
-    TrajectoryEpisodePage,
-    TrajectoryPayload,
-} from './types'
+import type { So101Model, Signal, TrajectoryPayload } from './types'
 
 export function fetchSo101Model(): Promise<So101Model> {
     return api<So101Model>('/api/trajectory-viz/model/so101')
@@ -34,25 +27,4 @@ export function fetchTrajectory(args: FetchTrajectoryArgs): Promise<TrajectoryPa
     if (args.start_frame !== undefined) params.set('start_frame', String(args.start_frame))
     if (args.end_frame !== undefined) params.set('end_frame', String(args.end_frame))
     return api<TrajectoryPayload>(`/api/trajectory-viz/trajectory?${params.toString()}`)
-}
-
-export function fetchTrajectoryDatasets(): Promise<TrajectoryDatasetOption[]> {
-    const params = new URLSearchParams()
-    params.set('source', 'local')
-    params.set('limit', '500')
-    return api<TrajectoryDatasetOption[]>(`/api/explorer/datasets?${params.toString()}`)
-}
-
-export function fetchTrajectoryEpisodes(
-    ref: TrajectoryDatasetRef,
-    page = 1,
-    pageSize = 200,
-): Promise<TrajectoryEpisodePage> {
-    const params = new URLSearchParams()
-    params.set('source', ref.source)
-    if (ref.dataset) params.set('dataset', ref.dataset)
-    if (ref.path) params.set('path', ref.path)
-    params.set('page', String(page))
-    params.set('page_size', String(pageSize))
-    return api<TrajectoryEpisodePage>(`/api/explorer/episodes?${params.toString()}`)
 }

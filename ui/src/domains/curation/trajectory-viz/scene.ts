@@ -2,13 +2,21 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import URDFLoader from 'urdf-loader'
 import type { URDFRobot } from 'urdf-loader'
 
 import type { So101Model, Side, TrajectoryPayload } from './types'
+import { loadSo101Urdf } from './urdf'
 
 const DEG_TO_RAD = Math.PI / 180
+
+const ARM_COLORS: Record<Side, string> = {
+    left: '#6FA8DC',
+    right: '#D99A3D',
+}
+
+export interface DualArmSceneOptions {
+    axesHelper?: boolean
+}
 
 interface ArmInstance {
     side: Side
@@ -32,8 +40,10 @@ export class DualArmScene {
     private model: So101Model | null = null
     private resizeObserver: ResizeObserver | null = null
     private disposed = false
+    private axesHelperEnabled: boolean
 
-    constructor(private container: HTMLDivElement) {
+    constructor(private container: HTMLDivElement, options: DualArmSceneOptions = {}) {
+        this.axesHelperEnabled = options.axesHelper === true
         const width = container.clientWidth || 800
         const height = container.clientHeight || 600
         this.scene.background = new THREE.Color(0xf3f4f6)
@@ -69,11 +79,17 @@ export class DualArmScene {
         root.position.fromArray(side === 'left' ? model.scene.left_base_xyz : model.scene.right_base_xyz)
         this.scene.add(root)
 
-        const robot = await loadUrdf(model.urdf_url)
+        const robot = await loadSo101Urdf(model.urdf_url, {
+            meshColor: ARM_COLORS[side],
+            loadVisualMeshes: true,
+        })
         // Mount may have unmounted while STL meshes were loading; bail out
         // before mutating this.arms / this.scene to avoid leaks.
         if (this.disposed) return
         root.add(robot)
+        if (this.axesHelperEnabled) {
+            root.add(new THREE.AxesHelper(0.05))
+        }
         const eeLink = (robot.links && robot.links[model.ee_link]) || null
         this.arms.set(side, { side, root, robot, eeLink })
     }
@@ -136,28 +152,6 @@ export class DualArmScene {
         this.controls.update()
         this.renderer.render(this.scene, this.camera)
     }
-}
-
-function loadUrdf(url: string): Promise<URDFRobot> {
-    return new Promise((resolve, reject) => {
-        const manager = new THREE.LoadingManager()
-        const loader = new URDFLoader(manager)
-        loader.loadMeshCb = (path, _manager, done) => {
-            new STLLoader().load(
-                path,
-                (geometry) => {
-                    const mesh = new THREE.Mesh(
-                        geometry,
-                        new THREE.MeshStandardMaterial({ color: 0xb6b6b6, metalness: 0.2, roughness: 0.7 }),
-                    )
-                    done(mesh)
-                },
-                undefined,
-                reject,
-            )
-        }
-        loader.load(url, resolve, undefined, reject)
-    })
 }
 
 function buildLights(): THREE.Group {

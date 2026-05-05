@@ -1,8 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { useTrajectoryVizStore } from '../store'
 import { DualArmScene, buildFrameMetrics } from '../scene'
+import { DualArmKinematics } from '../kinematics'
 import { PlaybackClock } from '../playbackClock'
 import MetricsPanel from '../components/MetricsPanel'
+import DistanceSparkline from '../components/DistanceSparkline'
+import DistanceControls from '../components/DistanceControls'
 import type { ArmReadout, Signal, TrajectoryPayload } from '../types'
 import type { ArmFrameSample } from '../scene'
 
@@ -12,6 +15,8 @@ export default function TrajectoryVizPage() {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const sceneRef = useRef<DualArmScene | null>(null)
     const clockRef = useRef<PlaybackClock | null>(null)
+    const kinematicsRef = useRef<DualArmKinematics | null>(null)
+    const distanceAbortRef = useRef<AbortController | null>(null)
     const lastReadoutRef = useRef(0)
 
     const model = useTrajectoryVizStore((s) => s.model)
@@ -39,6 +44,15 @@ export default function TrajectoryVizPage() {
     const setPlaying = useTrajectoryVizStore((s) => s.setPlaying)
     const setTime = useTrajectoryVizStore((s) => s.setTime)
     const setMetrics = useTrajectoryVizStore((s) => s.setMetrics)
+    const distanceSeries = useTrajectoryVizStore((s) => s.distanceSeries)
+    const distanceSeriesLoading = useTrajectoryVizStore((s) => s.distanceSeriesLoading)
+    const distanceThresholdM = useTrajectoryVizStore((s) => s.distanceThresholdM)
+    const distanceThresholdRanges = useTrajectoryVizStore((s) => s.distanceThresholdRanges)
+    const currentFrame = useTrajectoryVizStore((s) => s.currentFrame)
+    const setDistanceSeries = useTrajectoryVizStore((s) => s.setDistanceSeries)
+    const setDistanceSeriesLoading = useTrajectoryVizStore((s) => s.setDistanceSeriesLoading)
+    const bumpDistanceSeq = useTrajectoryVizStore((s) => s.bumpDistanceSeq)
+    const getDistanceSeq = useTrajectoryVizStore((s) => s.getDistanceSeq)
 
     useEffect(() => {
         void loadModel()
@@ -47,9 +61,18 @@ export default function TrajectoryVizPage() {
 
     useEffect(() => {
         if (!model || !containerRef.current || sceneRef.current) return
-        const scene = new DualArmScene(containerRef.current)
+        const fkDebug = new URLSearchParams(window.location.search).get('fkDebug') === '1'
+        const scene = new DualArmScene(containerRef.current, { axesHelper: fkDebug })
         sceneRef.current = scene
         scene.loadArms(model).catch((err) => {
+            useTrajectoryVizStore.setState({
+                error: err instanceof Error ? err.message : String(err),
+            })
+        })
+
+        const kinematics = new DualArmKinematics()
+        kinematicsRef.current = kinematics
+        kinematics.load(model).catch((err) => {
             useTrajectoryVizStore.setState({
                 error: err instanceof Error ? err.message : String(err),
             })
@@ -92,6 +115,10 @@ export default function TrajectoryVizPage() {
             scene.dispose()
             sceneRef.current = null
             clockRef.current = null
+            distanceAbortRef.current?.abort()
+            distanceAbortRef.current = null
+            kinematics.dispose()
+            kinematicsRef.current = null
         }
     }, [model, setMetrics, setTime, setPlaying])
 
@@ -99,6 +126,34 @@ export default function TrajectoryVizPage() {
         if (!payload || !clockRef.current) return
         clockRef.current.setTimeline(payload.time_s)
     }, [payload])
+
+    useEffect(() => {
+        if (!payload) return
+        const kinematics = kinematicsRef.current
+        if (!kinematics) return
+        distanceAbortRef.current?.abort()
+        const ac = new AbortController()
+        distanceAbortRef.current = ac
+        const my = bumpDistanceSeq()
+        setDistanceSeriesLoading(true)
+        kinematics
+            .computeDistanceSeries(payload, { signal: ac.signal, chunkSize: 256 })
+            .then((series) => {
+                if (my !== getDistanceSeq()) return
+                setDistanceSeries(series, payload.time_s)
+            })
+            .catch((err: unknown) => {
+                if (err instanceof DOMException && err.name === 'AbortError') return
+                if (my !== getDistanceSeq()) return
+                setDistanceSeriesLoading(false)
+                useTrajectoryVizStore.setState({
+                    error: err instanceof Error ? err.message : String(err),
+                })
+            })
+        return () => {
+            ac.abort()
+        }
+    }, [payload, bumpDistanceSeq, getDistanceSeq, setDistanceSeries, setDistanceSeriesLoading])
 
     useEffect(() => {
         clockRef.current?.setSpeed(speed)
@@ -202,8 +257,31 @@ export default function TrajectoryVizPage() {
             />
 
             <footer style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {distanceSeries && payload && (
+                    <DistanceSparkline
+                        series={distanceSeries}
+                        thresholdM={distanceThresholdM}
+                        ranges={distanceThresholdRanges}
+                        currentFrame={currentFrame}
+                        onScrub={(frame) => {
+                            const ts = payload.time_s[Math.max(0, Math.min(payload.frame_count - 1, frame))]
+                            if (typeof ts !== 'number') return
+                            lastReadoutRef.current = 0
+                            clockRef.current?.scrubTo(ts)
+                        }}
+                    />
+                )}
+                {!distanceSeries && distanceSeriesLoading && (
+                    <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>
+                        Computing distance series…
+                    </div>
+                )}
+                {(distanceSeries || distanceSeriesLoading) && <DistanceControls />}
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <button onClick={() => setPlaying(!isPlaying)} disabled={!payload}>
+                    <button
+                        onClick={() => setPlaying(!isPlaying)}
+                        disabled={!payload || distanceSeriesLoading}
+                    >
                         {isPlaying ? 'Pause' : 'Play'}
                     </button>
                     <input

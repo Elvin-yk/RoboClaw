@@ -53,35 +53,6 @@ export interface TrajectoryPayload {
 export type Side = 'left' | 'right'
 export type Signal = 'state' | 'action'
 
-export interface TrajectoryDatasetOption {
-    id: string
-    label?: string
-    path?: string
-    source: 'local'
-    source_kind?: string
-}
-
-export interface TrajectoryDatasetRef {
-    source: 'local' | 'path'
-    dataset?: string
-    path?: string
-    label?: string
-}
-
-export interface TrajectoryEpisodeSummary {
-    episode_index: number
-    length: number
-}
-
-export interface TrajectoryEpisodePage {
-    dataset: string
-    page: number
-    page_size: number
-    total_episodes: number
-    total_pages: number
-    episodes: TrajectoryEpisodeSummary[]
-}
-
 export interface ArmReadout {
     jointDegrees: Record<string, number>
     eeWorldM: [number, number, number] | null

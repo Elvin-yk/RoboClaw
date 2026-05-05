@@ -1,16 +1,21 @@
 import { create } from 'zustand'
+import { fetchSo101Model, fetchTrajectory } from './api'
 import {
-    fetchSo101Model,
-    fetchTrajectory,
-    fetchTrajectoryDatasets,
-    fetchTrajectoryEpisodes,
-} from './api'
+    fetchExplorerEpisodePage,
+    listExplorerDatasets,
+    type ExplorerDatasetRef,
+    type ExplorerDatasetSuggestion,
+    type ExplorerEpisodePage,
+} from '@/shared/api/explorer'
+import {
+    buildBelowThresholdRanges,
+    summarizeDistanceSeries,
+    type BelowThresholdRange,
+    type DistanceStats,
+} from './distanceSeries'
 import type {
     Signal,
     So101Model,
-    TrajectoryDatasetOption,
-    TrajectoryDatasetRef,
-    TrajectoryEpisodePage,
     TrajectoryMetrics,
     TrajectoryPayload,
 } from './types'
@@ -20,9 +25,9 @@ interface TrajectoryVizState {
     payload: TrajectoryPayload | null
     loading: boolean
     error: string | null
-    datasetOptions: TrajectoryDatasetOption[]
-    selectedDataset: TrajectoryDatasetRef | null
-    episodePage: TrajectoryEpisodePage | null
+    datasetOptions: ExplorerDatasetSuggestion[]
+    selectedDataset: ExplorerDatasetRef | null
+    episodePage: ExplorerEpisodePage | null
     episodeIndex: number | null
     signal: Signal
     speed: number
@@ -32,17 +37,28 @@ interface TrajectoryVizState {
     metrics: TrajectoryMetrics | null
     datasetsLoading: boolean
     episodesLoading: boolean
+    distanceSeries: Float32Array | null
+    distanceSeriesLoading: boolean
+    distanceSeriesTimeS: number[] | null
+    distanceStats: DistanceStats | null
+    distanceThresholdRanges: BelowThresholdRange[]
+    distanceThresholdM: number
     setSignal: (v: Signal) => void
     setSpeed: (v: number) => void
     loadModel: () => Promise<void>
     loadDatasets: () => Promise<void>
-    selectDataset: (option: TrajectoryDatasetOption) => Promise<void>
-    loadEpisodes: (ref?: TrajectoryDatasetRef, page?: number) => Promise<void>
+    selectDataset: (option: ExplorerDatasetSuggestion) => Promise<void>
+    loadEpisodes: (ref?: ExplorerDatasetRef, page?: number) => Promise<void>
     selectEpisode: (v: number) => void
     setMetrics: (m: TrajectoryMetrics | null) => void
     loadTrajectory: () => Promise<void>
     setPlaying: (v: boolean) => void
     setTime: (timeSec: number, frame: number) => void
+    setDistanceSeries: (series: Float32Array | null, timeS: number[] | null) => void
+    setDistanceSeriesLoading: (v: boolean) => void
+    setDistanceThresholdM: (v: number) => void
+    bumpDistanceSeq: () => number
+    getDistanceSeq: () => number
 }
 
 // Module-level monotonic counters guard against stale async writes when
@@ -50,6 +66,9 @@ interface TrajectoryVizState {
 // counter and bails on commit if a newer request superseded it.
 let episodesSeq = 0
 let trajectorySeq = 0
+let distanceSeq = 0
+
+const DEFAULT_DISTANCE_THRESHOLD_M = 0.05
 
 export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
     model: null,
@@ -68,6 +87,12 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
     metrics: null,
     datasetsLoading: false,
     episodesLoading: false,
+    distanceSeries: null,
+    distanceSeriesLoading: false,
+    distanceSeriesTimeS: null,
+    distanceStats: null,
+    distanceThresholdRanges: [],
+    distanceThresholdM: DEFAULT_DISTANCE_THRESHOLD_M,
 
     setSignal: (v) => set({ signal: v }),
     setSpeed: (v) => set({ speed: v }),
@@ -75,8 +100,46 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
     setTime: (timeSec, frame) => set({ timeSec, currentFrame: frame }),
     setMetrics: (m) => set({ metrics: m }),
 
+    setDistanceSeries: (series, timeS) => {
+        if (!series || !timeS) {
+            set({
+                distanceSeries: null,
+                distanceSeriesTimeS: null,
+                distanceStats: null,
+                distanceThresholdRanges: [],
+                distanceSeriesLoading: false,
+            })
+            return
+        }
+        const threshold = get().distanceThresholdM
+        set({
+            distanceSeries: series,
+            distanceSeriesTimeS: timeS,
+            distanceStats: summarizeDistanceSeries(series, threshold),
+            distanceThresholdRanges: buildBelowThresholdRanges(series, threshold, timeS),
+            distanceSeriesLoading: false,
+        })
+    },
+    setDistanceSeriesLoading: (v) => set({ distanceSeriesLoading: v }),
+    setDistanceThresholdM: (v) => {
+        const series = get().distanceSeries
+        const timeS = get().distanceSeriesTimeS
+        if (!series || !timeS) {
+            set({ distanceThresholdM: v })
+            return
+        }
+        set({
+            distanceThresholdM: v,
+            distanceStats: summarizeDistanceSeries(series, v),
+            distanceThresholdRanges: buildBelowThresholdRanges(series, v, timeS),
+        })
+    },
+    bumpDistanceSeq: () => ++distanceSeq,
+    getDistanceSeq: () => distanceSeq,
+
     selectEpisode: (v) => {
         trajectorySeq += 1
+        distanceSeq += 1
         set({ episodeIndex: v, ...clearedTrajectoryState() })
     },
 
@@ -94,7 +157,7 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
     loadDatasets: async () => {
         set({ datasetsLoading: true, error: null })
         try {
-            const options = await fetchTrajectoryDatasets()
+            const options = await listExplorerDatasets('local', 500)
             set({ datasetOptions: options, datasetsLoading: false })
             if (options.length === 1 && get().selectedDataset === null) {
                 await get().selectDataset(options[0])
@@ -108,6 +171,7 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
         // Selection change invalidates any in-flight episode and trajectory fetches.
         episodesSeq += 1
         trajectorySeq += 1
+        distanceSeq += 1
         const ref = datasetRefFromOption(option)
         set({
             selectedDataset: ref,
@@ -124,7 +188,7 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
         const my = ++episodesSeq
         set({ episodesLoading: true, error: null })
         try {
-            const episodePage = await fetchTrajectoryEpisodes(target, page, 200)
+            const episodePage = await fetchExplorerEpisodePage(target, page, 200)
             if (my !== episodesSeq) return
             const firstIndex = episodePage.episodes[0]?.episode_index ?? null
             // Pure pagination shouldn't blow away current playback. Only set
@@ -149,8 +213,22 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
             set({ error: 'Select a dataset and episode first' })
             return
         }
+        if (selectedDataset.source === 'remote') {
+            set({ error: 'Remote datasets are not supported by trajectory replay' })
+            return
+        }
         const my = ++trajectorySeq
-        set({ loading: true, error: null, isPlaying: false })
+        distanceSeq += 1
+        set({
+            loading: true,
+            error: null,
+            isPlaying: false,
+            distanceSeries: null,
+            distanceSeriesTimeS: null,
+            distanceStats: null,
+            distanceThresholdRanges: [],
+            distanceSeriesLoading: false,
+        })
         try {
             const payload = await fetchTrajectory({
                 source: selectedDataset.source,
@@ -174,11 +252,11 @@ export const useTrajectoryVizStore = create<TrajectoryVizState>((set, get) => ({
     },
 }))
 
-function datasetRefFromOption(option: TrajectoryDatasetOption): TrajectoryDatasetRef {
+function datasetRefFromOption(option: ExplorerDatasetSuggestion): ExplorerDatasetRef {
     return {
-        source: option.source,
+        source: option.source ?? 'local',
         dataset: option.id,
-        label: option.label || option.id,
+        path: option.path,
     }
 }
 
@@ -189,6 +267,11 @@ function clearedTrajectoryState() {
         isPlaying: false,
         timeSec: 0,
         currentFrame: 0,
+        distanceSeries: null,
+        distanceSeriesTimeS: null,
+        distanceStats: null,
+        distanceThresholdRanges: [],
+        distanceSeriesLoading: false,
     }
 }
 
