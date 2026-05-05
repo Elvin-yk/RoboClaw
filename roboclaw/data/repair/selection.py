@@ -23,6 +23,8 @@ _DATE_RE = re.compile(r"(20\d{6})(?:[_-]?(\d{6}))?")
 def list_datasets(
     root: Path,
     filters: DatasetRepairFilter,
+    *,
+    id_root: Path | None = None,
 ) -> list[DatasetRepairDataset]:
     """Scan one level under *root* (and one nested level for ``local/<slug>``)
     and return datasets matching *filters*, sorted by ``created_date``
@@ -32,8 +34,9 @@ def list_datasets(
         return []
 
     datasets: list[DatasetRepairDataset] = []
+    record_root = id_root or root
     for dataset_dir in _iter_dataset_dirs(root):
-        record = _build_record(dataset_dir, root)
+        record = _build_record(dataset_dir, record_root)
         if _passes_filters(record, filters):
             datasets.append(record)
 

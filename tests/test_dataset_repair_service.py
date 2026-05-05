@@ -203,11 +203,37 @@ async def test_diagnose_failure_marks_item_failed(tmp_path: Path) -> None:
 
 
 async def test_list_datasets_uses_filters_root(tmp_path: Path) -> None:
-    other_root = tmp_path / "second"
-    other_root.mkdir()
-    _make_dataset(other_root, "z")
+    local_root = tmp_path / "local"
+    local_root.mkdir()
+    _make_dataset(local_root, "z")
     coord = DatasetRepairCoordinator(tmp_path)
 
-    items = await coord.list_datasets(DatasetRepairFilter(root=str(other_root)))
+    items = await coord.list_datasets(DatasetRepairFilter(root=str(local_root)))
 
-    assert {item.id for item in items} == {"z"}
+    assert {item.id for item in items} == {"local/z"}
+
+
+async def test_list_datasets_rejects_root_outside_datasets_root(tmp_path: Path) -> None:
+    outside_root = tmp_path.parent / f"{tmp_path.name}-outside"
+    dataset_dir = _make_dataset(outside_root, "z")
+    coord = DatasetRepairCoordinator(tmp_path)
+
+    with pytest.raises(ValueError, match="inside"):
+        await coord.list_datasets(DatasetRepairFilter(root=str(outside_root)))
+
+    assert not (dataset_dir / "meta" / "repair_status.json").exists()
+
+
+async def test_cleaned_output_path_preserves_dataset_namespace(tmp_path: Path) -> None:
+    _make_dataset(tmp_path / "local", "foo")
+    _make_dataset(tmp_path / "org", "foo")
+    coord = DatasetRepairCoordinator(
+        tmp_path,
+        diagnose_fn=_make_diagnose({"foo": DamageType.HEALTHY}),
+    )
+
+    job = await coord.start_diagnosis(DiagnoseRequest())
+
+    output_paths = {item.dataset_id: item.output_path for item in job.items}
+    assert output_paths["local/foo"] == str(tmp_path / "cleaned" / "local" / "foo")
+    assert output_paths["org/foo"] == str(tmp_path / "cleaned" / "org" / "foo")
