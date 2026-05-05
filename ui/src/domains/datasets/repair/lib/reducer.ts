@@ -20,7 +20,7 @@ export function applyJobEvent(
   event: JobEvent,
 ): RepairJobState | null {
   if (event.type === 'snapshot' || event.type === 'complete') return event.data
-  if (event.type === 'error') return event.data.job ?? prev
+  if (event.type === 'job-error') return event.data.job ?? prev
   if (event.type === 'item') return prev ? applyItem(prev, event.data) : prev
   return prev
 }

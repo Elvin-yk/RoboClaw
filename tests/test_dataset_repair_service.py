@@ -91,6 +91,11 @@ async def test_diagnosis_completes_with_summary(tmp_path: Path) -> None:
     assert final.summary.unrepairable == 0
     assert all(item.status == "done" for item in final.items)
 
+    listed = await coord.list_datasets(DatasetRepairFilter())
+    by_id = {item.id: item for item in listed}
+    assert by_id["b"].last_damage_type == "frame_mismatch"
+    assert by_id["b"].repairable is True
+
 
 async def test_second_start_raises_job_conflict(tmp_path: Path) -> None:
     import threading
@@ -175,6 +180,27 @@ async def test_stream_events_emits_snapshot_then_items_then_complete(
     assert types[0] == "snapshot"
     assert "complete" == types[-1]
     assert "item" in types
+
+
+async def test_stream_events_uses_job_error_for_terminal_failure(tmp_path: Path) -> None:
+    _make_dataset(tmp_path, "a")
+
+    def diagnose(dataset_dir: Path) -> DiagnosisResult:
+        raise RuntimeError(f"boom: {dataset_dir.name}")
+
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=diagnose)
+    job = await coord.start_diagnosis(DiagnoseRequest())
+    await _wait_for_phase(coord, job.job_id, {"failed"})
+
+    events: list[dict] = []
+    async for event in coord.stream_events(job.job_id):
+        events.append(event)
+
+    assert [event["type"] for event in events] == ["snapshot", "job-error"]
+    payload = events[-1]["data"]
+    assert payload["job"]["phase"] == "failed"
+    assert payload["job"]["error"] == "boom: a"
+    assert payload["error"] == "boom: a"
 
 
 async def test_diagnose_failure_marks_item_failed(tmp_path: Path) -> None:

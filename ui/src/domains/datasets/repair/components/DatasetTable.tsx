@@ -88,6 +88,9 @@ function DatasetRow({
   dataset: DatasetRepairDataset
   jobItem: DatasetJobItem | undefined
 }) {
+  const damageType = jobItem?.damage_type ?? dataset.last_damage_type
+  const repairable = jobItem?.repairable ?? dataset.repairable
+
   return (
     <tr className="text-tx">
       <td className="px-4 py-3">
@@ -106,8 +109,8 @@ function DatasetRow({
           {dataset.tag}
         </span>
       </td>
-      <td className="px-4 py-3 text-tx2">{damageLabel(dataset.last_damage_type)}</td>
-      <td className="px-4 py-3 text-tx2">{repairableLabel(dataset.repairable)}</td>
+      <td className="px-4 py-3 text-tx2">{damageLabel(damageType)}</td>
+      <td className="px-4 py-3 text-tx2">{repairableLabel(repairable)}</td>
       <td className="px-4 py-3 text-right">
         {jobItem ? (
           <span

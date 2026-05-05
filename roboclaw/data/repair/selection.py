@@ -71,7 +71,7 @@ def _build_record(dataset_dir: Path, root: Path) -> DatasetRepairDataset:
         task=_extract_task(dataset_dir, info),
         tag=status.tag,
         last_damage_type=status.last_damage_type,  # type: ignore[arg-type]
-        repairable=None,
+        repairable=status.repairable,
         cleaned_dataset_id=status.cleaned_dataset_id,
     )
 

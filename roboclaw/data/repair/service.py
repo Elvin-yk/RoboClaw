@@ -36,6 +36,7 @@ DiagnoseFn = Callable[[Path], DiagnosisResult]
 ITEM_BOUNDARY_EXCEPTIONS = (FileNotFoundError, PermissionError, OSError, ValueError)
 TERMINAL_PHASES: set[JobPhase] = {"completed", "failed", "cancelled"}
 ACTIVE_PHASES: set[JobPhase] = {"diagnosing", "repairing", "cancelling"}
+JOB_ERROR_EVENT = "job-error"
 
 
 class JobConflictError(RuntimeError):
@@ -126,13 +127,15 @@ class DatasetRepairCoordinator:
             await queue.put({"type": "snapshot", "data": job.model_dump()})
             if job.phase in TERMINAL_PHASES:
                 yield await queue.get()
-                terminal_event = "error" if job.phase == "failed" else "complete"
-                yield {"type": terminal_event, "data": job.model_dump()}
+                if job.phase == "failed":
+                    yield {"type": JOB_ERROR_EVENT, "data": _job_error_payload(job)}
+                else:
+                    yield {"type": "complete", "data": job.model_dump()}
                 return
             while True:
                 event = await queue.get()
                 yield event
-                if event["type"] in ("complete", "error"):
+                if event["type"] in ("complete", JOB_ERROR_EVENT):
                     return
         finally:
             subs = self._subscribers.get(job_id)
@@ -212,11 +215,12 @@ class DatasetRepairCoordinator:
                 await self._diagnose_one(job, index, dataset)
         except Exception as exc:
             job.phase = "failed"
+            job.error = str(exc)
             job.updated_at = utc_now_iso()
             await self._publish(
                 job.job_id,
-                "error",
-                {"job": job.model_dump(), "error": str(exc)},
+                JOB_ERROR_EVENT,
+                _job_error_payload(job),
             )
             if self._active_job is job:
                 self._active_job = None
@@ -256,6 +260,7 @@ class DatasetRepairCoordinator:
             record_diagnosis,
             dataset_path,
             damage_type=damage,
+            repairable=result.repairable,
             job_id=job.job_id,
         )
         await self._publish(job.job_id, "item", item.model_dump())
@@ -294,6 +299,10 @@ def _bump_summary(summary: DamageSummary, damage: str, repairable: bool) -> None
         summary.unrepairable += 1
 
 
+def _job_error_payload(job: RepairJobState) -> dict:
+    return {"job": job.model_dump(), "error": job.error or "Job failed"}
+
+
 def _safe_dataset_id_path(dataset_id: str) -> PurePosixPath:
     path = PurePosixPath(dataset_id)
     if (
@@ -308,7 +317,7 @@ def _safe_dataset_id_path(dataset_id: str) -> PurePosixPath:
 def _consume_task_exception(task: asyncio.Task) -> None:
     """Done callback that retrieves and discards any worker exception so
     asyncio doesn't log "Task exception was never retrieved".  The exception
-    has already been published as an SSE ``error`` event by the worker.
+    has already been published as an SSE ``job-error`` event by the worker.
     """
     if not task.cancelled():
         task.exception()

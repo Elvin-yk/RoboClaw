@@ -93,10 +93,16 @@ def test_mark_dirty_persists(tmp_path: Path) -> None:
 def test_record_diagnosis_healthy_marks_checked(tmp_path: Path) -> None:
     dataset_dir = _dataset(tmp_path)
 
-    status = record_diagnosis(dataset_dir, damage_type="healthy", job_id="job-1")
+    status = record_diagnosis(
+        dataset_dir,
+        damage_type="healthy",
+        repairable=False,
+        job_id="job-1",
+    )
 
     assert status.tag == "checked"
     assert status.last_damage_type == "healthy"
+    assert status.repairable is False
     assert status.last_diagnosed_at is not None
     assert status.last_repair_job_id == "job-1"
 
@@ -104,10 +110,16 @@ def test_record_diagnosis_healthy_marks_checked(tmp_path: Path) -> None:
 def test_record_diagnosis_non_healthy_stays_dirty(tmp_path: Path) -> None:
     dataset_dir = _dataset(tmp_path)
 
-    status = record_diagnosis(dataset_dir, damage_type="frame_mismatch", job_id="job-2")
+    status = record_diagnosis(
+        dataset_dir,
+        damage_type="frame_mismatch",
+        repairable=True,
+        job_id="job-2",
+    )
 
     assert status.tag == "dirty"
     assert status.last_damage_type == "frame_mismatch"
+    assert status.repairable is True
     assert status.last_diagnosed_at is not None
     assert status.last_checked_at is None
 

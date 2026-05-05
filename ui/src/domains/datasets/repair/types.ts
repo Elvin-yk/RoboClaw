@@ -76,6 +76,7 @@ export interface RepairJobState {
   processed: number
   summary: DamageSummary
   items: DatasetJobItem[]
+  error: string | null
   started_at: string
   updated_at: string
 }

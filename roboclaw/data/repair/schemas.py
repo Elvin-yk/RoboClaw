@@ -87,6 +87,7 @@ class RepairJobState(BaseModel):
     processed: int
     summary: DamageSummary = Field(default_factory=DamageSummary)
     items: list[DatasetJobItem] = Field(default_factory=list)
+    error: str | None = None
     started_at: str
     updated_at: str
 

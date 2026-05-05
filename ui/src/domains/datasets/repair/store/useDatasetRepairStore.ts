@@ -127,7 +127,7 @@ export const useDatasetRepairStore = create<DatasetRepairStore>((set, get) => ({
       jobId,
       (event) => {
         set((state) => ({ currentJob: applyJobEvent(state.currentJob, event) }))
-        if (event.type === 'error' && event.data.error) {
+        if (event.type === 'job-error' && event.data.error) {
           set({ error: event.data.error })
         }
       },

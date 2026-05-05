@@ -122,6 +122,25 @@ def test_tag_filter(tmp_path: Path) -> None:
     }
 
 
+def test_list_datasets_returns_persisted_repairable(tmp_path: Path) -> None:
+    clean = _make_clean_table(tmp_path)
+
+    from roboclaw.data.repair.status import record_diagnosis
+
+    record_diagnosis(
+        clean,
+        damage_type="frame_mismatch",
+        repairable=True,
+        job_id="job-1",
+    )
+
+    items = list_datasets(tmp_path, DatasetRepairFilter())
+
+    assert len(items) == 1
+    assert items[0].last_damage_type == "frame_mismatch"
+    assert items[0].repairable is True
+
+
 def test_sort_by_created_date_desc(tmp_path: Path) -> None:
     _make_clean_table(tmp_path)
     _make_pickup_only_dirname(tmp_path)

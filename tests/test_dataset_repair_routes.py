@@ -206,3 +206,37 @@ async def test_stream_events_yields_snapshot_then_complete(tmp_path: Path) -> No
 
     assert seen[0] == "snapshot"
     assert seen[-1] == "complete"
+
+
+async def test_stream_events_uses_job_error_event_for_business_failure(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    _make_dataset(tmp_path, "a")
+
+    def fail(dataset_dir: Path) -> DiagnosisResult:
+        raise RuntimeError(f"boom: {dataset_dir.name}")
+
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=fail)
+    app = _build_app(coord)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        started = await client.post("/api/dataset-repair/diagnose", json={})
+        assert started.status_code == 200
+        job = started.json()
+
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            snap = await client.get(f"/api/dataset-repair/jobs/{job['job_id']}")
+            assert snap.status_code == 200
+            if snap.json()["phase"] == "failed":
+                break
+
+        response = await client.get(f"/api/dataset-repair/jobs/{job['job_id']}/events")
+
+    assert response.status_code == 200
+    assert "event: snapshot" in response.text
+    assert "event: job-error" in response.text
+    assert '"error": "boom: a"' in response.text
