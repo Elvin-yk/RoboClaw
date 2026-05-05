@@ -31,6 +31,7 @@ export class DualArmScene {
     private arms = new Map<Side, ArmInstance>()
     private model: So101Model | null = null
     private resizeObserver: ResizeObserver | null = null
+    private disposed = false
 
     constructor(private container: HTMLDivElement) {
         const width = container.clientWidth || 800
@@ -62,15 +63,23 @@ export class DualArmScene {
     }
 
     async loadArm(side: Side, model: So101Model): Promise<void> {
+        if (this.disposed || this.arms.has(side)) return
         this.model = model
         const root = new THREE.Group()
         root.position.fromArray(side === 'left' ? model.scene.left_base_xyz : model.scene.right_base_xyz)
         this.scene.add(root)
 
         const robot = await loadUrdf(model.urdf_url)
+        // Mount may have unmounted while STL meshes were loading; bail out
+        // before mutating this.arms / this.scene to avoid leaks.
+        if (this.disposed) return
         root.add(robot)
         const eeLink = (robot.links && robot.links[model.ee_link]) || null
         this.arms.set(side, { side, root, robot, eeLink })
+    }
+
+    async loadArms(model: So101Model): Promise<void> {
+        await Promise.all([this.loadArm('left', model), this.loadArm('right', model)])
     }
 
     /** Apply the joint values for `frame` (interpolated to `frame+1` by `alpha`). */
@@ -103,6 +112,7 @@ export class DualArmScene {
     }
 
     dispose(): void {
+        this.disposed = true
         this.renderer.setAnimationLoop(null)
         this.resizeObserver?.disconnect()
         this.controls.dispose()
@@ -166,4 +176,24 @@ function buildFloor(): THREE.Mesh {
     const mesh = new THREE.Mesh(geom, mat)
     mesh.position.z = -0.001
     return mesh
+}
+
+export interface FrameMetricsSample {
+    left: ArmFrameSample | null
+    right: ArmFrameSample | null
+    relative: { dx: number; dy: number; dz: number; distance: number } | null
+}
+
+export function buildFrameMetrics(samples: ArmFrameSample[]): FrameMetricsSample {
+    const left = samples.find((s) => s.side === 'left') ?? null
+    const right = samples.find((s) => s.side === 'right') ?? null
+    const relative = left && right
+        ? {
+            dx: right.eeWorld.x - left.eeWorld.x,
+            dy: right.eeWorld.y - left.eeWorld.y,
+            dz: right.eeWorld.z - left.eeWorld.z,
+            distance: right.eeWorld.distanceTo(left.eeWorld),
+        }
+        : null
+    return { left, right, relative }
 }
