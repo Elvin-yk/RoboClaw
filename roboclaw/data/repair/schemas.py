@@ -89,6 +89,7 @@ class RepairJobState(BaseModel):
     items: list[DatasetJobItem] = Field(default_factory=list)
     started_at: str
     updated_at: str
+    error: str | None = None
 
 
 class DiagnoseRequest(BaseModel):

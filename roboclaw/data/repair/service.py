@@ -72,8 +72,24 @@ class DatasetRepairCoordinator:
         self,
         filters: DatasetRepairFilter,
     ) -> list[DatasetRepairDataset]:
-        root = Path(filters.root) if filters.root else self._datasets_root
+        root = self._resolve_scan_root(filters.root)
         return await asyncio.to_thread(selection.list_datasets, root, filters)
+
+    def _resolve_scan_root(self, requested: str | None) -> Path:
+        """Reject any caller-supplied root that escapes the configured scan
+        area. Without this, ``filters.root`` would let the API scan arbitrary
+        directories and trigger ``ensure_status`` writes wherever the process
+        has write access.
+        """
+        if not requested:
+            return self._datasets_root
+        candidate = Path(requested).expanduser().resolve()
+        anchor = self._datasets_root.resolve()
+        if candidate != anchor and not candidate.is_relative_to(anchor):
+            raise ValueError(
+                f"root must be inside {anchor}; got {candidate}"
+            )
+        return candidate
 
     async def get_current_job(self) -> RepairJobState | None:
         return self._active_job
@@ -120,8 +136,18 @@ class DatasetRepairCoordinator:
             await queue.put({"type": "snapshot", "data": job.model_dump()})
             if job.phase in TERMINAL_PHASES:
                 yield await queue.get()
-                terminal_event = "error" if job.phase == "failed" else "complete"
-                yield {"type": terminal_event, "data": job.model_dump()}
+                if job.phase == "failed":
+                    # Match the live-failure shape so late subscribers don't
+                    # lose ``data.error`` (the frontend reducer reads it).
+                    yield {
+                        "type": "error",
+                        "data": {
+                            "job": job.model_dump(),
+                            "error": job.error or "job failed",
+                        },
+                    }
+                else:
+                    yield {"type": "complete", "data": job.model_dump()}
                 return
             while True:
                 event = await queue.get()
@@ -192,11 +218,12 @@ class DatasetRepairCoordinator:
                 await self._diagnose_one(job, index, dataset)
         except Exception as exc:
             job.phase = "failed"
+            job.error = str(exc)
             job.updated_at = utc_now_iso()
             await self._publish(
                 job.job_id,
                 "error",
-                {"job": job.model_dump(), "error": str(exc)},
+                {"job": job.model_dump(), "error": job.error},
             )
             if self._active_job is job:
                 self._active_job = None
