@@ -82,7 +82,24 @@ async def test_diagnose_then_jobs_current(tmp_path: Path) -> None:
         assert final["phase"] == "completed"
 
 
-def test_diagnose_conflict_returns_409(tmp_path: Path) -> None:
+async def _wait_for_thread_event(event: threading.Event, *, timeout: float = 2.0) -> None:
+    """Poll a ``threading.Event`` from async code without blocking the loop.
+
+    ``event.wait(timeout)`` is a synchronous block that prevents the worker
+    coroutine — scheduled by the route handler we just awaited — from running.
+    Polling with ``await asyncio.sleep`` lets the loop interleave the worker.
+    """
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        if event.is_set():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("event was not set within timeout")
+
+
+async def test_diagnose_conflict_returns_409(tmp_path: Path) -> None:
+    import httpx
+
     _make_dataset(tmp_path, "a")
     started = threading.Event()
     release = threading.Event()
@@ -93,16 +110,17 @@ def test_diagnose_conflict_returns_409(tmp_path: Path) -> None:
         return _healthy(dataset_dir)
 
     coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow)
-    client = TestClient(_build_app(coord))
+    app = _build_app(coord)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/dataset-repair/diagnose", json={})
+        assert first.status_code == 200
+        await _wait_for_thread_event(started)
 
-    first = client.post("/api/dataset-repair/diagnose", json={})
-    assert first.status_code == 200
-    assert started.wait(timeout=1.0)
-
-    second = client.post("/api/dataset-repair/diagnose", json={})
-    assert second.status_code == 409
-    detail = second.json()["detail"]
-    assert detail["phase"] in ("diagnosing", "cancelling")
+        second = await client.post("/api/dataset-repair/diagnose", json={})
+        assert second.status_code == 409
+        detail = second.json()["detail"]
+        assert detail["phase"] in ("diagnosing", "cancelling")
 
     release.set()
 
@@ -116,7 +134,9 @@ def test_jobs_current_when_idle(tmp_path: Path) -> None:
     assert response.json() == {"job": None}
 
 
-def test_jobs_current_when_active(tmp_path: Path) -> None:
+async def test_jobs_current_when_active(tmp_path: Path) -> None:
+    import httpx
+
     _make_dataset(tmp_path, "a")
     started = threading.Event()
     release = threading.Event()
@@ -127,17 +147,18 @@ def test_jobs_current_when_active(tmp_path: Path) -> None:
         return _healthy(dataset_dir)
 
     coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=slow)
-    client = TestClient(_build_app(coord))
+    app = _build_app(coord)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        started_resp = await client.post("/api/dataset-repair/diagnose", json={})
+        assert started_resp.status_code == 200
+        await _wait_for_thread_event(started)
 
-    started_resp = client.post("/api/dataset-repair/diagnose", json={})
-    assert started_resp.status_code == 200
-    assert started.wait(timeout=1.0)
-
-    current = client.get("/api/dataset-repair/jobs/current")
-    assert current.status_code == 200
-    body = current.json()
-    assert body["job"] is not None
-    assert body["job"]["phase"] in ("diagnosing", "completed")
+        current = await client.get("/api/dataset-repair/jobs/current")
+        assert current.status_code == 200
+        body = current.json()
+        assert body["job"] is not None
+        assert body["job"]["phase"] in ("diagnosing", "completed")
 
     release.set()
 
