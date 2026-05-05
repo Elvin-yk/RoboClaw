@@ -53,6 +53,8 @@ def register_all_routes(
     from roboclaw.http.routes.curation import register_curation_routes
     from roboclaw.http.routes.data_workshop import register_data_workshop_routes
     from roboclaw.http.routes.explorer import register_explorer_routes
+    from roboclaw.http.routes.trajectory_viz import register_trajectory_viz_routes
     register_data_workshop_routes(app)
     register_curation_routes(app)
     register_explorer_routes(app)
+    register_trajectory_viz_routes(app)

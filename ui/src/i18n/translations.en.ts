@@ -9,6 +9,7 @@ export const inlineEn = {
         datasetExplorer: 'Explorer',
         dataWorkshop: 'Data Workshop',
         qualityWorkbench: 'Quality',
+        trajectoryReplay: 'Trajectory Replay',
         workflow: 'Workflow',
         pipelineNav: 'Pipeline',
         curationNav: 'Curation',

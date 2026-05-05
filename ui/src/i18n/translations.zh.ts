@@ -9,6 +9,7 @@ export const inlineZh = {
         datasetExplorer: '数据集浏览',
         dataWorkshop: '数据车间',
         qualityWorkbench: '质量验证',
+        trajectoryReplay: '轨迹回放',
         workflow: '工作流',
         pipelineNav: '数据中心',
         curationNav: '数据策展',

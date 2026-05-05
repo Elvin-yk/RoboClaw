@@ -145,6 +145,7 @@ export default function AppShell() {
     { path: '/curation/text-alignment', label: t('textAlignment') },
     { path: '/curation/data-overview', label: t('dataOverview') },
     { path: '/curation/review', label: t('humanReview') },
+    { path: '/curation/trajectory-viz', label: t('trajectoryReplay') },
   ]
   const pipelineActive = location.pathname.startsWith('/curation')
 
