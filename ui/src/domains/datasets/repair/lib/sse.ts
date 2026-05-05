@@ -27,6 +27,10 @@ export function subscribeJobEvents(
   }
 
   function dispatch(type: JobEventType, raw: MessageEvent): void {
+    // Browser-generated transport ``error`` events surface here too (because
+    // ``error`` is also one of our named server events); they carry no JSON
+    // payload. Skip them — ``onerror`` below already handles disconnects.
+    if (typeof raw.data !== 'string') return
     const data = JSON.parse(raw.data)
     switch (type) {
       case 'snapshot':
