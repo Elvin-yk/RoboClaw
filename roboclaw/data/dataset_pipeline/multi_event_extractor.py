@@ -103,7 +103,7 @@ def extract_event_windows_dataset(
     task: str,
     vcodec: str,
 ) -> Path:
-    from lerobot.utils.critical_phase_extraction_fast import (
+    from roboclaw.data.dataset_pipeline.critical_phase_extraction_fast import (
         extract_critical_phase_dataset_direct,
     )
 
