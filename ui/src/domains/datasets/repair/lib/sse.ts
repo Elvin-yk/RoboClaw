@@ -27,6 +27,9 @@ export function subscribeJobEvents(
   }
 
   function dispatch(type: JobEventType, raw: MessageEvent): void {
+    // Only server-sent business events should be decoded here; native
+    // EventSource transport failures are handled by ``onerror`` below.
+    if (typeof raw.data !== 'string') return
     const data = JSON.parse(raw.data)
     switch (type) {
       case 'snapshot':

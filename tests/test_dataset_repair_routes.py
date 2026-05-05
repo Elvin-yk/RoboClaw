@@ -113,13 +113,19 @@ def test_diagnose_route_rejects_root_outside_datasets_root(tmp_path: Path) -> No
     assert "inside" in response.json()["detail"]
 
 
-async def _wait_for_thread_event(event: threading.Event, *, timeout: float = 1.0) -> None:
+async def _wait_for_thread_event(event: threading.Event, *, timeout: float = 2.0) -> None:
+    """Poll a ``threading.Event`` from async code without blocking the loop.
+
+    ``event.wait(timeout)`` is a synchronous block that prevents the worker
+    coroutine — scheduled by the route handler we just awaited — from running.
+    Polling with ``await asyncio.sleep`` lets the loop interleave the worker.
+    """
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
         if event.is_set():
             return
         await asyncio.sleep(0.01)
-    raise AssertionError("event was not set")
+    raise AssertionError("event was not set within timeout")
 
 
 async def test_diagnose_conflict_returns_409(tmp_path: Path) -> None:

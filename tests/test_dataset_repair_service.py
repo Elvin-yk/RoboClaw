@@ -203,6 +203,34 @@ async def test_stream_events_uses_job_error_for_terminal_failure(tmp_path: Path)
     assert payload["error"] == "boom: a"
 
 
+async def test_late_subscriber_to_failed_job_receives_structured_job_error(
+    tmp_path: Path,
+) -> None:
+    _make_dataset(tmp_path, "a")
+
+    def diagnose(_dataset_dir: Path) -> DiagnosisResult:
+        raise RuntimeError("boom from diagnose")
+
+    coord = DatasetRepairCoordinator(tmp_path, diagnose_fn=diagnose)
+    job = await coord.start_diagnosis(DiagnoseRequest())
+    await _wait_for_phase(coord, job.job_id, {"failed"})
+
+    final = await coord.get_job(job.job_id)
+    assert final is not None
+    assert final.phase == "failed"
+    assert final.error == "boom from diagnose"
+
+    events: list[dict] = []
+    async for event in coord.stream_events(job.job_id):
+        events.append(event)
+
+    job_error_events = [event for event in events if event["type"] == "job-error"]
+    assert len(job_error_events) == 1
+    payload = job_error_events[0]["data"]
+    assert payload["job"]["phase"] == "failed"
+    assert payload["error"] == "boom from diagnose"
+
+
 async def test_diagnose_failure_marks_item_failed(tmp_path: Path) -> None:
     _make_dataset(tmp_path, "a")
     _make_dataset(tmp_path, "b")
@@ -263,3 +291,12 @@ async def test_cleaned_output_path_preserves_dataset_namespace(tmp_path: Path) -
     output_paths = {item.dataset_id: item.output_path for item in job.items}
     assert output_paths["local/foo"] == str(tmp_path / "cleaned" / "local" / "foo")
     assert output_paths["org/foo"] == str(tmp_path / "cleaned" / "org" / "foo")
+
+
+async def test_list_datasets_accepts_root_inside_datasets_root(tmp_path: Path) -> None:
+    inside = tmp_path / "subdir"
+    inside.mkdir()
+    coord = DatasetRepairCoordinator(tmp_path)
+
+    await coord.list_datasets(DatasetRepairFilter(root=str(tmp_path)))
+    await coord.list_datasets(DatasetRepairFilter(root=str(inside)))

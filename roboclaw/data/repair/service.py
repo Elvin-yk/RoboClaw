@@ -282,7 +282,6 @@ class DatasetRepairCoordinator:
             self._active_job = None
             self._cancel_event = None
 
-
     async def _publish(self, job_id: str, event_type: str, data: dict) -> None:
         subs = self._subscribers.get(job_id)
         if not subs:
