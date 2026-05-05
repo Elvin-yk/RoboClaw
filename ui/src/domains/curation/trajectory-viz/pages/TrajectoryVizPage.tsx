@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useTrajectoryVizStore } from '../store'
-import { DualArmScene } from '../scene'
+import { DualArmScene, buildFrameMetrics } from '../scene'
 import { PlaybackClock } from '../playbackClock'
-import type { Signal, TrajectoryPayload } from '../types'
+import MetricsPanel from '../components/MetricsPanel'
+import type { ArmReadout, Signal, TrajectoryPayload } from '../types'
+import type { ArmFrameSample } from '../scene'
 
 const READOUT_HZ = 10
 
@@ -16,33 +18,42 @@ export default function TrajectoryVizPage() {
     const payload = useTrajectoryVizStore((s) => s.payload)
     const loading = useTrajectoryVizStore((s) => s.loading)
     const error = useTrajectoryVizStore((s) => s.error)
-    const dataset = useTrajectoryVizStore((s) => s.dataset)
+    const datasetOptions = useTrajectoryVizStore((s) => s.datasetOptions)
+    const selectedDataset = useTrajectoryVizStore((s) => s.selectedDataset)
+    const episodePage = useTrajectoryVizStore((s) => s.episodePage)
     const episodeIndex = useTrajectoryVizStore((s) => s.episodeIndex)
     const signal = useTrajectoryVizStore((s) => s.signal)
     const speed = useTrajectoryVizStore((s) => s.speed)
     const isPlaying = useTrajectoryVizStore((s) => s.isPlaying)
     const timeSec = useTrajectoryVizStore((s) => s.timeSec)
-    const currentFrame = useTrajectoryVizStore((s) => s.currentFrame)
-    const ee = useTrajectoryVizStore((s) => s.ee)
-    const setDataset = useTrajectoryVizStore((s) => s.setDataset)
-    const setEpisodeIndex = useTrajectoryVizStore((s) => s.setEpisodeIndex)
+    const datasetsLoading = useTrajectoryVizStore((s) => s.datasetsLoading)
+    const episodesLoading = useTrajectoryVizStore((s) => s.episodesLoading)
     const setSignal = useTrajectoryVizStore((s) => s.setSignal)
     const setSpeed = useTrajectoryVizStore((s) => s.setSpeed)
     const loadModel = useTrajectoryVizStore((s) => s.loadModel)
+    const loadDatasets = useTrajectoryVizStore((s) => s.loadDatasets)
+    const selectDataset = useTrajectoryVizStore((s) => s.selectDataset)
+    const loadEpisodes = useTrajectoryVizStore((s) => s.loadEpisodes)
+    const selectEpisode = useTrajectoryVizStore((s) => s.selectEpisode)
     const loadTrajectory = useTrajectoryVizStore((s) => s.loadTrajectory)
     const setPlaying = useTrajectoryVizStore((s) => s.setPlaying)
     const setTime = useTrajectoryVizStore((s) => s.setTime)
-    const setEe = useTrajectoryVizStore((s) => s.setEe)
+    const setMetrics = useTrajectoryVizStore((s) => s.setMetrics)
 
     useEffect(() => {
         void loadModel()
-    }, [loadModel])
+        void loadDatasets()
+    }, [loadModel, loadDatasets])
 
     useEffect(() => {
         if (!model || !containerRef.current || sceneRef.current) return
         const scene = new DualArmScene(containerRef.current)
         sceneRef.current = scene
-        void scene.loadArm('left', model)
+        scene.loadArms(model).catch((err) => {
+            useTrajectoryVizStore.setState({
+                error: err instanceof Error ? err.message : String(err),
+            })
+        })
 
         const clock = new PlaybackClock()
         clockRef.current = clock
@@ -62,20 +73,16 @@ export default function TrajectoryVizPage() {
             const now = performance.now()
             if (now - lastReadoutRef.current < 1000 / READOUT_HZ) return
             lastReadoutRef.current = now
-            setTime(tick.timeSec - startTs, tick.frame)
-            const left = samples.find((s) => s.side === 'left') ?? null
-            const right = samples.find((s) => s.side === 'right') ?? null
-            setEe({
-                leftWorld: left ? [left.eeWorld.x, left.eeWorld.y, left.eeWorld.z] : null,
-                rightWorld: right ? [right.eeWorld.x, right.eeWorld.y, right.eeWorld.z] : null,
-                relative: left && right
-                    ? {
-                        dx: right.eeWorld.x - left.eeWorld.x,
-                        dy: right.eeWorld.y - left.eeWorld.y,
-                        dz: right.eeWorld.z - left.eeWorld.z,
-                        dist: right.eeWorld.distanceTo(left.eeWorld),
-                    }
-                    : null,
+            const elapsed = tick.timeSec - startTs
+            setTime(elapsed, tick.frame)
+            const { left, right, relative } = buildFrameMetrics(samples)
+            setMetrics({
+                frame: tick.frame,
+                rawFrame: current.frame_index[tick.frame] ?? null,
+                timeSec: elapsed,
+                left: armReadout(left),
+                right: armReadout(right),
+                eeRelativeM: relative,
             })
         })
         return () => {
@@ -86,7 +93,7 @@ export default function TrajectoryVizPage() {
             sceneRef.current = null
             clockRef.current = null
         }
-    }, [model, setEe, setTime, setPlaying])
+    }, [model, setMetrics, setTime, setPlaying])
 
     useEffect(() => {
         if (!payload || !clockRef.current) return
@@ -104,28 +111,71 @@ export default function TrajectoryVizPage() {
     }, [isPlaying])
 
     const duration = payload ? payload.time_s[payload.frame_count - 1] - payload.time_s[0] : 0
+    const canLoad = !!selectedDataset && episodeIndex !== null && !loading
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '12px', gap: '12px' }}>
             <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                 <strong>Trajectory Replay</strong>
-                <input
-                    aria-label="dataset"
-                    value={dataset}
-                    onChange={(e) => setDataset(e.target.value)}
-                    placeholder="dataset name"
-                    style={{ padding: '4px 8px', minWidth: 240 }}
-                />
+                <label>
+                    dataset{' '}
+                    <select
+                        aria-label="dataset"
+                        value={selectedDataset?.dataset ?? ''}
+                        onChange={(e) => {
+                            const opt = datasetOptions.find((o) => o.id === e.target.value)
+                            if (opt) void selectDataset(opt)
+                        }}
+                        disabled={datasetsLoading || datasetOptions.length === 0}
+                        style={{ minWidth: 240, padding: '4px 8px' }}
+                    >
+                        {selectedDataset === null && <option value="">— select —</option>}
+                        {datasetOptions.map((opt) => (
+                            <option key={opt.id} value={opt.id}>
+                                {opt.label || opt.id}
+                            </option>
+                        ))}
+                    </select>
+                </label>
                 <label>
                     episode{' '}
-                    <input
+                    <select
                         aria-label="episode index"
-                        type="number"
-                        value={episodeIndex}
-                        onChange={(e) => setEpisodeIndex(Number(e.target.value))}
-                        style={{ width: 60 }}
-                    />
+                        value={episodeIndex ?? ''}
+                        onChange={(e) => {
+                            const v = Number(e.target.value)
+                            if (Number.isFinite(v)) selectEpisode(v)
+                        }}
+                        disabled={episodesLoading || !episodePage || episodePage.episodes.length === 0}
+                        style={{ minWidth: 80 }}
+                    >
+                        {episodeIndex === null && <option value="">—</option>}
+                        {episodePage?.episodes.map((ep) => (
+                            <option key={ep.episode_index} value={ep.episode_index}>
+                                {ep.episode_index}
+                            </option>
+                        ))}
+                    </select>
                 </label>
+                {episodePage && episodePage.total_pages > 1 && (
+                    <span style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+                        <button
+                            onClick={() => selectedDataset && void loadEpisodes(selectedDataset, episodePage.page - 1)}
+                            disabled={episodePage.page <= 1 || episodesLoading}
+                        >
+                            Prev
+                        </button>
+                        <span>
+                            {episodePage.page} / {episodePage.total_pages}
+                        </span>
+                        <button
+                            onClick={() => selectedDataset && void loadEpisodes(selectedDataset, episodePage.page + 1)}
+                            disabled={episodePage.page >= episodePage.total_pages || episodesLoading}
+                        >
+                            Next
+                        </button>
+                    </span>
+                )}
                 <label>
                     signal{' '}
                     <select value={signal} onChange={(e) => setSignal(e.target.value as Signal)}>
@@ -133,10 +183,10 @@ export default function TrajectoryVizPage() {
                         <option value="action">action</option>
                     </select>
                 </label>
-                <button onClick={() => void loadTrajectory()} disabled={loading}>
+                <button onClick={() => void loadTrajectory()} disabled={!canLoad}>
                     Load
                 </button>
-                {loading && <span>loading…</span>}
+                {(loading || datasetsLoading || episodesLoading) && <span>loading…</span>}
                 {error && <span style={{ color: 'crimson' }}>{error}</span>}
             </header>
 
@@ -184,21 +234,16 @@ export default function TrajectoryVizPage() {
                         ))}
                     </select>
                 </div>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#374151' }}>
-                    frame {currentFrame}{payload ? ` / ${payload.frame_count - 1}` : ''}
-                    {ee.leftWorld && (
-                        <>
-                            {' '}| left ee=[
-                            {ee.leftWorld.map((v) => v.toFixed(3)).join(', ')}]
-                        </>
-                    )}
-                    {ee.relative && (
-                        <>
-                            {' '}| dist={ee.relative.dist.toFixed(3)}m
-                        </>
-                    )}
-                </div>
+                <MetricsPanel />
             </footer>
         </div>
     )
+}
+
+function armReadout(sample: ArmFrameSample | null): ArmReadout {
+    if (!sample) return { jointDegrees: {}, eeWorldM: null }
+    return {
+        jointDegrees: sample.jointDegrees,
+        eeWorldM: [sample.eeWorld.x, sample.eeWorld.y, sample.eeWorld.z],
+    }
 }
