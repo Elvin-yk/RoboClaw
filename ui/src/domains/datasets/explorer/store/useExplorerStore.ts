@@ -62,11 +62,19 @@ export interface ExplorerEpisodePage {
   page_size: number
   total_episodes: number
   total_pages: number
-  episodes: Array<{ episode_index: number; length: number }>
+  episodes: Array<{
+    episode_index: number
+    length: number
+    source_episode_index?: number
+    source_dataset?: string
+    source_label?: string
+  }>
 }
 
 export interface EpisodeDetail {
   episode_index: number
+  source_episode_index?: number
+  source_dataset?: string
   summary: {
     row_count: number
     fps: number
@@ -89,6 +97,9 @@ export interface DatasetSuggestion {
   label?: string
   path?: string
   source?: 'remote' | 'local' | 'path'
+  source_kind?: string
+  dataset_count?: number
+  is_collection?: boolean
 }
 
 export type ExplorerSource = 'remote' | 'local' | 'path'

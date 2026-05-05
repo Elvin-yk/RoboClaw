@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from roboclaw.data.local_discovery import iter_data_files
+
 from .bridge import read_parquet_rows, write_parquet_rows
 from .propagation import build_hf_annotation_rows
 from .state import (
@@ -452,7 +454,7 @@ def _episodes_parquet_files(dataset_path: Path) -> list[Path]:
     episodes_root = dataset_path / "meta" / "episodes"
     if not episodes_root.exists():
         return []
-    return sorted(episodes_root.rglob("*.parquet"))
+    return list(iter_data_files(episodes_root, "*.parquet"))
 
 
 def _build_episode_instruction_overrides(
@@ -611,7 +613,7 @@ def _write_data_task_indices(
     if not data_root.exists():
         return []
     updated_files: list[str] = []
-    for data_file in sorted(data_root.rglob("*.parquet")):
+    for data_file in iter_data_files(data_root, "*.parquet"):
         df = pd.read_parquet(data_file)
         if "episode_index" not in df.columns:
             raise ValueError(f"Data parquet '{data_file}' has no episode_index column")

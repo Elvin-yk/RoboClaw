@@ -8,6 +8,9 @@ from math import ceil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.curation.bridge import read_parquet_rows
+from roboclaw.data.local_discovery import iter_data_files
+
 # ---------------------------------------------------------------------------
 # Feature shape / component extraction
 # ---------------------------------------------------------------------------
@@ -149,11 +152,10 @@ def summarize_dataset_stats(feature_stats: list[dict[str, Any]]) -> dict[str, An
 
 def summarize_files(siblings: list[dict[str, Any]]) -> dict[str, Any]:
     filenames = [item.get("rfilename", "") for item in siblings if item.get("rfilename")]
+    parquet_files = sum(1 for name in filenames if name.endswith(".parquet"))
+    video_files = sum(1 for name in filenames if name.endswith(".mp4"))
     meta_files = sum(1 for name in filenames if name.startswith("meta/"))
-    non_meta = [name for name in filenames if not name.startswith("meta/")]
-    parquet_files = sum(1 for name in non_meta if name.endswith(".parquet"))
-    video_files = sum(1 for name in non_meta if name.endswith(".mp4"))
-    other_files = len(non_meta) - parquet_files - video_files
+    other_files = len(filenames) - parquet_files - video_files
     return {
         "total_files": len(filenames),
         "parquet_files": parquet_files,
@@ -231,16 +233,21 @@ def load_json_file(path: Path) -> dict[str, Any]:
 
 def load_episodes_list_file(dataset_path: Path) -> list[dict[str, Any]]:
     episodes_path = dataset_path / "meta" / "episodes.jsonl"
-    if not episodes_path.exists():
-        return []
-    result: list[dict[str, Any]] = []
-    for line in episodes_path.read_text(encoding="utf-8").strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        entry = json.loads(line)
-        result.append(entry)
-    return result
+    if episodes_path.exists():
+        result: list[dict[str, Any]] = []
+        for line in episodes_path.read_text(encoding="utf-8").strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            result.append(entry)
+        return result
+
+    episodes_root = dataset_path / "meta" / "episodes"
+    rows: list[dict[str, Any]] = []
+    for parquet_path in iter_data_files(episodes_root, "*.parquet"):
+        rows.extend(read_parquet_rows(parquet_path))
+    return sorted(rows, key=lambda item: int(item.get("episode_index", 0) or 0))
 
 
 def build_explorer_payload_from_artifacts(

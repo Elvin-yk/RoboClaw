@@ -4,6 +4,7 @@ import type {
   AlignmentOverview,
   AnnotationWorkspacePayload,
   LocalDirectorySessionResult,
+  LocalPathSessionResult,
   PropagationResults,
   PrototypeResults,
   QualityDefaults,
@@ -37,6 +38,7 @@ export type {
   JointTrajectoryEntry,
   JointTrajectoryPayload,
   LocalDirectorySessionResult,
+  LocalPathSessionResult,
   PropagationResultItem,
   PropagationResults,
   PropagationSpan,
@@ -230,6 +232,23 @@ export const useWorkflow = create<WorkflowStore>((set, get) => ({
     await get().loadDatasets()
     persistDataset(payload.dataset_name)
     await get().selectDataset(payload.dataset_name)
+    return payload
+  },
+
+  createLocalPathSession: async (path, displayName) => {
+    const payload = await fetchJson<LocalPathSessionResult>('/api/explorer/local-path-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path,
+        display_name: displayName,
+      }),
+    })
+    await get().loadDatasets()
+    if ((payload.dataset_count ?? 1) <= 1) {
+      persistDataset(payload.dataset_name)
+      await get().selectDataset(payload.dataset_name)
+    }
     return payload
   },
 

@@ -16,7 +16,7 @@ from uuid import uuid4
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
-from huggingface_hub.errors import HFValidationError, HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub.errors import HfHubHTTPError, HFValidationError, RepositoryNotFoundError
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ from roboclaw.data.datasets import (
     get_dataset_info,
     list_datasets,
 )
+from roboclaw.data.local_discovery import is_dataset_dir
 
 # Module-level service singleton
 _service = CurationService()
@@ -121,6 +122,11 @@ def resolve_dataset_path(name: str) -> Path:
     - Workspace datasets under ``datasets_root()`` (including nested HF names).
     - Prepared dataset sessions (e.g. ``session:remote:...``).
     """
+    if dataset_sessions.is_local_collection_handle(name):
+        raise HTTPException(
+            status_code=409,
+            detail="Dataset collections are browsable; choose a child LeRobot dataset for curation.",
+        )
     if dataset_sessions.is_session_handle(name):
         return dataset_sessions.resolve_session_dataset_path(name)
 
@@ -129,20 +135,17 @@ def resolve_dataset_path(name: str) -> Path:
         raise HTTPException(status_code=404, detail=f"Datasets root '{root}' does not exist")
     resolved_root = root.resolve()
 
-    def _is_safe(path: Path) -> bool:
+    def _is_safe_dataset(path: Path) -> bool:
         resolved = path.resolve()
-        return resolved.is_dir() and str(resolved).startswith(str(resolved_root) + "/")
+        return (
+            resolved.is_dir()
+            and resolved.is_relative_to(resolved_root)
+            and is_dataset_dir(resolved)
+        )
 
     direct = root / name
-    if _is_safe(direct):
+    if _is_safe_dataset(direct):
         return direct.resolve()
-
-    for parent in root.iterdir():
-        if not parent.is_dir():
-            continue
-        candidate = parent / name
-        if _is_safe(candidate):
-            return candidate.resolve()
 
     raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 

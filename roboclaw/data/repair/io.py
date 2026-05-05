@@ -12,6 +12,8 @@ import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from roboclaw.data.local_discovery import iter_data_files, iter_dataset_dirs
+
 log = logging.getLogger(__name__)
 
 DEFAULT_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
@@ -149,11 +151,10 @@ def safe_read_parquet_table(path: Path, columns: list[str] | None = None) -> pa.
 
 
 def scan_parquet_files(dataset_dir: Path) -> tuple[int, int, int]:
-    parquet_files = sorted((dataset_dir / "data").rglob("*.parquet"))
     episode_indices: set[int] = set()
     total_rows = 0
     valid_files = 0
-    for parquet_path in parquet_files:
+    for parquet_path in iter_data_files(dataset_dir / "data", "*.parquet"):
         metadata = safe_read_parquet_metadata(parquet_path)
         if metadata is None:
             continue
@@ -200,4 +201,4 @@ def find_datasets(target: Path) -> list[Path]:
         return [target]
     if not target.is_dir():
         return []
-    return [entry for entry in sorted(target.iterdir()) if entry.is_dir() and is_dataset_dir(entry)]
+    return list(iter_dataset_dirs(target))

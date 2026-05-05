@@ -125,7 +125,9 @@ def patch_episodes_video_columns(dataset_dir: Path, video_keys: list[str], n_fra
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    episode_parquets = sorted((dataset_dir / "meta" / "episodes").rglob("*.parquet"))
+    from roboclaw.data.local_discovery import iter_data_files
+
+    episode_parquets = list(iter_data_files(dataset_dir / "meta" / "episodes", "*.parquet"))
     if not episode_parquets:
         return
 
@@ -518,7 +520,9 @@ class DatasetRepairService:
         import pyarrow.parquet as pq
 
         remaining = n_keep
-        for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
+        from roboclaw.data.local_discovery import iter_data_files
+
+        for parquet_path in iter_data_files(dataset_dir / "data", "*.parquet"):
             metadata = safe_read_parquet_metadata(parquet_path)
             if metadata is None:
                 parquet_path.unlink()

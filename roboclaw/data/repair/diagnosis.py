@@ -233,7 +233,9 @@ class DatasetDiagnosisService:
             errors.append(f"total_frames={total_frames} (expected > 0)")
 
         parquet_rows = 0
-        for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
+        from roboclaw.data.local_discovery import iter_data_files
+
+        for parquet_path in iter_data_files(dataset_dir / "data", "*.parquet"):
             metadata = safe_read_parquet_metadata(parquet_path)
             table = safe_read_parquet_table(parquet_path)
             if metadata is None or table is None:

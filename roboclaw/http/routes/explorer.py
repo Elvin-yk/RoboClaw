@@ -24,8 +24,16 @@ from roboclaw.data.curation.features import (
 )
 from roboclaw.data.curation.paths import datasets_root
 from roboclaw.data.dataset_sessions import (
+    create_local_path_session,
     create_uploaded_directory_session,
+    is_local_collection_handle,
     register_remote_dataset_session,
+)
+from roboclaw.data.explorer.collections import (
+    build_collection_details,
+    build_collection_episode_page,
+    build_collection_summary,
+    resolve_collection_episode,
 )
 from roboclaw.data.explorer.dual_source import (
     list_local_dataset_options,
@@ -56,6 +64,11 @@ class ExplorerPrepareRequest(BaseModel):
     dataset_id: str
     include_videos: bool = False
     force: bool = False
+
+
+class ExplorerLocalPathSessionRequest(BaseModel):
+    path: str
+    display_name: str | None = None
 
 
 T = TypeVar("T")
@@ -178,6 +191,8 @@ def _local_dataset_name(dataset_path: Path) -> str:
 
 
 def _build_local_explorer_details(dataset_path: Path, dataset_name: str) -> dict[str, Any]:
+    if is_local_collection_handle(dataset_name):
+        return build_collection_details(dataset_name)
     info = load_json_file(dataset_path / "meta" / "info.json")
     stats = load_json_file(dataset_path / "meta" / "stats.json")
     siblings = scan_dataset_siblings(dataset_path)
@@ -190,6 +205,8 @@ def _build_local_explorer_details(dataset_path: Path, dataset_name: str) -> dict
 
 
 def _build_local_explorer_summary(dataset_path: Path, dataset_name: str) -> dict[str, Any]:
+    if is_local_collection_handle(dataset_name):
+        return build_collection_summary(dataset_name)
     info = load_json_file(dataset_path / "meta" / "info.json")
     return build_explorer_summary_from_info(dataset_name, info)
 
@@ -200,6 +217,8 @@ def _build_local_episode_page(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
+    if is_local_collection_handle(dataset_name):
+        return build_collection_episode_page(dataset_name, page, page_size)
     info = load_json_file(dataset_path / "meta" / "info.json")
     episodes_meta = load_episodes_list_file(dataset_path)
     return build_explorer_episode_page_from_artifacts(
@@ -253,7 +272,11 @@ def _build_local_episode_payload(
     preview: bool,
     source: str,
 ) -> dict[str, Any]:
-    data = load_episode_data(dataset_path, episode_index)
+    source_dataset = dataset_name
+    source_episode_index = episode_index
+    if is_local_collection_handle(dataset_name):
+        source_dataset, dataset_path, source_episode_index = resolve_collection_episode(dataset_name, episode_index)
+    data = load_episode_data(dataset_path, source_episode_index)
     info = data.get("info", {})
     rows = data.get("rows", [])
     action_names = extract_action_names(info)
@@ -264,6 +287,7 @@ def _build_local_episode_payload(
     duration_s = max(end_ts - start_ts, 0.0) if start_ts is not None and end_ts is not None else 0.0
 
     videos: list[dict[str, Any]] = []
+    dataset_ref = data.get("dataset_ref", source_dataset)
     for video_path in data.get("video_files", []):
         relative_path = video_path.relative_to(dataset_path).as_posix()
         if source == "path":
@@ -274,7 +298,7 @@ def _build_local_episode_payload(
         else:
             url = (
                 f"/api/explorer/local-video/{relative_path}"
-                f"?source=local&dataset={quote(dataset_name, safe='')}"
+                f"?source=local&dataset={quote(str(dataset_ref), safe='')}"
             )
         videos.append({
             "path": relative_path,
@@ -286,6 +310,8 @@ def _build_local_episode_payload(
 
     return {
         "episode_index": episode_index,
+        "source_episode_index": source_episode_index,
+        "source_dataset": source_dataset,
         "summary": {
             "row_count": len(rows),
             "fps": info.get("fps", 0),
@@ -318,7 +344,7 @@ def _resolve_dataset_context(
                 detail="Local explorer requests require a local dataset name",
             )
         dataset_path = resolve_local_dataset_path(dataset.strip())
-        return resolved_source, _local_dataset_name(dataset_path), dataset_path
+        return resolved_source, dataset.strip(), dataset_path
 
     if not path or not path.strip():
         raise HTTPException(
@@ -595,6 +621,19 @@ def register_explorer_routes(app: FastAPI) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Explorer created local directory session '{}'", payload["dataset_name"])
+        return payload
+
+    @app.post("/api/explorer/local-path-session")
+    async def explorer_local_path_session(body: ExplorerLocalPathSessionRequest) -> dict[str, Any]:
+        try:
+            payload = await asyncio.to_thread(
+                create_local_path_session,
+                path=body.path,
+                display_name=body.display_name,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.info("Explorer created local path session '{}'", payload["dataset_name"])
         return payload
 
     @app.get("/api/explorer/local-video/{path:path}")

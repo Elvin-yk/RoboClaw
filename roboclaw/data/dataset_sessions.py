@@ -1,4 +1,4 @@
-"""Dataset session handles for cache-backed remote and uploaded local datasets."""
+"""Dataset session handles for cache-backed remote and local datasets."""
 
 from __future__ import annotations
 
@@ -11,9 +11,10 @@ from uuid import uuid4
 
 from huggingface_hub import snapshot_download
 
+from roboclaw.data.local_discovery import is_dataset_dir, iter_dataset_dirs
 from roboclaw.embodied.embodiment.manifest.helpers import get_manifest_path, get_roboclaw_home
 
-SessionKind = Literal["remote", "local_directory"]
+SessionKind = Literal["remote", "local_directory", "local_path", "local_collection"]
 SESSION_PREFIX = "session"
 
 
@@ -72,7 +73,7 @@ def parse_session_handle(handle: str) -> tuple[SessionKind, str] | None:
     if len(parts) != 3 or parts[0] != SESSION_PREFIX:
         return None
     kind = parts[1]
-    if kind not in {"remote", "local_directory"}:
+    if kind not in {"remote", "local_directory", "local_path", "local_collection"}:
         return None
     session_id = parts[2]
     if not _is_safe_session_id(session_id):
@@ -82,6 +83,11 @@ def parse_session_handle(handle: str) -> tuple[SessionKind, str] | None:
 
 def is_session_handle(handle: str) -> bool:
     return parse_session_handle(handle) is not None
+
+
+def is_local_collection_handle(handle: str) -> bool:
+    parsed = parse_session_handle(handle)
+    return parsed is not None and parsed[0] == "local_collection"
 
 
 def _is_safe_session_id(session_id: str) -> bool:
@@ -96,6 +102,10 @@ def resolve_session_dataset_path(handle: str) -> Path:
     if parsed is None:
         raise ValueError(f"Invalid dataset session handle '{handle}'")
     kind, session_id = parsed
+    if kind == "local_path":
+        return _resolve_local_path_session_dataset(kind, session_id)
+    if kind == "local_collection":
+        return _resolve_local_collection_session_root(kind, session_id)
     dataset_dir = _dataset_dir(kind, session_id)
     if not dataset_dir.is_dir():
         raise FileNotFoundError(f"Dataset session '{handle}' not found")
@@ -146,6 +156,7 @@ def _build_dataset_summary_from_dir(
         "name": handle,
         "display_name": display_name,
         "source_kind": source_kind,
+        "local_path": str(dataset_dir.resolve()),
         "total_episodes": int(info.get("total_episodes", 0) or 0),
         "total_frames": int(info.get("total_frames", 0) or 0),
         "fps": int(info.get("fps", 0) or 0),
@@ -154,6 +165,27 @@ def _build_dataset_summary_from_dir(
         "features": list((info.get("features") or {}).keys()),
         "source_dataset": source_dataset,
     }
+
+
+def _resolve_local_path_session_dataset(kind: SessionKind, session_id: str) -> Path:
+    metadata = json.loads(_meta_path(kind, session_id).read_text(encoding="utf-8"))
+    dataset_dir = Path(str(metadata.get("dataset_dir") or "")).expanduser().resolve()
+    if not is_dataset_dir(dataset_dir):
+        handle = make_session_handle(kind, session_id)
+        raise FileNotFoundError(f"Dataset session '{handle}' is missing meta/info.json")
+    return dataset_dir
+
+
+def _resolve_local_collection_session_root(kind: SessionKind, session_id: str) -> Path:
+    metadata = json.loads(_meta_path(kind, session_id).read_text(encoding="utf-8"))
+    root = Path(str(metadata.get("dataset_dir") or "")).expanduser().resolve()
+    if not root.is_dir():
+        handle = make_session_handle(kind, session_id)
+        raise FileNotFoundError(f"Dataset collection session '{handle}' root not found")
+    if not _local_collection_dataset_items_from_metadata(metadata):
+        handle = make_session_handle(kind, session_id)
+        raise FileNotFoundError(f"Dataset collection session '{handle}' has no readable datasets")
+    return root
 
 
 def register_remote_dataset_session(
@@ -264,13 +296,192 @@ def create_uploaded_directory_session(
     }
 
 
-def list_session_dataset_summaries(*, include_remote: bool = True, include_local_directory: bool = True) -> list[dict[str, Any]]:
+def create_local_path_session(
+    *,
+    path: str | Path,
+    display_name: str | None = None,
+) -> dict[str, Any]:
+    root = Path(path).expanduser().resolve()
+    dataset_dirs = [root] if is_dataset_dir(root) else list(iter_dataset_dirs(root))
+    if not dataset_dirs:
+        raise FileNotFoundError(f"Dataset path '{root}' does not contain any meta/info.json")
+
+    sessions = [
+        _create_single_local_path_session(
+            dataset_dir=dataset_dir,
+            display_name=_local_path_session_display_name(
+                root=root,
+                dataset_dir=dataset_dir,
+                requested_display_name=display_name,
+                use_requested_display_name=len(dataset_dirs) == 1,
+            ),
+            label=_local_path_session_label(root, dataset_dir),
+        )
+        for dataset_dir in dataset_dirs
+    ]
+    if len(sessions) > 1:
+        collection = _create_local_collection_session(
+            root=root,
+            display_name=display_name or root.name,
+            sessions=sessions,
+        )
+        return {
+            "dataset_name": collection["dataset_name"],
+            "display_name": collection["display_name"],
+            "local_path": collection["local_path"],
+            "summary": collection["summary"],
+            "dataset_count": len(sessions),
+            "datasets": [
+                {
+                    "id": collection["dataset_name"],
+                    "label": collection["label"],
+                    "path": collection["local_path"],
+                    "source": "local",
+                    "source_kind": "local_path_collection",
+                    "summary": collection["summary"],
+                    "dataset_count": len(sessions),
+                    "is_collection": True,
+                },
+                *[
+                    {
+                        "id": item["dataset_name"],
+                        "label": item["label"],
+                        "path": item["local_path"],
+                        "source": "local",
+                        "source_kind": "local_path_session",
+                        "summary": item["summary"],
+                    }
+                    for item in sessions
+                ],
+            ],
+        }
+
+    primary = sessions[0]
+    return {
+        "dataset_name": primary["dataset_name"],
+        "display_name": primary["display_name"],
+        "local_path": primary["local_path"],
+        "summary": primary["summary"],
+        "dataset_count": 1,
+        "datasets": [
+            {
+                "id": item["dataset_name"],
+                "label": item["label"],
+                "path": item["local_path"],
+                "source": "local",
+                "source_kind": "local_path_session",
+                "summary": item["summary"],
+            }
+            for item in sessions
+        ],
+    }
+
+
+def _create_local_collection_session(
+    *,
+    root: Path,
+    display_name: str,
+    sessions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    session_id = hashlib.sha1(f"collection:{root}".encode("utf-8")).hexdigest()[:16]
+    handle = make_session_handle("local_collection", session_id)
+    metadata = {
+        "handle": handle,
+        "kind": "local_collection",
+        "session_id": session_id,
+        "display_name": display_name,
+        "source_dataset": str(root),
+        "dataset_dir": str(root),
+        "datasets": [
+            {
+                "id": item["dataset_name"],
+                "label": item["label"],
+                "path": item["local_path"],
+                "source": "local",
+                "source_kind": "local_path_session",
+            }
+            for item in sessions
+        ],
+    }
+    _write_session_metadata("local_collection", session_id, metadata)
+    summary = _build_collection_summary_from_metadata(metadata)
+    return {
+        "dataset_name": handle,
+        "display_name": display_name,
+        "label": f"{display_name} (all datasets)",
+        "local_path": str(root),
+        "summary": summary,
+    }
+
+
+def _create_single_local_path_session(
+    *,
+    dataset_dir: Path,
+    display_name: str,
+    label: str,
+) -> dict[str, Any]:
+    session_id = hashlib.sha1(str(dataset_dir).encode("utf-8")).hexdigest()[:16]
+    handle = make_session_handle("local_path", session_id)
+    metadata = {
+        "handle": handle,
+        "kind": "local_path",
+        "session_id": session_id,
+        "display_name": display_name,
+        "source_dataset": str(dataset_dir),
+        "dataset_dir": str(dataset_dir),
+    }
+    _write_session_metadata("local_path", session_id, metadata)
+    summary = _build_dataset_summary_from_dir(
+        dataset_dir=dataset_dir,
+        handle=handle,
+        display_name=display_name,
+        source_kind="local_path_session",
+        source_dataset=str(dataset_dir),
+    )
+    return {
+        "dataset_name": handle,
+        "display_name": display_name,
+        "label": label,
+        "local_path": str(dataset_dir),
+        "summary": summary,
+    }
+
+
+def _local_path_session_label(root: Path, dataset_dir: Path) -> str:
+    if root == dataset_dir:
+        return dataset_dir.name
+    return dataset_dir.relative_to(root).as_posix()
+
+
+def _local_path_session_display_name(
+    *,
+    root: Path,
+    dataset_dir: Path,
+    requested_display_name: str | None,
+    use_requested_display_name: bool,
+) -> str:
+    if use_requested_display_name and requested_display_name:
+        return requested_display_name
+    return _local_path_session_label(root, dataset_dir)
+
+
+def list_session_dataset_summaries(
+    *,
+    include_remote: bool = True,
+    include_local_directory: bool = True,
+    include_local_path: bool = True,
+    include_local_collection: bool = False,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     kinds: list[SessionKind] = []
     if include_remote:
         kinds.append("remote")
     if include_local_directory:
         kinds.append("local_directory")
+    if include_local_collection:
+        kinds.append("local_collection")
+    if include_local_path:
+        kinds.append("local_path")
 
     for kind in kinds:
         kind_root = _session_root() / kind
@@ -281,16 +492,46 @@ def list_session_dataset_summaries(*, include_remote: bool = True, include_local
                 continue
             session_id = session_dir.name
             handle = make_session_handle(kind, session_id)
+            if not _session_metadata_exists(kind, session_id):
+                continue
             metadata = read_session_metadata(handle)
+            if kind == "local_collection":
+                summary = _build_collection_summary_from_metadata(metadata)
+                if int(summary.get("dataset_count", 0) or 0) > 0:
+                    results.append(summary)
+                continue
+            dataset_dir = _dataset_dir_from_session(kind, session_id, metadata)
+            if not is_dataset_dir(dataset_dir):
+                continue
             summary = _build_dataset_summary_from_dir(
-                dataset_dir=_dataset_dir(kind, session_id),
+                dataset_dir=dataset_dir,
                 handle=handle,
                 display_name=str(metadata.get("display_name") or handle),
-                source_kind="remote_session" if kind == "remote" else "local_directory_session",
+                source_kind=_source_kind_for_session(kind),
                 source_dataset=str(metadata.get("source_dataset") or metadata.get("display_name") or handle),
             )
             results.append(summary)
     return results
+
+
+def _dataset_dir_from_session(kind: SessionKind, session_id: str, metadata: dict[str, Any]) -> Path:
+    if kind == "local_path":
+        return Path(str(metadata.get("dataset_dir") or "")).expanduser().resolve()
+    return _dataset_dir(kind, session_id)
+
+
+def _source_kind_for_session(kind: str) -> str:
+    if kind == "remote":
+        return "remote_session"
+    if kind == "local_path":
+        return "local_path_session"
+    if kind == "local_collection":
+        return "local_path_collection"
+    return "local_directory_session"
+
+
+def _session_metadata_exists(kind: SessionKind, session_id: str) -> bool:
+    return _meta_path(kind, session_id).is_file()
 
 
 def list_curation_dataset_summaries() -> list[dict[str, Any]]:
@@ -306,6 +547,7 @@ def list_curation_dataset_summaries() -> list[dict[str, Any]]:
     return workspace_items + list_session_dataset_summaries(
         include_remote=True,
         include_local_directory=True,
+        include_local_path=True,
     )
 
 
@@ -315,7 +557,7 @@ def list_local_dataset_options() -> list[dict[str, Any]]:
         {
             "id": item["name"],
             "label": item["name"],
-            "path": str((workspace_root / item["name"]).resolve()),
+            "path": item["path"],
             "source": "local",
             "source_kind": "workspace",
         }
@@ -326,13 +568,19 @@ def list_local_dataset_options() -> list[dict[str, Any]]:
         {
             "id": item["name"],
             "label": str(item.get("display_name") or item["name"]),
-            "path": "",
+            "path": str(item.get("local_path") or ""),
             "source": "local",
             "source_kind": item.get("source_kind", "local_directory_session"),
+            **({
+                "dataset_count": int(item.get("dataset_count", 0) or 0),
+                "is_collection": True,
+            } if item.get("source_kind") == "local_path_collection" else {}),
         }
         for item in list_session_dataset_summaries(
             include_remote=False,
             include_local_directory=True,
+            include_local_path=True,
+            include_local_collection=True,
         )
     ]
     return workspace_items + session_items
@@ -343,27 +591,13 @@ def _workspace_list_datasets(root: Path) -> list[dict[str, Any]]:
         return []
 
     datasets: list[dict[str, Any]] = []
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
-            continue
-        info = _read_workspace_dataset_info(root, entry)
-        if info is not None:
-            datasets.append(info)
-            continue
-        for sub in sorted(entry.iterdir()):
-            if not sub.is_dir():
-                continue
-            info = _read_workspace_dataset_info(root, sub)
-            if info is not None:
-                datasets.append(info)
+    for dataset_dir in iter_dataset_dirs(root):
+        datasets.append(_read_workspace_dataset_info(root, dataset_dir))
     return datasets
 
 
-def _read_workspace_dataset_info(root: Path, dataset_dir: Path) -> dict[str, Any] | None:
+def _read_workspace_dataset_info(root: Path, dataset_dir: Path) -> dict[str, Any]:
     info_path = dataset_dir / "meta" / "info.json"
-    if not info_path.exists():
-        return None
-
     raw = json.loads(info_path.read_text(encoding="utf-8"))
     total_episodes = raw.get("total_episodes", 0)
     total_frames = raw.get("total_frames", 0)
@@ -380,6 +614,7 @@ def _read_workspace_dataset_info(root: Path, dataset_dir: Path) -> dict[str, Any
 
     return {
         "name": dataset_dir.relative_to(root).as_posix(),
+        "path": str(dataset_dir.resolve()),
         "total_episodes": total_episodes,
         "total_frames": total_frames,
         "fps": fps,
@@ -396,17 +631,8 @@ def resolve_dataset_handle_or_workspace(name: str) -> Path:
 
     root = _datasets_root().resolve()
     candidate = (root / name).resolve()
-    if _path_is_relative_to(candidate, root) and (candidate / "meta" / "info.json").is_file():
+    if _path_is_relative_to(candidate, root) and is_dataset_dir(candidate):
         return candidate
-
-    for parent in root.iterdir() if root.exists() else []:
-        nested = (parent / name).resolve()
-        if (
-            parent.is_dir()
-            and _path_is_relative_to(nested, root)
-            and (nested / "meta" / "info.json").is_file()
-        ):
-            return nested
 
     raise FileNotFoundError(f"Dataset '{name}' not found")
 
@@ -414,14 +640,14 @@ def resolve_dataset_handle_or_workspace(name: str) -> Path:
 def get_dataset_summary(name: str) -> dict[str, Any]:
     if is_session_handle(name):
         metadata = read_session_metadata(name)
+        if is_local_collection_handle(name):
+            return _build_collection_summary_from_metadata(metadata)
         dataset_dir = resolve_session_dataset_path(name)
         return _build_dataset_summary_from_dir(
             dataset_dir=dataset_dir,
             handle=name,
             display_name=str(metadata.get("display_name") or name),
-            source_kind="remote_session"
-            if metadata.get("kind") == "remote"
-            else "local_directory_session",
+            source_kind=_source_kind_for_session(str(metadata.get("kind") or "local_directory")),
             source_dataset=str(metadata.get("source_dataset") or metadata.get("display_name") or name),
         )
 
@@ -429,10 +655,92 @@ def get_dataset_summary(name: str) -> dict[str, Any]:
 
     root = _datasets_root().resolve()
     for item in list_datasets(root):
-        if item["name"] == name:
+        dataset_name = str(item.get("name") or item.get("id") or "")
+        if dataset_name == name:
             return {
                 **item,
-                "display_name": item["name"],
+                "name": dataset_name,
+                "display_name": item.get("display_name") or item.get("label") or dataset_name,
                 "source_kind": "workspace",
             }
     raise FileNotFoundError(f"Dataset '{name}' not found")
+
+
+def list_local_collection_dataset_items(handle: str) -> list[dict[str, Any]]:
+    if not is_local_collection_handle(handle):
+        raise ValueError(f"Dataset session '{handle}' is not a local collection")
+    metadata = read_session_metadata(handle)
+    return _local_collection_dataset_items_from_metadata(metadata)
+
+
+def _local_collection_dataset_items_from_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    root = Path(str(metadata.get("dataset_dir") or "")).expanduser().resolve()
+    results: list[dict[str, Any]] = []
+    for raw in metadata.get("datasets") or []:
+        if not isinstance(raw, dict):
+            continue
+        dataset_path = Path(str(raw.get("path") or "")).expanduser().resolve()
+        if not is_dataset_dir(dataset_path):
+            continue
+        if not _path_is_relative_to(dataset_path, root):
+            continue
+        dataset_id = str(raw.get("id") or "")
+        if not is_session_handle(dataset_id):
+            continue
+        label = str(raw.get("label") or dataset_path.relative_to(root).as_posix())
+        results.append({
+            "id": dataset_id,
+            "label": label,
+            "path": str(dataset_path),
+            "source": "local",
+            "source_kind": "local_path_session",
+        })
+    return results
+
+
+def _build_collection_summary_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    handle = str(metadata.get("handle") or "")
+    display_name = str(metadata.get("display_name") or handle)
+    root = Path(str(metadata.get("dataset_dir") or "")).expanduser().resolve()
+    child_summaries: list[dict[str, Any]] = []
+    for item in _local_collection_dataset_items_from_metadata(metadata):
+        try:
+            child_summaries.append(get_dataset_summary(str(item["id"])))
+        except FileNotFoundError:
+            continue
+
+    fps_values = {
+        int(summary.get("fps", 0) or 0)
+        for summary in child_summaries
+        if int(summary.get("fps", 0) or 0) > 0
+    }
+    robot_types = {
+        str(summary.get("robot_type") or "")
+        for summary in child_summaries
+        if str(summary.get("robot_type") or "")
+    }
+    features: list[str] = []
+    seen_features: set[str] = set()
+    episode_lengths: list[int] = []
+    for summary in child_summaries:
+        for feature in summary.get("features") or []:
+            name = str(feature)
+            if name not in seen_features:
+                seen_features.add(name)
+                features.append(name)
+        episode_lengths.extend(int(value) for value in summary.get("episode_lengths") or [])
+
+    return {
+        "name": handle,
+        "display_name": display_name,
+        "source_kind": "local_path_collection",
+        "local_path": str(root),
+        "total_episodes": sum(int(summary.get("total_episodes", 0) or 0) for summary in child_summaries),
+        "total_frames": sum(int(summary.get("total_frames", 0) or 0) for summary in child_summaries),
+        "fps": fps_values.pop() if len(fps_values) == 1 else 0,
+        "robot_type": robot_types.pop() if len(robot_types) == 1 else ("mixed" if robot_types else ""),
+        "episode_lengths": episode_lengths,
+        "features": features,
+        "source_dataset": str(metadata.get("source_dataset") or root),
+        "dataset_count": len(child_summaries),
+    }

@@ -6,6 +6,7 @@ from typing import Any, Callable
 from fastapi import HTTPException
 
 from roboclaw.data.curation.state import load_quality_results
+from roboclaw.data.local_discovery import is_dataset_dir, iter_dataset_entries
 from roboclaw.data.paths import datasets_root
 from roboclaw.data.repair.diagnosis import diagnose_dataset
 from roboclaw.data.repair.repairers import repair_dataset
@@ -219,7 +220,7 @@ class DataWorkshopService:
         if "/" not in dataset_id:
             candidates.append(self.root / "local" / dataset_id)
         for candidate in candidates:
-            if candidate.exists() and candidate.is_dir():
+            if is_dataset_dir(candidate):
                 return candidate
         raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found")
 
@@ -234,20 +235,7 @@ class DataWorkshopService:
         root = self.root
         if not root.is_dir():
             return []
-        entries: list[tuple[str, Path]] = []
-        local_dir = root / "local"
-        if local_dir.is_dir():
-            for entry in sorted(local_dir.iterdir()):
-                if entry.is_dir():
-                    entries.append((f"local/{entry.name}", entry))
-        for entry in sorted(root.iterdir()):
-            if entry.name == "local" or not entry.is_dir():
-                continue
-            if _looks_like_dataset_dir(entry):
-                entries.append((entry.name, entry))
-                continue
-            entries.extend(_nested_dataset_entries(root, entry))
-        return entries
+        return [(entry.id, entry.path) for entry in iter_dataset_entries(root)]
 
     def _build_dataset(
         self,
@@ -415,15 +403,7 @@ def _reject_unsafe_dataset_id(dataset_id: str) -> None:
 
 
 def _looks_like_dataset_dir(path: Path) -> bool:
-    return path.is_dir() and (path / "meta" / "info.json").exists()
-
-
-def _nested_dataset_entries(root: Path, entry: Path) -> list[tuple[str, Path]]:
-    results: list[tuple[str, Path]] = []
-    for child in sorted(entry.iterdir()):
-        if child.is_dir() and _looks_like_dataset_dir(child):
-            results.append((child.relative_to(root).as_posix(), child))
-    return results
+    return path.is_dir() and is_dataset_dir(path)
 
 
 def _stats_from_structure(structure: dict[str, Any]) -> dict[str, Any]:

@@ -1,9 +1,9 @@
 """Dataset filtering & metadata extraction for the repair UI.
 
 The web UI lists datasets by tag/date/task before deciding what to diagnose.
-This module reuses :func:`roboclaw.data.repair.io.is_dataset_dir` to detect
-dataset directories and :func:`roboclaw.data.repair.status.ensure_status` to
-hydrate the persistent tag.
+This module uses the shared local discovery layer to detect dataset directories
+and :func:`roboclaw.data.repair.status.ensure_status` to hydrate the persistent
+tag.
 """
 
 from __future__ import annotations
@@ -13,7 +13,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .io import is_dataset_dir, load_info
+from roboclaw.data.local_discovery import iter_dataset_dirs
+
+from .io import load_info
 from .schemas import DatasetRepairDataset, DatasetRepairFilter, TagFilter
 from .status import RepairTag, ensure_status
 
@@ -26,9 +28,10 @@ def list_datasets(
     *,
     id_root: Path | None = None,
 ) -> list[DatasetRepairDataset]:
-    """Scan one level under *root* (and one nested level for ``local/<slug>``)
-    and return datasets matching *filters*, sorted by ``created_date``
-    (descending; ``None`` last).
+    """Scan local dataset containers and return datasets matching *filters*.
+
+    Discovery is metadata-only and recursively finds LeRobot roots such as
+    ``4090-a/local/rec_*`` without reading parquet or video payloads.
     """
     if not root.exists():
         return []
@@ -48,15 +51,7 @@ def list_datasets(
 
 
 def _iter_dataset_dirs(root: Path):
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
-            continue
-        if is_dataset_dir(entry):
-            yield entry
-            continue
-        for child in sorted(entry.iterdir()):
-            if child.is_dir() and is_dataset_dir(child):
-                yield child
+    yield from iter_dataset_dirs(root)
 
 
 def _build_record(dataset_dir: Path, root: Path) -> DatasetRepairDataset:

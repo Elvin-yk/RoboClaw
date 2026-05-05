@@ -15,12 +15,13 @@ from fastapi import HTTPException
 from loguru import logger
 
 from roboclaw.data.curation.features import extract_action_names, extract_state_names
-from roboclaw.data.paths import datasets_root
 from roboclaw.data.dataset_sessions import (
     get_dataset_summary,
     is_session_handle,
     resolve_dataset_handle_or_workspace,
 )
+from roboclaw.data.local_discovery import is_dataset_dir, iter_dataset_dirs
+from roboclaw.data.paths import datasets_root
 
 DatasetKind = Literal["local", "remote"]
 ImportStatus = Literal["queued", "running", "completed", "error"]
@@ -55,20 +56,13 @@ def resolve_dataset_path(name: str) -> Path:
         raise HTTPException(status_code=404, detail=f"Datasets root '{root}' does not exist")
     resolved_root = root.resolve()
 
-    def _is_safe(path: Path) -> bool:
+    def _is_safe_dataset(path: Path) -> bool:
         rp = path.resolve()
-        return rp.is_dir() and str(rp).startswith(str(resolved_root) + "/")
+        return rp.is_dir() and rp.is_relative_to(resolved_root) and is_dataset_dir(rp)
 
     direct = root / name
-    if _is_safe(direct):
+    if _is_safe_dataset(direct):
         return direct.resolve()
-
-    for parent in root.iterdir():
-        if not parent.is_dir():
-            continue
-        candidate = parent / name
-        if _is_safe(candidate):
-            return candidate.resolve()
 
     raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
@@ -207,7 +201,7 @@ class DatasetCatalog:
         root = self.root
         if not root.is_dir():
             return []
-        refs = [ref for ref in (self._read_local_dataset(entry) for entry in self._iter_dataset_dirs(root)) if ref]
+        refs = [ref for ref in (self._read_local_dataset(entry) for entry in iter_dataset_dirs(root)) if ref]
         return sorted(refs, key=lambda ref: ref.id)
 
     def get_local_dataset(self, dataset_id: str) -> DatasetRef | None:
@@ -429,23 +423,12 @@ class DatasetCatalog:
     def resolve_local_path(self, dataset_id: str) -> Path:
         root = self.root.resolve()
         target = (self.root / dataset_id).resolve()
-        if not str(target).startswith(str(root)):
+        if not target.is_relative_to(root):
             raise ValueError(f"Invalid dataset id: {dataset_id!r}")
         return target
 
-    def _iter_dataset_dirs(self, root: Path):
-        for entry in sorted(root.iterdir()):
-            if not entry.is_dir():
-                continue
-            if self._is_dataset_dir(entry):
-                yield entry
-                continue
-            for child in sorted(entry.iterdir()):
-                if child.is_dir() and self._is_dataset_dir(child):
-                    yield child
-
     def _is_dataset_dir(self, dataset_dir: Path) -> bool:
-        return (dataset_dir / "meta" / "info.json").is_file()
+        return is_dataset_dir(dataset_dir)
 
     def _read_local_dataset(self, dataset_dir: Path) -> DatasetRef | None:
         if not self._is_dataset_dir(dataset_dir):
@@ -534,7 +517,13 @@ class DatasetCatalog:
 def list_datasets(root: Path) -> list[dict[str, Any]]:
     """Return list-style dataset summaries for legacy HTTP routes/tests."""
     catalog = DatasetCatalog(root_resolver=lambda: root)
-    return [ref.to_dict() for ref in catalog.list_local_datasets()]
+    datasets: list[dict[str, Any]] = []
+    for ref in catalog.list_local_datasets():
+        payload = ref.to_dict()
+        payload["name"] = ref.id
+        payload["display_name"] = ref.label
+        datasets.append(payload)
+    return datasets
 
 
 def get_dataset_info(root: Path, name: str) -> dict[str, Any] | None:

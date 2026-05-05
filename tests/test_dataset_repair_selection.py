@@ -157,3 +157,12 @@ def test_nested_local_layout_is_listed(tmp_path: Path) -> None:
     items = list_datasets(tmp_path, DatasetRepairFilter())
 
     assert {item.id for item in items} == {"local/rec_20260301_120000"}
+
+
+def test_deep_recorder_container_layout_is_listed(tmp_path: Path) -> None:
+    nested = tmp_path / "4090-a" / "local" / "rec_20260501_102204"
+    _write_info(nested, created_at="2026-05-01T10:22:04Z")
+
+    items = list_datasets(tmp_path, DatasetRepairFilter())
+
+    assert {item.id for item in items} == {"4090-a/local/rec_20260501_102204"}

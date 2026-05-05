@@ -15,6 +15,7 @@ from roboclaw.data.dataset_sessions import (
     parse_session_handle,
     read_session_metadata,
 )
+from roboclaw.data.local_discovery import iter_data_files
 
 from .bridge import read_parquet_rows
 from .state import load_dataset_info
@@ -132,7 +133,7 @@ def _load_episode_meta_from_parquet(dataset_path: Path, episode_index: int) -> d
     episodes_root = dataset_path / "meta" / "episodes"
     if not episodes_root.exists():
         return {}
-    for parquet_path in sorted(episodes_root.rglob("*.parquet")):
+    for parquet_path in iter_data_files(episodes_root, "*.parquet"):
         for entry in _read_parquet_rows(parquet_path, filters=[("episode_index", "=", episode_index)]):
             if _safe_int(entry.get("episode_index")) == episode_index:
                 return entry

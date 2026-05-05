@@ -245,6 +245,40 @@ def test_quality_defaults_reads_nested_episode_parquet_metadata(
     assert payload["checks"]["task_descriptions_present"] is True
 
 
+def test_quality_defaults_skips_appledouble_episode_parquet_pollution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_root = tmp_path / "datasets"
+    dataset_root.mkdir()
+    dataset_path = _write_demo_dataset(dataset_root)
+    (dataset_path / "meta" / "episodes.jsonl").unlink()
+    episode_dir = dataset_path / "meta" / "episodes" / "chunk-000"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "._file-000.parquet").write_bytes(b"pollution")
+    curation_bridge.write_parquet_rows(
+        episode_dir / "file-000.parquet",
+        [
+            {
+                "episode_index": 0,
+                "length": 30,
+                "tasks": ["pick the yellow cube"],
+            }
+        ],
+    )
+    monkeypatch.setattr(curation_routes, "datasets_root", lambda: dataset_root)
+
+    app = FastAPI()
+    curation_routes.register_curation_routes(app)
+    client = TestClient(app)
+    response = client.get("/api/curation/quality-defaults", params={"dataset": "demo"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["episode_metadata_present"] is True
+    assert payload["checks"]["task_descriptions_present"] is True
+
+
 def test_annotation_workspace_returns_video_and_joint_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -301,6 +335,8 @@ def test_annotation_workspace_uses_shared_video_clip_bounds(
         "videos/observation.images.front/from_timestamp": 25.633333333333333,
         "videos/observation.images.front/to_timestamp": 51.4,
     }
+    (dataset_path / "meta").mkdir(parents=True)
+    (dataset_path / "meta" / "info.json").write_text(json.dumps(info), encoding="utf-8")
 
     monkeypatch.setattr(curation_routes, "datasets_root", lambda: dataset_root)
     def _fake_load_episode_data(
@@ -450,6 +486,51 @@ def test_curation_dataset_list_includes_session_datasets(
     payload = response.json()
     assert payload[1]["name"] == "session:remote:abc123"
     assert payload[1]["display_name"] == "cadene/droid_1.0.1"
+
+
+def test_curation_dataset_list_excludes_local_collection_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _dataset_path = _build_client(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(
+        curation_routes.dataset_sessions,
+        "list_session_dataset_summaries",
+        lambda **kwargs: [
+            {
+                "name": "session:local_path:child",
+                "display_name": "4090-a/local/rec",
+                "source_kind": "local_path_session",
+                "total_episodes": 1,
+                "total_frames": 2,
+                "fps": 30,
+            },
+            {
+                "name": "session:local_collection:root",
+                "display_name": "root",
+                "source_kind": "local_path_collection",
+                "total_episodes": 2,
+                "total_frames": 4,
+                "fps": 30,
+            },
+        ] if kwargs.get("include_local_collection") else [
+            {
+                "name": "session:local_path:child",
+                "display_name": "4090-a/local/rec",
+                "source_kind": "local_path_session",
+                "total_episodes": 1,
+                "total_frames": 2,
+                "fps": 30,
+            }
+        ],
+    )
+
+    response = client.get("/api/curation/datasets")
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert "session:local_path:child" in ids
+    assert "session:local_collection:root" not in ids
 
 
 def test_quality_detail_can_resolve_session_dataset(

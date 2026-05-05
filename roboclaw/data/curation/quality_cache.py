@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.local_discovery import iter_data_files
+
 from .serializers import coerce_int
 
 
@@ -129,7 +131,7 @@ def _load_episode_meta_map(dataset_path: Path) -> dict[int, dict[str, Any]]:
     rows = {}
     from .bridge import read_parquet_rows
 
-    for parquet_path in sorted(episodes_root.rglob("*.parquet")):
+    for parquet_path in iter_data_files(episodes_root, "*.parquet"):
         for payload in read_parquet_rows(parquet_path):
             index = coerce_int(payload.get("episode_index"))
             if index is not None:

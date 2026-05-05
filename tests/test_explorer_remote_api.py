@@ -16,6 +16,7 @@ pq = pytest.importorskip("pyarrow.parquet")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from roboclaw.data import dataset_sessions
 from roboclaw.data.explorer import remote as remote_explorer
 from roboclaw.http.routes import explorer as explorer_routes
 
@@ -370,6 +371,41 @@ def test_explorer_suggest_filters_local_options(
     ]
 
 
+def test_explorer_local_options_include_deep_container_layout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_root = tmp_path / "datasets"
+    dataset_dir = dataset_root / "4090-a" / "local" / "rec_20260501_102204"
+    (dataset_dir / "meta").mkdir(parents=True)
+    (dataset_dir / "meta" / "info.json").write_text(
+        json.dumps({"total_episodes": 4, "total_frames": 30151, "fps": 30, "features": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dataset_sessions, "_datasets_root", lambda: dataset_root)
+    monkeypatch.setattr(dataset_sessions, "_session_root", lambda: tmp_path / "sessions")
+
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/explorer/datasets",
+        params={"source": "local", "query": "4090-a", "limit": 8},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": "4090-a/local/rec_20260501_102204",
+            "label": "4090-a/local/rec_20260501_102204",
+            "path": str(dataset_dir.resolve()),
+            "source": "local",
+            "source_kind": "workspace",
+        }
+    ]
+
+
 def test_explorer_episode_supports_local_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -434,6 +470,129 @@ def test_explorer_episode_supports_local_source(
     assert payload["summary"]["row_count"] == 2
     assert payload["videos"][0]["url"].startswith("/api/explorer/local-video/")
     assert payload["sample_rows"][0]["frame_index"] == 0
+
+
+def test_explorer_local_dashboard_counts_lerobot_files_without_pollution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_path = tmp_path / "datasets" / "rec_demo"
+    (dataset_path / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
+    (dataset_path / "data" / "chunk-000").mkdir(parents=True)
+    for video_key in (
+        "observation.images.left_wrist",
+        "observation.images.right_wrist",
+        "observation.images.right_front",
+    ):
+        video_dir = dataset_path / "videos" / video_key / "chunk-000"
+        video_dir.mkdir(parents=True)
+        (video_dir / "file-000.mp4").write_bytes(b"video")
+        (video_dir / "._file-000.mp4").write_bytes(b"pollution")
+    info = {
+        "total_episodes": 4,
+        "total_frames": 30151,
+        "fps": 30,
+        "robot_type": "bi_so_follower",
+        "features": {
+            "action": {"dtype": "float32", "shape": [12], "names": ["joint"]},
+            "observation.state": {"dtype": "float32", "shape": [12], "names": ["joint"]},
+            "observation.images.left_wrist": {"dtype": "video"},
+            "observation.images.right_wrist": {"dtype": "video"},
+            "observation.images.right_front": {"dtype": "video"},
+        },
+    }
+    (dataset_path / "meta" / "info.json").write_text(json.dumps(info), encoding="utf-8")
+    (dataset_path / "meta" / "stats.json").write_text(json.dumps({}), encoding="utf-8")
+    (dataset_path / "meta" / "._info.json").write_bytes(b"pollution")
+    pq.write_table(
+        pa.Table.from_pylist([
+            {"episode_index": 0, "length": 11650},
+            {"episode_index": 1, "length": 9731},
+            {"episode_index": 2, "length": 8160},
+            {"episode_index": 3, "length": 610},
+        ]),
+        dataset_path / "meta" / "episodes" / "chunk-000" / "file-000.parquet",
+    )
+    (dataset_path / "meta" / "episodes" / "chunk-000" / "._file-000.parquet").write_bytes(b"pollution")
+    pq.write_table(
+        pa.Table.from_pylist([{"task_index": 0, "task": "plug"}]),
+        dataset_path / "meta" / "tasks.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pylist([
+            {"episode_index": 0, "timestamp": 0.0},
+            {"episode_index": 1, "timestamp": 1.0},
+        ]),
+        dataset_path / "data" / "chunk-000" / "file-000.parquet",
+    )
+    (dataset_path / "data" / "chunk-000" / "._file-000.parquet").write_bytes(b"pollution")
+    monkeypatch.setattr(explorer_routes, "resolve_local_dataset_path", lambda _dataset: dataset_path)
+
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    dashboard = client.get(
+        "/api/explorer/dashboard",
+        params={"source": "local", "dataset": "session:local_path:demo"},
+    )
+    episodes = client.get(
+        "/api/explorer/episodes",
+        params={"source": "local", "dataset": "session:local_path:demo", "page": 1, "page_size": 10},
+    )
+
+    assert dashboard.status_code == 200
+    assert dashboard.json()["files"] == {
+        "total_files": 8,
+        "parquet_files": 3,
+        "video_files": 3,
+        "meta_files": 4,
+        "other_files": 2,
+    }
+    assert episodes.status_code == 200
+    assert episodes.json()["episodes"] == [
+        {"episode_index": 0, "length": 11650},
+        {"episode_index": 1, "length": 9731},
+        {"episode_index": 2, "length": 8160},
+        {"episode_index": 3, "length": 610},
+    ]
+
+
+def test_explorer_local_episode_video_urls_keep_session_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_path = tmp_path / "datasets" / "rec_demo"
+    video_path = dataset_path / "videos" / "observation.images.front" / "chunk-000" / "file-000.mp4"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_bytes(b"video")
+    (dataset_path / "meta").mkdir(parents=True)
+    (dataset_path / "meta" / "info.json").write_text(
+        json.dumps({"total_episodes": 1, "total_frames": 2, "fps": 30, "features": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(explorer_routes, "resolve_local_dataset_path", lambda _dataset: dataset_path)
+    monkeypatch.setattr(
+        explorer_routes,
+        "load_episode_data",
+        lambda _dataset_path, _episode_index: {
+            "info": {"fps": 30, "features": {}},
+            "rows": [{"timestamp": 0.0}, {"timestamp": 1.0}],
+            "video_files": [video_path],
+        },
+    )
+
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/explorer/episode",
+        params={"source": "local", "dataset": "session:local_path:demo", "episode_index": 0},
+    )
+
+    assert response.status_code == 200
+    assert "dataset=session%3Alocal_path%3Ademo" in response.json()["videos"][0]["url"]
 
 
 def test_explorer_prepare_remote_uses_workspace_prep(
@@ -559,6 +718,194 @@ def test_explorer_local_directory_upload_rejects_total_size(
 
     assert response.status_code == 413
     assert "exceeds 3 bytes" in response.json()["detail"]
+
+
+def test_explorer_local_path_session_registers_without_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = tmp_path / "rec_20260501_102204"
+    (dataset_dir / "meta").mkdir(parents=True)
+    (dataset_dir / "meta" / "info.json").write_text(
+        json.dumps({"total_episodes": 4, "total_frames": 30151, "fps": 30, "features": {}}),
+        encoding="utf-8",
+    )
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    called: dict[str, object] = {}
+
+    def create_session(*, path: str, display_name: str | None = None) -> dict[str, object]:
+        called["path"] = path
+        called["display_name"] = display_name
+        return {
+            "dataset_name": "session:local_path:demo",
+            "display_name": display_name or "demo",
+            "local_path": path,
+            "summary": {},
+        }
+
+    monkeypatch.setattr(explorer_routes, "create_local_path_session", create_session)
+    monkeypatch.setattr(
+        explorer_routes,
+        "create_uploaded_directory_session",
+        lambda **_kwargs: pytest.fail("local path session must not upload files"),
+    )
+
+    response = client.post(
+        "/api/explorer/local-path-session",
+        json={"path": str(dataset_dir), "display_name": "demo"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dataset_name"] == "session:local_path:demo"
+    assert called == {"path": str(dataset_dir), "display_name": "demo"}
+
+
+def test_explorer_local_path_session_registers_container_without_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    container = tmp_path / "container"
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    called: dict[str, object] = {}
+
+    def create_session(*, path: str, display_name: str | None = None) -> dict[str, object]:
+        called["path"] = path
+        called["display_name"] = display_name
+        return {
+            "dataset_name": "session:local_collection:root",
+            "display_name": "container",
+            "local_path": path,
+            "dataset_count": 2,
+            "summary": {},
+            "datasets": [
+                {
+                    "id": "session:local_collection:root",
+                    "label": "container (all datasets)",
+                    "path": path,
+                    "source": "local",
+                    "source_kind": "local_path_collection",
+                    "dataset_count": 2,
+                    "is_collection": True,
+                },
+                {
+                    "id": "session:local_path:first",
+                    "label": "4090-a/local/rec_a",
+                    "path": f"{path}/4090-a/local/rec_a",
+                    "source": "local",
+                    "source_kind": "local_path_session",
+                },
+                {
+                    "id": "session:local_path:second",
+                    "label": "4090-b/local/rec_b",
+                    "path": f"{path}/4090-b/local/rec_b",
+                    "source": "local",
+                    "source_kind": "local_path_session",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(explorer_routes, "create_local_path_session", create_session)
+    monkeypatch.setattr(
+        explorer_routes,
+        "create_uploaded_directory_session",
+        lambda **_kwargs: pytest.fail("container path registration must not upload files"),
+    )
+
+    response = client.post(
+        "/api/explorer/local-path-session",
+        json={"path": str(container)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dataset_name"] == "session:local_collection:root"
+    assert response.json()["dataset_count"] == 2
+    assert response.json()["datasets"] == [
+        {
+            "id": "session:local_collection:root",
+            "label": "container (all datasets)",
+            "path": str(container),
+            "source": "local",
+            "source_kind": "local_path_collection",
+            "dataset_count": 2,
+            "is_collection": True,
+        },
+        {
+            "id": "session:local_path:first",
+            "label": "4090-a/local/rec_a",
+            "path": f"{container}/4090-a/local/rec_a",
+            "source": "local",
+            "source_kind": "local_path_session",
+        },
+        {
+            "id": "session:local_path:second",
+            "label": "4090-b/local/rec_b",
+            "path": f"{container}/4090-b/local/rec_b",
+            "source": "local",
+            "source_kind": "local_path_session",
+        },
+    ]
+    assert called == {"path": str(container), "display_name": None}
+
+
+def test_explorer_collection_defaults_to_all_child_datasets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dataset_sessions, "get_roboclaw_home", lambda: tmp_path / "home")
+    container = tmp_path / "container"
+    dataset_a = container / "4090-a" / "local" / "rec_a"
+    dataset_b = container / "4090-b" / "local" / "rec_b"
+    for dataset_dir, total_frames in ((dataset_a, 10), (dataset_b, 20)):
+        (dataset_dir / "meta").mkdir(parents=True)
+        (dataset_dir / "meta" / "info.json").write_text(
+            json.dumps({
+                "total_episodes": 1,
+                "total_frames": total_frames,
+                "fps": 30,
+                "robot_type": "so101",
+                "features": {"action": {"dtype": "float32"}},
+            }),
+            encoding="utf-8",
+        )
+        (dataset_dir / "meta" / "episodes.jsonl").write_text(
+            json.dumps({"episode_index": 0, "length": total_frames}) + "\n",
+            encoding="utf-8",
+        )
+        (dataset_dir / "meta" / "stats.json").write_text("{}", encoding="utf-8")
+        (dataset_dir / "videos").mkdir()
+        (dataset_dir / "videos" / "front.mp4").write_bytes(b"video")
+
+    app = FastAPI()
+    explorer_routes.register_explorer_routes(app)
+    client = TestClient(app)
+
+    prepared = client.post("/api/explorer/local-path-session", json={"path": str(container)})
+    assert prepared.status_code == 200
+    collection_id = prepared.json()["dataset_name"]
+    assert collection_id.startswith("session:local_collection:")
+
+    summary = client.get("/api/explorer/summary", params={"source": "local", "dataset": collection_id})
+    details = client.get("/api/explorer/details", params={"source": "local", "dataset": collection_id})
+    episodes = client.get(
+        "/api/explorer/episodes",
+        params={"source": "local", "dataset": collection_id, "page": 1, "page_size": 10},
+    )
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"]["total_episodes"] == 2
+    assert details.status_code == 200
+    assert details.json()["files"]["video_files"] == 2
+    assert episodes.status_code == 200
+    assert [item["source_label"] for item in episodes.json()["episodes"]] == [
+        "4090-a/local/rec_a",
+        "4090-b/local/rec_b",
+    ]
 
 
 def test_remote_episode_meta_falls_back_to_parquet_index(

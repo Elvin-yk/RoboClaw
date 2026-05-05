@@ -145,6 +145,37 @@ def test_workflow_datasets_preserve_nested_hf_names(
     assert detail.json()["id"] == "cadene/droid_1.0.1"
 
 
+def test_workflow_datasets_preserve_deep_recorder_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_root = tmp_path / "datasets"
+    nested = dataset_root / "4090-a" / "local" / "rec_20260501_102204" / "meta"
+    nested.mkdir(parents=True)
+    (nested / "info.json").write_text(
+        json.dumps({"total_episodes": 4, "total_frames": 30151, "fps": 30, "robot_type": "so101"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        curation_routes,
+        "datasets_root",
+        lambda: dataset_root,
+    )
+    app = FastAPI()
+    curation_routes.register_curation_routes(app)
+    client = TestClient(app)
+
+    response = client.get("/api/curation/datasets")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["id"] == "4090-a/local/rec_20260501_102204"
+    assert payload[0]["label"] == "4090-a/local/rec_20260501_102204"
+
+    detail = client.get("/api/curation/datasets/4090-a/local/rec_20260501_102204")
+    assert detail.status_code == 200
+    assert detail.json()["id"] == "4090-a/local/rec_20260501_102204"
+
+
 def test_resolve_dataset_path_rejects_traversal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -85,6 +85,30 @@ def _pass_required_gates(client: TestClient, dataset_id: str) -> None:
 
 
 class TestDataWorkshop:
+    def test_deep_container_dataset_scan_is_lightweight(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = _client(tmp_path, monkeypatch)
+        dataset_dir = tmp_path / "datasets" / "4090-a" / "local" / "rec_20260501_102204"
+        _write_dataset(
+            dataset_dir,
+            total_episodes=3,
+            total_frames=30,
+            parquet_rows=30,
+            episode_lengths=[10, 10, 10],
+        )
+        (dataset_dir / "data" / "chunk-000" / "._file-000.parquet").write_bytes(b"pollution")
+
+        response = client.get("/api/data-workshop/datasets")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload] == ["4090-a/local/rec_20260501_102204"]
+        assert payload[0]["structure"]["summary"] is True
+        assert payload[0]["stats"]["total_episodes"] == 3
+
     def test_symlink_dataset_scan_returns_real_path(
         self,
         tmp_path: Path,

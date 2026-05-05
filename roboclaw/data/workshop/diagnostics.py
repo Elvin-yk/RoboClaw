@@ -7,6 +7,7 @@ from typing import Any
 
 import pyarrow.compute as pc
 
+from roboclaw.data.local_discovery import iter_data_files
 from roboclaw.data.repair.diagnosis import diagnose_dataset, find_tmp_videos
 from roboclaw.data.repair.io import (
     count_video_files,
@@ -99,7 +100,7 @@ def _inspect_data_parquet(dataset_path: Path) -> dict[str, Any]:
     rows = 0
     files = 0
     unreadable: list[str] = []
-    for parquet_path in sorted((dataset_path / "data").rglob("*.parquet")):
+    for parquet_path in iter_data_files(dataset_path / "data", "*.parquet"):
         metadata = safe_read_parquet_metadata(parquet_path)
         if metadata is None:
             unreadable.append(parquet_path.relative_to(dataset_path).as_posix())
@@ -134,7 +135,7 @@ def _inspect_episode_parquets(dataset_path: Path) -> dict[str, Any]:
     count = 0
     length_sum = 0
     unreadable: list[str] = []
-    for parquet_path in sorted((dataset_path / "meta" / "episodes").rglob("*.parquet")):
+    for parquet_path in iter_data_files(dataset_path / "meta" / "episodes", "*.parquet"):
         table = safe_read_parquet_table(parquet_path, columns=["length"])
         if table is None:
             unreadable.append(parquet_path.relative_to(dataset_path).as_posix())

@@ -5,6 +5,8 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.local_discovery import iter_data_files
+
 from .bridge import read_parquet_rows
 from .state import load_dataset_info
 from .task_descriptions import payload_has_task_description
@@ -89,8 +91,8 @@ def build_quality_defaults(dataset_path: Path, dataset_name: str | None = None) 
         "checks": {
             "metadata_present": info_path.is_file(),
             "episode_metadata_present": _episode_metadata_present(dataset_path),
-            "data_files_present": any((dataset_path / "data").rglob("*.parquet")),
-            "video_files_present": any((dataset_path / "videos").rglob("*.mp4")),
+            "data_files_present": any(iter_data_files(dataset_path / "data", "*.parquet")),
+            "video_files_present": any(iter_data_files(dataset_path / "videos", "*.mp4")),
             "task_descriptions_present": task_descriptions_present,
         },
     }
@@ -176,7 +178,7 @@ def _first_episode_meta(dataset_path: Path) -> dict[str, Any]:
             if isinstance(payload, dict):
                 return payload
     episodes_dir = dataset_path / "meta" / "episodes"
-    for path in sorted(episodes_dir.rglob("*.parquet"))[:1]:
+    for path in iter_data_files(episodes_dir, "*.parquet"):
         rows = read_parquet_rows(path)
         if rows:
             return rows[0]
@@ -186,7 +188,7 @@ def _first_episode_meta(dataset_path: Path) -> dict[str, Any]:
 def _episode_metadata_present(dataset_path: Path) -> bool:
     return (
         (dataset_path / "meta" / "episodes.jsonl").is_file()
-        or any((dataset_path / "meta" / "episodes").rglob("*.parquet"))
+        or any(iter_data_files(dataset_path / "meta" / "episodes", "*.parquet"))
     )
 
 

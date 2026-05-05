@@ -36,7 +36,10 @@ def _create_dataset(
     (meta_dir / "info.json").write_text(json.dumps(info), encoding="utf-8")
 
     if episode_lengths:
-        lines = [json.dumps({"episode_index": i, "length": l}) for i, l in enumerate(episode_lengths)]
+        lines = [
+            json.dumps({"episode_index": index, "length": length})
+            for index, length in enumerate(episode_lengths)
+        ]
         (meta_dir / "episodes.jsonl").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -106,6 +109,18 @@ class TestDatasetCatalogLocalListing:
         assert result[0]["capabilities"]["can_replay"] is False
         assert result[0]["capabilities"]["can_train"] is False
         assert result[0]["capabilities"]["can_curate"] is True
+
+    def test_deep_container_layout_is_discovered(self, tmp_path):
+        _create_dataset(tmp_path, "4090-a/local/rec_20260501_102204")
+        (tmp_path / "4090-a" / "local" / "rec_20260501_102204" / "._file-000.parquet").write_bytes(b"pollution")
+        catalog = DatasetCatalog(root_resolver=lambda: tmp_path)
+
+        result = [item.to_dict() for item in catalog.list_local_datasets()]
+
+        assert len(result) == 1
+        assert result[0]["id"] == "4090-a/local/rec_20260501_102204"
+        assert result[0]["label"] == "4090-a/local/rec_20260501_102204"
+        assert result[0]["stats"]["total_episodes"] == 5
 
     def test_episode_lengths_parsed(self, tmp_path):
         _create_dataset(tmp_path, "with_eps", episode_lengths=[100, 150, 200])
