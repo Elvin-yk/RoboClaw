@@ -1,4 +1,4 @@
-"""CLI: extract per-event critical-phase windows from a LeRobot dataset.
+"""CLI: extract per-event critical-phase windows from a screw-task LeRobot dataset.
 
 For every left-gripper open event detected on ``action[--gripper-dim]`` of
 each source episode, emit a window of ``--pre-event-seconds * fps`` frames
@@ -7,7 +7,7 @@ into a single output dataset via the lerobot helper.
 
 Example::
 
-    python -m roboclaw.data.dataset_pipeline.trim_dataset_by_gripper \\
+    python -m roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.cli \\
         --src /path/to/source_dataset \\
         --dst /path/to/output_dataset \\
         --gripper-dim 5 --open-threshold 10.0 \\
@@ -21,9 +21,14 @@ import logging
 import sys
 from pathlib import Path
 
-from .critical_window_builder import ExtractionReport, OverlapPolicy
-from .gripper_events import GripperEventConfig
-from .multi_event_extractor import ExtractionRequest, load_dataset_fps, run
+from roboclaw.data.dataset_pipeline.critical_phase import (
+    ExtractionReport,
+    OverlapPolicy,
+    load_dataset_fps,
+)
+
+from .events import GripperEventConfig
+from .pipeline import ExtractionRequest, run
 
 
 def _parse_int_set(raw: str) -> set[int]:

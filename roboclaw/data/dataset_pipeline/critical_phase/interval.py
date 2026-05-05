@@ -1,4 +1,4 @@
-"""Turn detected gripper events into per-event critical windows.
+"""Turn detected critical events into per-event critical windows.
 
 Each event becomes a window of ``round(pre_event_seconds * fps)`` frames that
 ends at and INCLUDES the event frame: ``[max(0, event+1-W), event+1)``.
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 
-from .gripper_events import GripperEvent
+from .event import CriticalEvent
 
 
 class OverlapPolicy(str, Enum):
@@ -71,7 +71,7 @@ class CriticalWindowBuilder:
 
     def build(
         self,
-        events_by_episode: Mapping[int, list[GripperEvent]],
+        events_by_episode: Mapping[int, list[CriticalEvent]],
         episode_lengths: Mapping[int, int],
     ) -> tuple[list[CriticalInterval], ExtractionReport]:
         missing = sorted(set(events_by_episode) - set(episode_lengths))
@@ -108,7 +108,7 @@ class CriticalWindowBuilder:
 
     def _make_intervals(
         self,
-        events: list[GripperEvent],
+        events: list[CriticalEvent],
     ) -> tuple[list[CriticalInterval], int]:
         w = self.window_frames
         out: list[CriticalInterval] = []

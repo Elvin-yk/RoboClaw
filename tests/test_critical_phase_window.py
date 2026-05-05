@@ -3,18 +3,16 @@ from __future__ import annotations
 
 import pytest
 
-from roboclaw.data.dataset_pipeline.critical_window_builder import (
+from roboclaw.data.dataset_pipeline.critical_phase import (
+    CriticalEvent,
     CriticalWindowBuilder,
     OverlapPolicy,
     WindowSpec,
 )
-from roboclaw.data.dataset_pipeline.gripper_events import GripperEvent
 
 
-def _ev(ep: int, frame: int) -> GripperEvent:
-    return GripperEvent(
-        episode_index=ep, event_frame=frame, episode_length=1000, gripper_value=12.0
-    )
+def _ev(ep: int, frame: int) -> CriticalEvent:
+    return CriticalEvent(episode_index=ep, event_frame=frame, episode_length=1000)
 
 
 def _builder(

@@ -286,7 +286,7 @@ class ReviewService:
         output_path: Path,
         intervals: list[Any],
     ) -> Path:
-        from roboclaw.data.dataset_pipeline.multi_event_extractor import (
+        from roboclaw.data.dataset_pipeline.critical_phase import (
             extract_event_windows_dataset,
         )
         return extract_event_windows_dataset(
@@ -380,7 +380,7 @@ def _build_full_episode_intervals(
     episodes_meta: list[dict[str, Any]],
     kept: list[int],
 ) -> list[Any]:
-    from roboclaw.data.dataset_pipeline.critical_window_builder import CriticalInterval
+    from roboclaw.data.dataset_pipeline.critical_phase import CriticalInterval
 
     by_idx = {int(entry.get("episode_index")): entry for entry in episodes_meta}
     intervals: list[CriticalInterval] = []

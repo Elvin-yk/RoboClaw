@@ -14,12 +14,16 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from roboclaw.data.dataset_pipeline.critical_window_builder import OverlapPolicy
-from roboclaw.data.dataset_pipeline.gripper_events import GripperEventConfig
-from roboclaw.data.dataset_pipeline.multi_event_extractor import (
-    ExtractionRequest,
+from roboclaw.data.dataset_pipeline.critical_phase import (
+    OverlapPolicy,
     load_dataset_fps,
     resolve_single_data_parquet,
+)
+from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.events import (
+    GripperEventConfig,
+)
+from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.pipeline import (
+    ExtractionRequest,
     run,
 )
 

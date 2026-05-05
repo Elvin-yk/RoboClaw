@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from roboclaw.data.dataset_pipeline.gripper_events import (
+from roboclaw.data.dataset_pipeline.critical_phase.tasks.screw.events import (
     GripperEventConfig,
     GripperEventDetector,
 )

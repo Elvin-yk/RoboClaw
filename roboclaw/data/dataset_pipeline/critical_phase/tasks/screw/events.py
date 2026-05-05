@@ -1,8 +1,8 @@
-"""Detect left-gripper open events in an episode action trace.
+"""Detect left-gripper open events in a screw-insertion episode.
 
-A gripper-open event fires when the trace value crosses upward through
-``open_threshold`` while the detector is armed. After firing, the detector
-disarms and only re-arms once BOTH gates are satisfied:
+A gripper-open event fires when the action trace at ``gripper_dim`` crosses
+upward through ``open_threshold`` while the detector is armed. After firing,
+the detector disarms and only re-arms once BOTH gates are satisfied:
   - ``value < reset_threshold`` has been observed at least once since the
     last event (sticky — the dip does not have to be on the same frame as
     re-arming); and
@@ -16,20 +16,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from roboclaw.data.dataset_pipeline.critical_phase import CriticalEvent
+
 
 @dataclass(frozen=True)
 class GripperEventConfig:
     open_threshold: float
     reset_threshold: float
     min_separation_frames: int
-
-
-@dataclass(frozen=True)
-class GripperEvent:
-    episode_index: int
-    event_frame: int
-    episode_length: int
-    gripper_value: float
 
 
 class GripperEventDetector:
@@ -48,8 +42,8 @@ class GripperEventDetector:
         episode_index: int,
         trace: np.ndarray,
         episode_length: int,
-    ) -> list[GripperEvent]:
-        events: list[GripperEvent] = []
+    ) -> list[CriticalEvent]:
+        events: list[CriticalEvent] = []
         armed = True
         last_event_frame: int | None = None
         reset_seen = False
@@ -60,11 +54,10 @@ class GripperEventDetector:
             )
             if armed and value >= self.config.open_threshold:
                 events.append(
-                    GripperEvent(
+                    CriticalEvent(
                         episode_index=episode_index,
                         event_frame=frame,
                         episode_length=episode_length,
-                        gripper_value=value,
                     )
                 )
                 armed = False

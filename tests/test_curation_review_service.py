@@ -293,7 +293,7 @@ def test_commit_deletion_calls_extractor_with_kept_intervals(
         captured["output_repo_id"] = output_repo_id
         return output_root
 
-    import roboclaw.data.dataset_pipeline.multi_event_extractor as me
+    import roboclaw.data.dataset_pipeline.critical_phase as me
 
     monkeypatch.setattr(me, "extract_event_windows_dataset", _fake_extract)
 
@@ -335,7 +335,7 @@ def test_commit_deletion_does_not_append_commit_when_extractor_fails(
     monkeypatch.setattr(
         review_service_module, "extract_event_windows_dataset", _failing_extractor, raising=False
     )
-    import roboclaw.data.dataset_pipeline.multi_event_extractor as extractor_module
+    import roboclaw.data.dataset_pipeline.critical_phase as extractor_module
     monkeypatch.setattr(extractor_module, "extract_event_windows_dataset", _failing_extractor)
 
     with pytest.raises(RuntimeError, match="synthetic extractor failure"):

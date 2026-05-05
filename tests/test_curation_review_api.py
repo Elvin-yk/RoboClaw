@@ -181,7 +181,7 @@ def test_review_commit_deletion_happy_path(
         captured["intervals"] = list(intervals)
         return output_root
 
-    import roboclaw.data.dataset_pipeline.multi_event_extractor as me
+    import roboclaw.data.dataset_pipeline.critical_phase as me
 
     monkeypatch.setattr(me, "extract_event_windows_dataset", _fake_extract)
 
