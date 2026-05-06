@@ -45,6 +45,7 @@ class ExtractionRequest:
     overlap_policy: OverlapPolicy
     min_events_per_episode: int
     exclude_episodes: set[int]
+    post_event_seconds: float = 0.0
     source_repo_id: str = "local/trim_src"
     output_repo_id: str = "local/trim_out"
     vcodec: str = "h264"
@@ -129,6 +130,7 @@ def run(
     builder = CriticalWindowBuilder(
         WindowSpec(
             pre_event_seconds=request.pre_event_seconds,
+            post_event_seconds=request.post_event_seconds,
             fps=fps,
             overlap_policy=request.overlap_policy,
             min_events_per_episode=request.min_events_per_episode,

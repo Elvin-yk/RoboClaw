@@ -120,6 +120,8 @@ def _request(
     min_events: int = 5,
     dry_run: bool = True,
     ee_close_threshold_m: float = 0.5,
+    pre_event_seconds: float = 2.0,
+    post_event_seconds: float = 0.0,
 ) -> ExtractionRequest:
     event_config = GripperEEEventConfig(
         gripper=GripperOpenMaskConfig(open_threshold=10.0, reset_threshold=10.0),
@@ -132,7 +134,8 @@ def _request(
         task="synthetic",
         gripper_dim=_GRIPPER_DIM,
         event_config=event_config,
-        pre_event_seconds=2.0,
+        pre_event_seconds=pre_event_seconds,
+        post_event_seconds=post_event_seconds,
         overlap_policy=OverlapPolicy.KEEP,
         min_events_per_episode=min_events,
         exclude_episodes=set(),
@@ -333,3 +336,24 @@ def test_cli_main_returns_1_when_destination_exists(tmp_path: Path) -> None:
         "--ee-close-threshold-m", "0.08",
     ]
     assert cli_main(argv) == 1
+
+
+def test_post_event_window_extends_segments(tiny_dataset: Path, tmp_path: Path) -> None:
+    """post_event_seconds > 0 grows each segment by round(post * fps) frames.
+
+    tiny_dataset: 2 episodes x peaks at [50,150,250,350,450], fps=30, 600 frames.
+    pre=2.0s -> pre_w=60 frames; post=0.5s -> post_w=15 frames; total=75 per event.
+    Event 50 clamps at start (50+1-60=-9 -> 0) so its segment is 0..66 = 66 frames;
+    other events are full 75. Per-episode total: 66 + 4*75 = 366. Two episodes: 732.
+    """
+    dst = tmp_path / "dst"
+    report, _ = run(
+        _request(tiny_dataset, dst, dry_run=True, post_event_seconds=0.5),
+        _CloseEEProvider(),
+    )
+    assert report.source_episode_count == 2
+    assert report.output_segment_count == 10
+    expected_per_episode = 66 + 4 * 75
+    assert report.total_output_frames == 2 * expected_per_episode
+    assert report.tail_clamped_windows == 0
+    assert report.clamped_windows == 2

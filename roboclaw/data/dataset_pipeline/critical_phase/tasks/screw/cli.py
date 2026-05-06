@@ -1,9 +1,10 @@
 """CLI: extract per-event critical-phase windows from a screw-task LeRobot dataset.
 
 For every (gripper-open AND EE-close) rising edge detected in each source
-episode, emit a window of ``--pre-event-seconds * fps`` frames ending at and
-INCLUDING the event frame. All extracted segments are merged into a single
-output dataset via the lerobot helper.
+episode, emit a window covering ``--pre-event-seconds`` before the event
+frame (inclusive of the event) plus ``--post-event-seconds`` after it. All
+extracted segments are merged into a single output dataset via the lerobot
+helper.
 
 Inter-EE distance is computed by :class:`EpisodeEEDistanceProvider`, which
 runs forward kinematics on the bimanual SO101 action vector. ``placo`` is a
@@ -15,6 +16,7 @@ Example::
         --src /path/to/source_dataset \\
         --dst /path/to/output_dataset \\
         --gripper-dim 5 --open-threshold 10.0 --ee-close-threshold-m 0.08 \\
+        --pre-event-seconds 2.0 --post-event-seconds 0.5 \\
         --task "Insert the copper screw into the black sleeve" \\
         --exclude-episodes 90,124,142,176,218,236
 """
@@ -89,6 +91,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-event-separation-s", type=_non_negative_float, default=0.5)
     parser.add_argument("--pre-event-seconds", type=_positive_float, default=10.0)
     parser.add_argument(
+        "--post-event-seconds",
+        type=_non_negative_float,
+        default=0.0,
+        help="Seconds to keep AFTER the event frame (window covers pre + event + post). "
+        "Default 0 reproduces pre-only behavior.",
+    )
+    parser.add_argument(
         "--overlap-policy",
         choices=[p.value for p in OverlapPolicy],
         default=OverlapPolicy.KEEP.value,
@@ -136,6 +145,7 @@ def _build_request(args: argparse.Namespace, log: logging.Logger) -> ExtractionR
         gripper_dim=args.gripper_dim,
         event_config=event_config,
         pre_event_seconds=args.pre_event_seconds,
+        post_event_seconds=args.post_event_seconds,
         overlap_policy=OverlapPolicy(args.overlap_policy),
         min_events_per_episode=args.min_events_per_episode,
         exclude_episodes=exclude,
@@ -168,6 +178,11 @@ def _log_report(log: logging.Logger, report: ExtractionReport, output_path: Path
         log.warning(
             "Clamped %d window(s) at episode start (event too early for full window).",
             report.clamped_windows,
+        )
+    if report.tail_clamped_windows:
+        log.warning(
+            "Clamped %d window(s) at episode end (event too late for full post window).",
+            report.tail_clamped_windows,
         )
     if report.skipped_overlaps:
         log.warning(

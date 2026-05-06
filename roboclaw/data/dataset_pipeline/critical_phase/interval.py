@@ -1,7 +1,9 @@
 """Turn detected critical events into per-event critical windows.
 
-Each event becomes a window of ``round(pre_event_seconds * fps)`` frames that
-ends at and INCLUDES the event frame: ``[max(0, event+1-W), event+1)``.
+Each event becomes a window covering
+``round(pre_event_seconds * fps)`` frames BEFORE-and-including the event
+plus ``round(post_event_seconds * fps)`` frames AFTER it:
+``[max(0, event+1-pre_w), min(episode_length, event+1+post_w))``.
 Within a single source episode, an :class:`OverlapPolicy` controls what
 happens when two windows touch; across episodes, windows never interact.
 ``min_events_per_episode`` is purely a warning threshold — the builder never
@@ -26,6 +28,7 @@ class OverlapPolicy(str, Enum):
 class WindowSpec:
     pre_event_seconds: float
     fps: float
+    post_event_seconds: float = 0.0
     overlap_policy: OverlapPolicy = OverlapPolicy.KEEP
     min_events_per_episode: int = 5
 
@@ -50,6 +53,7 @@ class ExtractionReport:
     episodes_with_fewer_than_min_events: dict[int, int]
     clamped_windows: int
     skipped_overlaps: int
+    tail_clamped_windows: int = 0
 
 
 class CriticalWindowBuilder:
@@ -58,6 +62,10 @@ class CriticalWindowBuilder:
             raise ValueError(f"fps must be > 0 (got {spec.fps})")
         if spec.pre_event_seconds <= 0:
             raise ValueError(f"pre_event_seconds must be > 0 (got {spec.pre_event_seconds})")
+        if spec.post_event_seconds < 0:
+            raise ValueError(
+                f"post_event_seconds must be >= 0 (got {spec.post_event_seconds})"
+            )
         if int(round(spec.pre_event_seconds * spec.fps)) < 1:
             raise ValueError(
                 "pre_event_seconds * fps rounds to 0 frames; "
@@ -68,6 +76,10 @@ class CriticalWindowBuilder:
     @property
     def window_frames(self) -> int:
         return int(round(self.spec.pre_event_seconds * self.spec.fps))
+
+    @property
+    def post_window_frames(self) -> int:
+        return int(round(self.spec.post_event_seconds * self.spec.fps))
 
     def build(
         self,
@@ -82,6 +94,7 @@ class CriticalWindowBuilder:
         no_events: list[int] = []
         few_events: dict[int, int] = {}
         clamped = 0
+        tail_clamped = 0
         skipped_overlaps = 0
         for ep_idx in sorted(episode_lengths):
             ep_events = events_by_episode.get(ep_idx, [])
@@ -90,10 +103,13 @@ class CriticalWindowBuilder:
                 continue
             if len(ep_events) < self.spec.min_events_per_episode:
                 few_events[ep_idx] = len(ep_events)
-            ep_intervals, ep_clamped = self._make_intervals(ep_events)
+            ep_intervals, ep_clamped, ep_tail = self._make_intervals(
+                ep_events, episode_lengths[ep_idx]
+            )
             kept, ep_skipped = self._apply_overlap_policy(ep_idx, ep_intervals)
             intervals.extend(kept)
             clamped += ep_clamped
+            tail_clamped += ep_tail
             skipped_overlaps += ep_skipped
 
         return intervals, ExtractionReport(
@@ -104,21 +120,33 @@ class CriticalWindowBuilder:
             episodes_with_fewer_than_min_events=few_events,
             clamped_windows=clamped,
             skipped_overlaps=skipped_overlaps,
+            tail_clamped_windows=tail_clamped,
         )
 
     def _make_intervals(
         self,
         events: list[CriticalEvent],
-    ) -> tuple[list[CriticalInterval], int]:
-        w = self.window_frames
+        episode_length: int,
+    ) -> tuple[list[CriticalInterval], int, int]:
+        pre_w = self.window_frames
+        post_w = self.post_window_frames
         out: list[CriticalInterval] = []
         clamped = 0
+        tail_clamped = 0
         for ev in sorted(events, key=lambda e: e.event_frame):
-            end = ev.event_frame + 1
-            start = end - w
+            if ev.event_frame < 0 or ev.event_frame >= episode_length:
+                raise ValueError(
+                    f"event_frame {ev.event_frame} is outside episode "
+                    f"{ev.episode_index} length {episode_length}"
+                )
+            start = ev.event_frame + 1 - pre_w
+            end = ev.event_frame + 1 + post_w
             if start < 0:
                 start = 0
                 clamped += 1
+            if end > episode_length:
+                end = episode_length
+                tail_clamped += 1
             out.append(
                 CriticalInterval(
                     source_episode_index=ev.episode_index,
@@ -127,7 +155,7 @@ class CriticalWindowBuilder:
                     event_frame=ev.event_frame,
                 )
             )
-        return out, clamped
+        return out, clamped, tail_clamped
 
     def _apply_overlap_policy(
         self,
