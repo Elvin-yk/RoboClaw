@@ -1,4 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { useI18n } from '@/i18n'
+import { ActionButton } from '@/shared/ui'
+import { cn } from '@/shared/lib/cn'
 import { useTrajectoryVizStore } from '../store'
 import { DualArmScene, buildFrameMetrics } from '../scene'
 import { DualArmKinematics } from '../kinematics'
@@ -11,7 +14,22 @@ import type { ArmFrameSample } from '../scene'
 
 const READOUT_HZ = 10
 
+const selectClass = cn(
+    'rounded-lg border border-bd bg-sf px-3 py-1.5 text-sm text-tx shadow-sm',
+    'transition focus:border-ac focus:outline-none focus:ring-2 focus:ring-ac/30',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+)
+
+const fieldLabelClass = 'flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-tx2'
+
+const pagerButtonClass = cn(
+    'rounded-md border border-bd bg-sf px-2 py-1 text-xs font-medium text-tx',
+    'transition hover:border-ac hover:text-ac',
+    'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-bd disabled:hover:text-tx',
+)
+
 export default function TrajectoryVizPage() {
+    const { t } = useI18n()
     const containerRef = useRef<HTMLDivElement | null>(null)
     const sceneRef = useRef<DualArmScene | null>(null)
     const clockRef = useRef<PlaybackClock | null>(null)
@@ -167,13 +185,16 @@ export default function TrajectoryVizPage() {
 
     const duration = payload ? payload.time_s[payload.frame_count - 1] - payload.time_s[0] : 0
     const canLoad = !!selectedDataset && episodeIndex !== null && !loading
+    const anyLoading = loading || datasetsLoading || episodesLoading
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '12px', gap: '12px' }}>
-            <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                <strong>Trajectory Replay</strong>
-                <label>
-                    dataset{' '}
+        <div className="page-enter flex h-full flex-col gap-4 overflow-y-auto px-6 py-4">
+            <header className="flex flex-wrap items-center gap-3 rounded-2xl border border-bd/60 bg-sf/95 px-4 py-3 shadow-card">
+                <div className="flex items-center gap-2">
+                    <h2 className="display-title text-xl text-tx md:text-2xl">{t('trajectoryReplay')}</h2>
+                </div>
+                <label className={fieldLabelClass}>
+                    <span>{t('trajVizDataset')}</span>
                     <select
                         aria-label="dataset"
                         value={selectedDataset?.dataset ?? ''}
@@ -182,9 +203,9 @@ export default function TrajectoryVizPage() {
                             if (opt) void selectDataset(opt)
                         }}
                         disabled={datasetsLoading || datasetOptions.length === 0}
-                        style={{ minWidth: 240, padding: '4px 8px' }}
+                        className={cn(selectClass, 'min-w-[240px]')}
                     >
-                        {selectedDataset === null && <option value="">— select —</option>}
+                        {selectedDataset === null && <option value="">{t('trajVizSelect')}</option>}
                         {datasetOptions.map((opt) => (
                             <option key={opt.id} value={opt.id}>
                                 {opt.label || opt.id}
@@ -192,8 +213,8 @@ export default function TrajectoryVizPage() {
                         ))}
                     </select>
                 </label>
-                <label>
-                    episode{' '}
+                <label className={fieldLabelClass}>
+                    <span>{t('trajVizEpisode')}</span>
                     <select
                         aria-label="episode index"
                         value={episodeIndex ?? ''}
@@ -202,7 +223,7 @@ export default function TrajectoryVizPage() {
                             if (Number.isFinite(v)) selectEpisode(v)
                         }}
                         disabled={episodesLoading || !episodePage || episodePage.episodes.length === 0}
-                        style={{ minWidth: 80 }}
+                        className={cn(selectClass, 'min-w-[80px]')}
                     >
                         {episodeIndex === null && <option value="">—</option>}
                         {episodePage?.episodes.map((ep) => (
@@ -213,50 +234,61 @@ export default function TrajectoryVizPage() {
                     </select>
                 </label>
                 {episodePage && episodePage.total_pages > 1 && (
-                    <span style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+                    <div className="flex items-center gap-1.5 text-xs text-tx2">
                         <button
+                            type="button"
                             onClick={() => selectedDataset && void loadEpisodes(selectedDataset, episodePage.page - 1)}
                             disabled={episodePage.page <= 1 || episodesLoading}
+                            className={pagerButtonClass}
                         >
-                            Prev
+                            {t('trajVizPrev')}
                         </button>
-                        <span>
+                        <span className="font-mono tabular-nums text-tx">
                             {episodePage.page} / {episodePage.total_pages}
                         </span>
                         <button
+                            type="button"
                             onClick={() => selectedDataset && void loadEpisodes(selectedDataset, episodePage.page + 1)}
                             disabled={episodePage.page >= episodePage.total_pages || episodesLoading}
+                            className={pagerButtonClass}
                         >
-                            Next
+                            {t('trajVizNext')}
                         </button>
-                    </span>
+                    </div>
                 )}
-                <label>
-                    signal{' '}
-                    <select value={signal} onChange={(e) => setSignal(e.target.value as Signal)}>
-                        <option value="state">state</option>
-                        <option value="action">action</option>
+                <label className={fieldLabelClass}>
+                    <span>{t('trajVizSignal')}</span>
+                    <select
+                        value={signal}
+                        onChange={(e) => setSignal(e.target.value as Signal)}
+                        className={selectClass}
+                    >
+                        <option value="state">{t('trajVizSignalState')}</option>
+                        <option value="action">{t('trajVizSignalAction')}</option>
                     </select>
                 </label>
-                <button onClick={() => void loadTrajectory()} disabled={!canLoad}>
-                    Load
-                </button>
-                {(loading || datasetsLoading || episodesLoading) && <span>loading…</span>}
-                {error && <span style={{ color: 'crimson' }}>{error}</span>}
+                <ActionButton
+                    variant="primary"
+                    onClick={() => void loadTrajectory()}
+                    disabled={!canLoad}
+                    className="px-5 py-2 text-sm"
+                >
+                    {t('trajVizLoad')}
+                </ActionButton>
+                {anyLoading && (
+                    <span className="font-mono text-xs text-tx2">{t('trajVizLoadingShort')}</span>
+                )}
+                {error && (
+                    <span className="rounded-md bg-rd/10 px-2 py-1 font-mono text-xs text-rd">{error}</span>
+                )}
             </header>
 
             <div
                 ref={containerRef}
-                style={{
-                    flex: 1,
-                    minHeight: 320,
-                    border: '1px solid #d1d5db',
-                    borderRadius: 4,
-                    overflow: 'hidden',
-                }}
+                className="flex-1 min-h-[320px] overflow-hidden rounded-2xl border border-bd/60 bg-sf/95 shadow-card"
             />
 
-            <footer style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <footer className="flex flex-col gap-3 rounded-2xl border border-bd/60 bg-sf/95 p-4 shadow-card">
                 {distanceSeries && payload && (
                     <DistanceSparkline
                         series={distanceSeries}
@@ -272,39 +304,43 @@ export default function TrajectoryVizPage() {
                     />
                 )}
                 {!distanceSeries && distanceSeriesLoading && (
-                    <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>
-                        Computing distance series…
-                    </div>
+                    <div className="font-mono text-xs text-tx2">{t('trajVizComputingSeries')}</div>
                 )}
                 {(distanceSeries || distanceSeriesLoading) && <DistanceControls />}
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <button
+                <input
+                    type="range"
+                    min={0}
+                    max={duration}
+                    step={1 / 60}
+                    value={timeSec}
+                    onChange={(e) => {
+                        const v = Number(e.target.value)
+                        const startTs = payload?.time_s[0] ?? 0
+                        // Reset throttle so the subscriber syncs the new
+                        // frame to React state on this scrub emit.
+                        lastReadoutRef.current = 0
+                        clockRef.current?.scrubTo(startTs + v)
+                    }}
+                    disabled={!payload}
+                    className="block w-full accent-ac"
+                />
+                <div className="flex items-center gap-3">
+                    <ActionButton
+                        variant={isPlaying ? 'secondary' : 'primary'}
                         onClick={() => setPlaying(!isPlaying)}
                         disabled={!payload || distanceSeriesLoading}
+                        className="px-4 py-2 text-sm"
                     >
-                        {isPlaying ? 'Pause' : 'Play'}
-                    </button>
-                    <input
-                        type="range"
-                        min={0}
-                        max={duration}
-                        step={1 / 60}
-                        value={timeSec}
-                        onChange={(e) => {
-                            const v = Number(e.target.value)
-                            const startTs = payload?.time_s[0] ?? 0
-                            // Reset throttle so the subscriber syncs the new
-                            // frame to React state on this scrub emit.
-                            lastReadoutRef.current = 0
-                            clockRef.current?.scrubTo(startTs + v)
-                        }}
-                        disabled={!payload}
-                        style={{ flex: 1 }}
-                    />
-                    <span>
+                        {isPlaying ? t('trajVizPause') : t('trajVizPlay')}
+                    </ActionButton>
+                    <span className="font-mono text-xs tabular-nums text-tx2">
                         {timeSec.toFixed(2)}s / {duration.toFixed(2)}s
                     </span>
-                    <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+                    <select
+                        value={speed}
+                        onChange={(e) => setSpeed(Number(e.target.value))}
+                        className={cn(selectClass, 'ml-auto')}
+                    >
                         {[0.25, 0.5, 1, 2, 4].map((v) => (
                             <option key={v} value={v}>
                                 {v}x

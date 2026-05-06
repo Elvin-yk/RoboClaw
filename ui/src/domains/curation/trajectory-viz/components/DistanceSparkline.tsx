@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { useI18n } from '@/i18n'
 import { downsampleDistanceSeries } from '../distanceSeries'
 import type { BelowThresholdRange } from '../distanceSeries'
 
@@ -22,6 +23,7 @@ export default function DistanceSparkline({
     height = 80,
     onScrub,
 }: DistanceSparklineProps) {
+    const { t } = useI18n()
     const svgRef = useRef<SVGSVGElement | null>(null)
     const [hoverFrame, setHoverFrame] = useState<number | null>(null)
     const length = series.length
@@ -71,14 +73,10 @@ export default function DistanceSparkline({
             ref={svgRef}
             viewBox={`0 0 ${VIEW_W} ${height}`}
             preserveAspectRatio="none"
+            className="block w-full rounded-lg border border-bd/60 bg-[color:var(--sf-strong)] shadow-sm"
             style={{
-                width: '100%',
                 height,
-                background: '#f9fafb',
-                border: '1px solid #d1d5db',
-                borderRadius: 4,
                 cursor: onScrub ? 'pointer' : 'default',
-                display: 'block',
             }}
             onMouseMove={(e) => setHoverFrame(frameFromEvent(e))}
             onMouseLeave={() => setHoverFrame(null)}
@@ -102,7 +100,8 @@ export default function DistanceSparkline({
                         y={0}
                         width={Math.max(0.5, w)}
                         height={height}
-                        fill="rgba(220, 38, 38, 0.18)"
+                        fill="var(--rd)"
+                        fillOpacity={0.18}
                     />
                 )
             })}
@@ -112,7 +111,7 @@ export default function DistanceSparkline({
                 x2={VIEW_W}
                 y1={thresholdY}
                 y2={thresholdY}
-                stroke="#dc2626"
+                stroke="var(--rd)"
                 strokeWidth={1}
                 strokeDasharray="4 3"
                 vectorEffect="non-scaling-stroke"
@@ -122,7 +121,7 @@ export default function DistanceSparkline({
                 <path
                     d={path}
                     fill="none"
-                    stroke="#1f2937"
+                    stroke="var(--tx)"
                     strokeWidth={1.25}
                     vectorEffect="non-scaling-stroke"
                 />
@@ -133,7 +132,7 @@ export default function DistanceSparkline({
                 x2={cursorX}
                 y1={0}
                 y2={height}
-                stroke="#2563eb"
+                stroke="var(--ac)"
                 strokeWidth={1}
                 vectorEffect="non-scaling-stroke"
             />
@@ -145,17 +144,19 @@ export default function DistanceSparkline({
                         y={-12}
                         width={180}
                         height={18}
-                        fill="rgba(255,255,255,0.92)"
-                        stroke="#d1d5db"
+                        fill="var(--sf)"
+                        fillOpacity={0.94}
+                        stroke="var(--bd)"
+                        rx={3}
                     />
                     <text
                         x={0}
                         y={1}
                         fontSize={11}
-                        fontFamily="monospace"
-                        fill="#111827"
+                        fontFamily="IBM Plex Mono, monospace"
+                        fill="var(--tx)"
                     >
-                        frame {hoverFrame} · {hoverValue.toFixed(3)} m
+                        {t('trajVizFrame')} {hoverFrame} · {hoverValue.toFixed(3)} m
                     </text>
                 </g>
             )}
