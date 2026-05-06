@@ -306,11 +306,24 @@ def test_pipeline_rejects_non_contiguous_frame_indexes(tmp_path: Path) -> None:
         )
 
 
-def test_cli_main_raises_not_implemented(tmp_path: Path) -> None:
-    """CLI must refuse to run end-to-end: real EE provider lands later."""
+def test_cli_main_returns_1_when_source_missing(tmp_path: Path) -> None:
+    """CLI exits with code 1 (no traceback) when --src does not exist."""
+    argv = [
+        "--src", str(tmp_path / "missing"),
+        "--dst", str(tmp_path / "dst"),
+        "--task", "synthetic",
+        "--gripper-dim", "5",
+        "--open-threshold", "10.0",
+        "--ee-close-threshold-m", "0.08",
+    ]
+    assert cli_main(argv) == 1
+
+
+def test_cli_main_returns_1_when_destination_exists(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
     dst = tmp_path / "dst"
+    dst.mkdir()
     argv = [
         "--src", str(src),
         "--dst", str(dst),
@@ -319,5 +332,4 @@ def test_cli_main_raises_not_implemented(tmp_path: Path) -> None:
         "--open-threshold", "10.0",
         "--ee-close-threshold-m", "0.08",
     ]
-    with pytest.raises(NotImplementedError, match="EpisodeEEDistanceProvider"):
-        cli_main(argv)
+    assert cli_main(argv) == 1

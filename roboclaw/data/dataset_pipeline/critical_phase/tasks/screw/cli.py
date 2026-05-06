@@ -5,10 +5,9 @@ episode, emit a window of ``--pre-event-seconds * fps`` frames ending at and
 INCLUDING the event frame. All extracted segments are merged into a single
 output dataset via the lerobot helper.
 
-NB: real inter-EE distance computation lands via ``shuyuan/traj-viz``. Until
-that branch supplies an :class:`EpisodeEEDistanceProvider`, this CLI cannot
-run end-to-end and ``main()`` raises :class:`NotImplementedError` immediately.
-``--help`` and argument parsing still work so the surface is testable.
+Inter-EE distance is computed by :class:`EpisodeEEDistanceProvider`, which
+runs forward kinematics on the bimanual SO101 action vector. ``placo`` is a
+required runtime dependency (provided by lerobot's ``kinematics`` extra).
 
 Example::
 
@@ -27,7 +26,16 @@ import math
 import sys
 from pathlib import Path
 
-from roboclaw.data.dataset_pipeline.critical_phase import OverlapPolicy
+from roboclaw.data.dataset_pipeline.critical_phase import (
+    ExtractionReport,
+    OverlapPolicy,
+    RisingEdgeConfig,
+    load_dataset_fps,
+)
+from roboclaw.data.trajectory_viz import EpisodeEEDistanceProvider
+
+from .detectors import GripperEEEventConfig, GripperOpenMaskConfig
+from .pipeline import ExtractionRequest, run
 
 
 def _parse_int_set(raw: str) -> set[int]:
@@ -94,21 +102,98 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    return _build_arg_parser().parse_args(argv)
+def _build_request(args: argparse.Namespace, log: logging.Logger) -> ExtractionRequest:
+    fps = load_dataset_fps(args.src)
+    log.info("Source fps: %.3f", fps)
+    reset_threshold = (
+        args.reset_threshold if args.reset_threshold is not None else args.open_threshold
+    )
+    min_separation_frames = int(round(args.min_event_separation_s * fps))
+    log.info(
+        "Detector: open=%.3f reset=%.3f ee_close=%.4fm min_sep=%d frames (%.3fs * %.3ffps)",
+        args.open_threshold,
+        reset_threshold,
+        args.ee_close_threshold_m,
+        min_separation_frames,
+        args.min_event_separation_s,
+        fps,
+    )
+    exclude = _parse_int_set(args.exclude_episodes)
+    if exclude:
+        log.info("Excluding %d episode(s): %s", len(exclude), sorted(exclude))
+    event_config = GripperEEEventConfig(
+        gripper=GripperOpenMaskConfig(
+            open_threshold=args.open_threshold,
+            reset_threshold=reset_threshold,
+        ),
+        ee_close_threshold_m=args.ee_close_threshold_m,
+        edge=RisingEdgeConfig(min_separation_frames=min_separation_frames),
+    )
+    return ExtractionRequest(
+        src=args.src,
+        dst=args.dst,
+        task=args.task,
+        gripper_dim=args.gripper_dim,
+        event_config=event_config,
+        pre_event_seconds=args.pre_event_seconds,
+        overlap_policy=OverlapPolicy(args.overlap_policy),
+        min_events_per_episode=args.min_events_per_episode,
+        exclude_episodes=exclude,
+        source_repo_id=args.source_repo_id,
+        output_repo_id=args.output_repo_id,
+        vcodec=args.vcodec,
+        dry_run=args.dry_run,
+    )
+
+
+def _log_report(log: logging.Logger, report: ExtractionReport, output_path: Path | None) -> None:
+    log.info(
+        "Source episodes: %d  output segments: %d  output frames: %d",
+        report.source_episode_count,
+        report.output_segment_count,
+        report.total_output_frames,
+    )
+    if report.episodes_with_no_events:
+        log.warning(
+            "Episodes with no detected events (%d): %s",
+            len(report.episodes_with_no_events),
+            report.episodes_with_no_events,
+        )
+    if report.episodes_with_fewer_than_min_events:
+        log.warning(
+            "Episodes with fewer than min events (kept anyway): %s",
+            report.episodes_with_fewer_than_min_events,
+        )
+    if report.clamped_windows:
+        log.warning(
+            "Clamped %d window(s) at episode start (event too early for full window).",
+            report.clamped_windows,
+        )
+    if report.skipped_overlaps:
+        log.warning(
+            "Skipped %d overlapping window(s) per overlap-policy.",
+            report.skipped_overlaps,
+        )
+    if output_path is not None:
+        log.info("Done. Output dataset at %s", output_path)
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     log = logging.getLogger("trim")
-    _parse_args(argv)
-    log.error(
-        "EE distance provider not yet wired; lands via shuyuan/traj-viz. "
-        "This CLI cannot run end-to-end yet."
-    )
-    raise NotImplementedError(
-        "EpisodeEEDistanceProvider not yet implemented (lands via shuyuan/traj-viz)"
-    )
+    args = _build_arg_parser().parse_args(argv)
+    if not args.src.exists():
+        log.error("Source dataset not found: %s", args.src)
+        return 1
+    if args.dst.exists():
+        log.error("Destination already exists, refusing to overwrite: %s", args.dst)
+        return 1
+    request = _build_request(args, log)
+    report, output_path = run(request, EpisodeEEDistanceProvider())
+    _log_report(log, report, output_path)
+    if args.dry_run:
+        log.info("--dry-run: not building output dataset.")
+    return 0
 
 
 if __name__ == "__main__":
