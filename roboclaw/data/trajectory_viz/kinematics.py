@@ -128,3 +128,42 @@ class DualArmKinematics:
             )
         transform = arm.forward_kinematics(joints)
         return transform[:3, 3] + base_xyz
+
+
+class EpisodeEEDistanceProvider:
+    """Adapter exposing the offline-pipeline ``distance_trace`` contract.
+
+    The input is a single bimanual action vector of shape ``(num_frames, 12)``
+    — 6 left joints followed by 6 right joints, in degrees, ordered to match
+    ``DualArmKinematics.joint_names``. The output is a ``float64`` distance
+    series of length ``num_frames`` (meters).
+
+    ``episode_index`` is accepted for the contract but unused: forward
+    kinematics is stateless across episodes; the caller already has the
+    relevant action slice for the episode.
+    """
+
+    def __init__(self, kinematics: DualArmKinematics | None = None) -> None:
+        self._kinematics = kinematics if kinematics is not None else DualArmKinematics.for_so101()
+        self._joint_count = len(self._kinematics.joint_names)
+
+    @property
+    def kinematics(self) -> DualArmKinematics:
+        return self._kinematics
+
+    def distance_trace(
+        self,
+        episode_index: int,  # noqa: ARG002 — informational; FK is stateless
+        action: np.ndarray,
+        num_frames: int,
+    ) -> np.ndarray:
+        del episode_index
+        expected_dim = 2 * self._joint_count
+        if action.shape != (num_frames, expected_dim):
+            raise ValueError(
+                f"action must have shape ({num_frames}, {expected_dim}); got {action.shape}"
+            )
+        left = action[:, : self._joint_count]
+        right = action[:, self._joint_count :]
+        series = self._kinematics.compute_distance_series(left, right)
+        return series.astype(np.float64, copy=False)

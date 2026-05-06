@@ -11,7 +11,10 @@ import pytest
 
 pytest.importorskip("placo")
 
-from roboclaw.data.trajectory_viz.kinematics import DualArmKinematics  # noqa: E402
+from roboclaw.data.trajectory_viz.kinematics import (  # noqa: E402
+    DualArmKinematics,
+    EpisodeEEDistanceProvider,
+)
 from roboclaw.embodied.trajectory_viz.model import SO101_FOLLOWER  # noqa: E402
 from roboclaw.embodied.trajectory_viz.scene import DUAL_SO101_SCENE  # noqa: E402
 
@@ -92,3 +95,42 @@ def test_for_so101_factory_no_args_zero_joints_distance() -> None:
     kin = DualArmKinematics.for_so101()
     distance = kin.distance_at_frame(_zero_joints(), _zero_joints())
     assert distance == pytest.approx(DUAL_SO101_SCENE.arm_separation_m, abs=1e-6)
+
+
+def test_episode_distance_provider_zero_action_returns_arm_separation() -> None:
+    provider = EpisodeEEDistanceProvider()
+    j = len(SO101_FOLLOWER.joint_order)
+    num_frames = 4
+    action = np.zeros((num_frames, 2 * j), dtype=np.float64)
+    series = provider.distance_trace(episode_index=7, action=action, num_frames=num_frames)
+    assert series.shape == (num_frames,)
+    assert series.dtype == np.float64
+    expected = _expected_base_distance()
+    for value in series:
+        assert value == pytest.approx(expected, abs=1e-6)
+
+
+def test_episode_distance_provider_matches_split_compute() -> None:
+    """Provider distance must equal feeding the same split through compute_distance_series."""
+    rng = np.random.default_rng(seed=1234)
+    j = len(SO101_FOLLOWER.joint_order)
+    num_frames = 6
+    left = rng.uniform(-30.0, 30.0, size=(num_frames, j))
+    right = rng.uniform(-30.0, 30.0, size=(num_frames, j))
+    action = np.concatenate([left, right], axis=1)
+
+    provider = EpisodeEEDistanceProvider()
+    via_provider = provider.distance_trace(episode_index=0, action=action, num_frames=num_frames)
+    via_split = provider.kinematics.compute_distance_series(left, right).astype(np.float64)
+    np.testing.assert_allclose(via_provider, via_split, atol=1e-9)
+
+
+def test_episode_distance_provider_shape_mismatch_raises() -> None:
+    provider = EpisodeEEDistanceProvider()
+    j = len(SO101_FOLLOWER.joint_order)
+    # num_frames vs action.shape[0] disagree
+    with pytest.raises(ValueError):
+        provider.distance_trace(0, np.zeros((4, 2 * j)), num_frames=5)
+    # action_dim != 2 * joint_count
+    with pytest.raises(ValueError):
+        provider.distance_trace(0, np.zeros((4, 2 * j - 1)), num_frames=4)

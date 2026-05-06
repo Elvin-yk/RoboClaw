@@ -16,7 +16,7 @@ from roboclaw.data.trajectory_viz.distance_series import (
     find_below_threshold_ranges,
     summarize_distance_series,
 )
-from roboclaw.data.trajectory_viz.kinematics import DualArmKinematics
+from roboclaw.data.trajectory_viz.kinematics import DualArmKinematics, EpisodeEEDistanceProvider
 from roboclaw.data.trajectory_viz.schemas import (
     ArmTrajectory,
     QualityFlag,
@@ -33,6 +33,7 @@ __all__ = [
     "BelowThresholdRange",
     "DistanceStats",
     "DualArmKinematics",
+    "EpisodeEEDistanceProvider",
     "QualityFlag",
     "SceneSpec",
     "So101ModelResponse",
