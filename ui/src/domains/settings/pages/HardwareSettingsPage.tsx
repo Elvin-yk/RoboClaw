@@ -43,7 +43,6 @@ export default function HardwareSettingsPage() {
   const {
     wizardActive,
     startWizard,
-    cancelWizard,
     loadDevices,
     loadCatalog,
     checkPermissions,
@@ -102,30 +101,8 @@ export default function HardwareSettingsPage() {
     ? t('settingsStatusReady')
     : t('settingsWarningsCount', { count: String(warningsCount) })
 
-  const action = wizardActive ? (
-    <button
-      type="button"
-      onClick={() => { void cancelWizard() }}
-      className="rounded-full border border-bd/40 bg-white px-4 py-2 text-sm font-semibold text-tx2 transition-all hover:border-rd/30 hover:text-rd"
-    >
-      {t('cancel')}
-    </button>
-  ) : (
-    <button
-      type="button"
-      onClick={startWizard}
-      className="rounded-full bg-ac px-4 py-2 text-sm font-semibold text-white shadow-glow-ac transition-all hover:bg-ac2"
-    >
-      {t('addDevice')}
-    </button>
-  )
-
   return (
-    <SettingsPageFrame
-      title={t('settingsHardware')}
-      description={t('settingsHardwareDesc')}
-      actions={action}
-    >
+    <SettingsPageFrame>
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-3">
           <SummaryTile
@@ -196,7 +173,7 @@ export default function HardwareSettingsPage() {
               await loadDevices()
             }} />
 
-            {calibratingArm ? (
+            {calibratingArm && (
               <section className="rounded-2xl border border-bd/30 bg-sf p-5 shadow-card">
                 <CalibrationPanel
                   armAlias={calibratingArm}
@@ -206,13 +183,6 @@ export default function HardwareSettingsPage() {
                     void loadDevices()
                   }}
                 />
-              </section>
-            ) : (
-              <section className="rounded-2xl border border-bd/30 bg-sf p-5 shadow-card">
-                <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-tx">
-                  {t('manualCalibrate')}
-                </h3>
-                <p className="mt-2 text-sm text-tx3">{t('settingsCalibrationHint')}</p>
               </section>
             )}
           </div>

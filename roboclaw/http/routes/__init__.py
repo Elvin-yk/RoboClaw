@@ -52,7 +52,20 @@ def register_all_routes(
 
     from roboclaw.http.routes.curation import register_curation_routes
     from roboclaw.http.routes.data_workshop import register_data_workshop_routes
+    from roboclaw.http.routes.dataset_repair import register_dataset_repair_routes
     from roboclaw.http.routes.explorer import register_explorer_routes
+    from roboclaw.http.routes.trajectory_viz import register_trajectory_viz_routes
+    from roboclaw.data.repair.service import DatasetRepairCoordinator
+
     register_data_workshop_routes(app)
     register_curation_routes(app)
+    register_dataset_repair_routes(
+        app,
+        DatasetRepairCoordinator(
+            service.datasets.root / "local",
+            cleaned_root=service.datasets.root / "cleaned",
+            log_sink=service.board.log,
+        ),
+    )
     register_explorer_routes(app)
+    register_trajectory_viz_routes(app)

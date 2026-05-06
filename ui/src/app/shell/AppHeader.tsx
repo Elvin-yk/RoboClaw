@@ -5,17 +5,12 @@ import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
 import { useI18n } from '@/i18n'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { StatusPill } from '@/shared/ui'
+import { currentMembershipRole, type MembershipRole } from '@/shared/api/evoClient'
+import { maskPhone } from '@/shared/lib/phone'
 
-/** 手机号脱敏：138****8888 */
-function maskPhone(phone: string): string {
-    if (phone.length !== 11) return phone
-    return `${phone.slice(0, 3)}****${phone.slice(7)}`
-}
-
-/** 用户等级徽标颜色 */
-function levelColor(level: string): string {
-    if (level === 'admin') return '#d97706'
-    if (level === 'contributor') return '#2f6fe4'
+function roleColor(role: MembershipRole | null): string {
+    if (role === 'owner') return '#d97706'
+    if (role === 'admin') return '#2563eb'
     return '#6b7a8d'
 }
 
@@ -26,6 +21,8 @@ export default function AppHeader() {
     const fetchNetworkInfo = useHardwareStore((state) => state.fetchNetworkInfo)
     const { t, locale, setLocale } = useI18n()
     const { user, isLoggedIn, isChecking, logout } = useAuthStore()
+    const role = currentMembershipRole(user)
+    const hasPendingInvites = user?.memberships.some((membership) => membership.status === 'invited') ?? false
 
     useEffect(() => {
         void fetchNetworkInfo()
@@ -57,15 +54,22 @@ export default function AppHeader() {
                 {!isChecking && (
                     isLoggedIn && user ? (
                         <>
-                            <div className="header-user-badge" title={maskPhone(user.phone)}>
+                            <button
+                                type="button"
+                                className="header-user-badge"
+                                title={maskPhone(user.phone)}
+                                aria-label="打开账号设置"
+                                onClick={() => navigate('/settings/account')}
+                            >
                                 <div
                                     className="header-user-badge__avatar"
-                                    style={{ background: `linear-gradient(180deg, ${levelColor(user.level)}cc, ${levelColor(user.level)})` }}
+                                    style={{ background: `linear-gradient(180deg, ${roleColor(role)}cc, ${roleColor(role)})` }}
                                 >
                                     {avatarInitial}
                                 </div>
                                 <span className="header-user-badge__phone">{maskPhone(user.phone)}</span>
-                            </div>
+                                {hasPendingInvites && <span className="header-user-badge__notice" aria-hidden="true" />}
+                            </button>
                             <button
                                 type="button"
                                 onClick={handleLogout}

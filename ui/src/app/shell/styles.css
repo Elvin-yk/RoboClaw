@@ -17,6 +17,8 @@
 }
 
 .app-sidebar {
+  position: relative;
+  z-index: 30;
   display: flex;
   width: 220px;
   flex-direction: column;
@@ -714,6 +716,7 @@
 
 .chat-widget__trigger {
   position: relative;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -833,6 +836,7 @@
 }
 
 .header-user-badge {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -844,6 +848,14 @@
   color: var(--tx);
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.header-user-badge:hover {
+  border-color: rgba(47, 111, 228, 0.28);
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(47, 111, 228, 0.10);
 }
 
 .header-user-badge__avatar {
@@ -867,6 +879,18 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.header-user-badge__notice {
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
 }
 
 .header-logout-btn {
@@ -989,8 +1013,10 @@
     width: 100%;
     flex-direction: row;
     align-items: center;
+    z-index: 100;
     border-right: 0;
     border-bottom: 1px solid rgba(29, 43, 54, 0.08);
+    overflow: visible;
     padding: 12px 14px;
   }
 
@@ -1006,7 +1032,38 @@
   .app-sidebar__nav {
     flex: 1;
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-sidebar__nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-sidebar--popover-open .app-sidebar__nav {
+    overflow: visible;
+  }
+
+  .app-sidebar__group {
+    position: relative;
+  }
+
+  .app-sidebar__children {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 140;
+    min-width: 180px;
+    max-width: min(240px, calc(100vw - 24px));
+    margin-left: 0;
+    overflow: visible;
+    border: 1px solid rgba(47, 111, 228, 0.14);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 16px 34px rgba(27, 37, 55, 0.16);
+    backdrop-filter: blur(16px);
+    padding: 8px;
   }
 
   .app-sidebar--collapsed .app-sidebar__nav {
@@ -1018,7 +1075,18 @@
   }
 
   .app-topbar {
+    overflow-x: auto;
     padding: 14px 14px 4px;
+    scrollbar-width: none;
+  }
+
+  .app-topbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-topbar__connection,
+  .app-topbar__actions {
+    flex: 0 0 auto;
   }
 
   .chat-widget {
@@ -1037,41 +1105,25 @@
   .app-sidebar {
     position: sticky;
     top: 0;
-    z-index: 40;
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    overflow: visible;
-    padding: 10px 12px;
+    gap: 16px;
     background: rgba(255, 255, 255, 0.82);
     backdrop-filter: blur(18px);
   }
 
   .app-sidebar__header {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
+    min-width: 0;
   }
 
   .app-sidebar__brand-row {
-    width: 100%;
-  }
-
-  .app-sidebar__brand {
-    font-size: 22px;
+    width: auto;
   }
 
   .app-sidebar__nav {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: row;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-
-  .app-sidebar__nav::-webkit-scrollbar {
-    display: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-bottom: 0;
   }
 
   .app-sidebar__group {
@@ -1081,23 +1133,15 @@
 
   .app-sidebar__link {
     width: max-content;
-    height: 36px;
-    border-radius: 999px;
-    padding: 0 12px;
+    height: 40px;
+    border-radius: 10px;
+    padding: 0 10px;
   }
 
   .app-sidebar__children {
-    flex-direction: row;
     gap: 6px;
-    margin-left: 0;
-    overflow-x: auto;
-    border-left: 0;
-    padding-left: 0;
-    scrollbar-width: none;
-  }
-
-  .app-sidebar__children::-webkit-scrollbar {
-    display: none;
+    width: min(220px, calc(100vw - 24px));
+    min-width: 0;
   }
 
   .app-sidebar__child-link {
@@ -1117,7 +1161,6 @@
   }
 
   .app-topbar__connection {
-    flex: 0 0 auto;
     gap: 0;
   }
 
@@ -1176,4 +1219,5 @@
     min-width: 44px;
     height: 40px;
   }
+
 }

@@ -7,6 +7,7 @@ import {
   useExplorer,
 } from '../store/useExplorerStore'
 import { formatClipWindowLabel } from '@/domains/datasets/shared/playback/playbackWindow'
+import { buildExplorerQuery } from '@/shared/api/explorer'
 import { EpisodeHoverPreview } from './EpisodeHoverPreview'
 import { EpisodePlaybackSurface } from './EpisodePlaybackSurface'
 
@@ -119,18 +120,6 @@ const EpisodeDetailPanel = memo(function EpisodeDetailPanel({ detail }: { detail
     </div>
   )
 })
-
-export function buildExplorerQuery(ref: ExplorerDatasetRef): string {
-  const params = new URLSearchParams()
-  params.set('source', ref.source)
-  if (ref.dataset) {
-    params.set('dataset', ref.dataset)
-  }
-  if (ref.path) {
-    params.set('path', ref.path)
-  }
-  return params.toString()
-}
 
 export function EpisodeBrowser({ datasetRef }: { datasetRef: ExplorerDatasetRef }) {
   const { t } = useI18n()

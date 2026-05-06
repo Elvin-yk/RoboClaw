@@ -1,17 +1,18 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
 import RecoveryCenterPage from '@/domains/recovery/pages/RecoveryCenterPage'
 import DatasetExplorerPage from '@/domains/datasets/explorer/pages/DatasetExplorerPage'
+import DatasetRepairPage from '@/domains/datasets/repair/pages/DatasetRepairPage'
 import DataWorkshopPage from '@/domains/data-workshop/pages/DataWorkshopPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
 import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
 import DataOverviewPage from '@/domains/curation/data-overview/pages/DataOverviewPage'
 import HumanReviewPage from '@/domains/curation/review/pages/HumanReviewPage'
-import SettingsOverviewPage from '@/domains/settings/pages/SettingsOverviewPage'
+const TrajectoryVizPage = lazy(() => import('@/domains/curation/trajectory-viz/pages/TrajectoryVizPage'))
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
 import HubSettingsPage from '@/domains/settings/pages/HubSettingsPage'
@@ -66,11 +67,20 @@ function App() {
                         <Route path="curation/workshop" element={<DataWorkshopPage />} />
                         <Route path="curation/datasets" element={<DatasetExplorerPage />} />
                         <Route path="curation/datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
+                        <Route path="curation/dataset-clean" element={<DatasetRepairPage />} />
                         <Route path="curation/quality" element={<QualityValidationPage />} />
                         <Route path="curation/text-alignment" element={<TextAlignmentPage />} />
                         <Route path="curation/data-overview" element={<DataOverviewPage />} />
                         <Route path="curation/review" element={<HumanReviewPage />} />
-                        <Route path="settings" element={<SettingsOverviewPage />} />
+                        <Route
+                            path="curation/trajectory-viz"
+                            element={
+                                <Suspense fallback={<div style={{ padding: 16 }}>Loading viewer…</div>}>
+                                    <TrajectoryVizPage />
+                                </Suspense>
+                            }
+                        />
+                        <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
                         <Route path="settings/hardware" element={<HardwareSettingsPage />} />
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />
                         <Route path="settings/hub" element={<HubSettingsPage />} />

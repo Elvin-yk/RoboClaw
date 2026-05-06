@@ -1,5 +1,24 @@
 import { create } from 'zustand'
 import type { JointTrajectoryPayload } from '@/domains/curation/store/useCurationStore'
+import {
+  buildExplorerQuery,
+  buildExplorerRefKey,
+  fetchExplorerEpisodePage,
+  type ExplorerDatasetRef,
+  type ExplorerEpisodePage,
+  type ExplorerSource,
+} from '@/shared/api/explorer'
+
+// Re-export shared explorer types/functions so consumers in this domain can keep
+// importing from `useExplorerStore`. New code should import directly from
+// `@/shared/api/explorer`.
+export type {
+  ExplorerDatasetRef,
+  ExplorerDatasetSuggestion,
+  ExplorerEpisodePage,
+  ExplorerSource,
+} from '@/shared/api/explorer'
+export { buildExplorerRefKey, listExplorerDatasets, searchDatasetSuggestions } from '@/shared/api/explorer'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,15 +75,6 @@ export interface ExplorerSummary {
   }
 }
 
-export interface ExplorerEpisodePage {
-  dataset: string
-  page: number
-  page_size: number
-  total_episodes: number
-  total_pages: number
-  episodes: Array<{ episode_index: number; length: number }>
-}
-
 export interface EpisodeDetail {
   episode_index: number
   summary: {
@@ -82,21 +92,6 @@ export interface EpisodeDetail {
     from_timestamp?: number | null
     to_timestamp?: number | null
   }>
-}
-
-export interface DatasetSuggestion {
-  id: string
-  label?: string
-  path?: string
-  source?: 'remote' | 'local' | 'path'
-}
-
-export type ExplorerSource = 'remote' | 'local' | 'path'
-
-export interface ExplorerDatasetRef {
-  source: ExplorerSource
-  dataset?: string
-  path?: string
 }
 
 export interface ExplorerPageState {
@@ -281,47 +276,6 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export async function searchDatasetSuggestions(
-  query: string,
-  source: ExplorerSource,
-  limit = 8,
-): Promise<DatasetSuggestion[]> {
-  const needle = query.trim()
-  if (!needle) {
-    return []
-  }
-  return fetchJson<DatasetSuggestion[]>(
-    `/api/explorer/suggest?q=${encodeURIComponent(needle)}&limit=${limit}&source=${encodeURIComponent(source)}`,
-  )
-}
-
-export async function listExplorerDatasets(
-  source: Extract<ExplorerSource, 'local'> = 'local',
-): Promise<DatasetSuggestion[]> {
-  return fetchJson<DatasetSuggestion[]>(
-    `/api/explorer/datasets?source=${encodeURIComponent(source)}&limit=500`,
-  )
-}
-
-export function buildExplorerRefKey(ref: ExplorerDatasetRef | null | undefined): string {
-  if (!ref) {
-    return ''
-  }
-  return `${ref.source}|${ref.dataset?.trim() ?? ''}|${ref.path?.trim() ?? ''}`
-}
-
-function buildExplorerQuery(ref: ExplorerDatasetRef): string {
-  const params = new URLSearchParams()
-  params.set('source', ref.source)
-  if (ref.dataset) {
-    params.set('dataset', ref.dataset)
-  }
-  if (ref.path) {
-    params.set('path', ref.path)
-  }
-  return params.toString()
-}
-
 function assertRemoteDatasetMatchesRequest(
   ref: ExplorerDatasetRef,
   payload: { dataset?: string },
@@ -442,9 +396,7 @@ export const useExplorer = create<ExplorerStore>((set) => ({
       episodeError: '',
     })
     try {
-      const episodePage = await fetchJson<ExplorerEpisodePage>(
-        `/api/explorer/episodes?${buildExplorerQuery(ref)}&page=${page}&page_size=${pageSize}`,
-      )
+      const episodePage = await fetchExplorerEpisodePage(ref, page, pageSize)
       assertRemoteDatasetMatchesRequest(ref, episodePage, 'Explorer episodes')
       set((state) => (state.episodePageRefKey === requestKey ? { episodePage } : {}))
     } catch (error) {

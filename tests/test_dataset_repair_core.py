@@ -70,6 +70,7 @@ class TestDatasetRepairCore:
             repairable=True,
             details={"n_parquet_rows": 3},
         )
+        output_dir = tmp_path / "meta_stale_out"
 
         result = DatasetRepairService().repair(
             diagnosis,
@@ -77,13 +78,18 @@ class TestDatasetRepairCore:
             vcodec="h264",
             dry_run=False,
             force=False,
+            output_dir=output_dir,
         )
 
-        info = json.loads((dataset_dir / "meta" / "info.json").read_text(encoding="utf-8"))
+        info = json.loads((output_dir / "meta" / "info.json").read_text(encoding="utf-8"))
+        original = json.loads((dataset_dir / "meta" / "info.json").read_text(encoding="utf-8"))
         assert result.outcome == "repaired"
         assert info["total_episodes"] == 2
         assert info["total_frames"] == 3
         assert info["splits"] == {"train": "0:2"}
+        # Original must be untouched.
+        assert original["total_episodes"] == 0
+        assert original["total_frames"] == 0
 
     def test_missing_cp_writes_intervals(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "missing_cp"
@@ -100,6 +106,7 @@ class TestDatasetRepairCore:
                 "log_path": dataset_dir.parent / "missing_cp.log",
             },
         )
+        output_dir = tmp_path / "missing_cp_out"
 
         result = DatasetRepairService().repair(
             diagnosis,
@@ -107,11 +114,14 @@ class TestDatasetRepairCore:
             vcodec="h264",
             dry_run=False,
             force=False,
+            output_dir=output_dir,
         )
 
-        intervals = json.loads((dataset_dir / "critical_phase_intervals.json").read_text(encoding="utf-8"))
+        intervals = json.loads((output_dir / "critical_phase_intervals.json").read_text(encoding="utf-8"))
         assert result.outcome == "repaired"
         assert intervals[0]["outcome"] == "success"
+        # Original must not have a critical_phase_intervals.json written by repair.
+        assert not (dataset_dir / "critical_phase_intervals.json").exists()
 
     def test_frame_mismatch_truncates_recovery_images_and_parquet(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "frame_mismatch"
@@ -126,6 +136,7 @@ class TestDatasetRepairCore:
             repairable=True,
             details={"truncate_target_frames": 2, "n_parquet_rows": 3},
         )
+        output_dir = tmp_path / "frame_mismatch_out"
 
         result = DatasetRepairService().repair(
             diagnosis,
@@ -133,14 +144,18 @@ class TestDatasetRepairCore:
             vcodec="h264",
             dry_run=False,
             force=False,
+            output_dir=output_dir,
         )
 
-        recovery_lines = (dataset_dir / "recovery_frames.jsonl").read_text(encoding="utf-8").splitlines()
-        image_files = sorted((dataset_dir / "images").rglob("frame-*.png"))
-        table = pq.read_table(dataset_dir / "data" / "chunk-000" / "file-000.parquet")
-        info = json.loads((dataset_dir / "meta" / "info.json").read_text(encoding="utf-8"))
+        recovery_lines = (output_dir / "recovery_frames.jsonl").read_text(encoding="utf-8").splitlines()
+        image_files = sorted((output_dir / "images").rglob("frame-*.png"))
+        table = pq.read_table(output_dir / "data" / "chunk-000" / "file-000.parquet")
+        info = json.loads((output_dir / "meta" / "info.json").read_text(encoding="utf-8"))
         assert result.outcome == "repaired"
         assert len(recovery_lines) == 2
         assert len(image_files) == 2
         assert table.num_rows == 2
         assert info["total_frames"] == 2
+        # Original recovery jsonl untouched.
+        original_recovery = (dataset_dir / "recovery_frames.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(original_recovery) == 3
