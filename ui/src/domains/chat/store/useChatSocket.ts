@@ -9,8 +9,9 @@ import { useSessionStore } from '@/domains/session/store/useSessionStore'
 import { useHubTransferStore } from '@/domains/hub/store/useHubTransferStore'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
 import { useTrainingStore } from '@/domains/training/store/useTrainingStore'
-import { useWorkflow } from '@/domains/curation/store/useCurationStore'
-import { useExplorer } from '@/domains/datasets/explorer/store/useExplorerStore'
+import { useDataInspectStore } from '@/domains/data/store/inspectStore'
+import { useDataJobStore } from '@/domains/data/store/jobStore'
+import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 
 export type { MessageRole, Message }
 
@@ -59,48 +60,40 @@ function resolveWebSocketUrl(sessionId: string): string {
 }
 
 function buildAppContext(): Record<string, unknown> {
-  const workflow = useWorkflow.getState()
-  const explorer = useExplorer.getState()
+  const library = useDataLibraryStore.getState()
+  const inspect = useDataInspectStore.getState()
+  const dataJobs = useDataJobStore.getState()
   const training = useTrainingStore.getState()
   const session = useSessionStore.getState().session
   const hardware = useHardwareStore.getState().hardwareStatus
-  const stageStatuses = workflow.workflowState
-    ? Object.fromEntries(
-      Object.entries(workflow.workflowState.stages).map(([name, stage]: [string, any]) => [
-        name,
-        stage?.status ?? 'unknown',
-      ]),
-    )
-    : null
 
   return {
     route: window.location.pathname,
     search: window.location.search,
     hash: window.location.hash,
     href: window.location.href,
-    selected_dataset: workflow.selectedDataset,
-    selected_dataset_label: workflow.datasetInfo?.label ?? null,
-    selected_dataset_prepared: workflow.selectedDatasetIsRemotePrepared,
-    explorer: {
-      source: explorer.source,
-      active_dataset_ref: explorer.activeDatasetRef,
-      summary_dataset: explorer.summary?.dataset ?? null,
-      summary_total_episodes: explorer.summary?.summary.total_episodes ?? null,
-      episode_page: explorer.episodePage
-        ? {
-            page: explorer.episodePage.page,
-            page_size: explorer.episodePage.page_size,
-            total_episodes: explorer.episodePage.total_episodes,
-            total_pages: explorer.episodePage.total_pages,
-          }
-        : null,
-      selected_episode_index: explorer.selectedEpisodeIndex,
+    data: {
+      selected_dataset_ids: library.selectedDatasetIds,
+      dataset_count: library.datasets.length,
+      package_count: library.packages.length,
+      datasets: library.datasets.map((dataset) => ({
+        id: dataset.id,
+        stage: dataset.lifecycle_stage,
+      })),
+      packages: library.packages.map((item) => ({
+        id: item.id,
+        stage: item.lifecycle_stage,
+      })),
     },
-    workflow: stageStatuses,
-    quality: {
-      running: workflow.qualityRunning,
-      validators: workflow.selectedValidators,
-      defaults_loaded: Boolean(workflow.qualityDefaults),
+    inspect: {
+      source: inspect.source,
+      dataset: inspect.dataset,
+      path: inspect.path,
+      summary_dataset: inspect.summary?.dataset ?? null,
+    },
+    jobs: {
+      active_job_id: dataJobs.activeJobId,
+      active_job: dataJobs.activeJobId ? dataJobs.jobs[dataJobs.activeJobId] ?? null : null,
     },
     training: {
       current_job_id: training.currentTrainJobId,
@@ -143,43 +136,29 @@ function navigateClient(route: string): void {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
-function emitPipelineEvent(appEvent: Record<string, unknown>): void {
-  window.dispatchEvent(new CustomEvent('roboclaw:pipeline-event', { detail: appEvent }))
+function emitDataEvent(appEvent: Record<string, unknown>): void {
+  window.dispatchEvent(new CustomEvent('roboclaw:data-event', { detail: appEvent }))
 }
 
-function syncPreparedDataset(appEvent: Record<string, unknown>): void {
-  const datasetName = typeof appEvent.dataset_name === 'string' ? appEvent.dataset_name : ''
-  if (!datasetName) {
-    return
-  }
-  emitPipelineEvent(appEvent)
+function syncDataLibrary(appEvent: Record<string, unknown>): void {
+  emitDataEvent(appEvent)
   void (async () => {
-    try {
-      const workflow = useWorkflow.getState()
-      await workflow.loadDatasets()
-      await workflow.selectDataset(datasetName)
-    } catch (error) {
-      console.warn('Failed to sync prepared dataset from AI event', error)
+    await useDataLibraryStore.getState().load()
+    const jobId = typeof appEvent.job_id === 'string' ? appEvent.job_id : ''
+    if (jobId) {
+      await useDataJobStore.getState().refresh(jobId)
     }
   })()
 }
 
-function syncWorkflowEvent(appEvent: Record<string, unknown>): void {
-  emitPipelineEvent(appEvent)
+function syncDataJob(appEvent: Record<string, unknown>): void {
+  emitDataEvent(appEvent)
   void (async () => {
-    try {
-      const dataset = typeof appEvent.dataset === 'string' ? appEvent.dataset : ''
-      let workflow = useWorkflow.getState()
-      if (dataset && workflow.selectedDataset !== dataset) {
-        await workflow.loadDatasets()
-        await workflow.selectDataset(dataset)
-        workflow = useWorkflow.getState()
-      }
-      workflow.startPolling()
-      await workflow.refreshState()
-    } catch (error) {
-      console.warn('Failed to sync workflow state from AI event', error)
+    const jobId = typeof appEvent.job_id === 'string' ? appEvent.job_id : ''
+    if (jobId) {
+      await useDataJobStore.getState().refresh(jobId)
     }
+    await useDataLibraryStore.getState().load()
   })()
 }
 
@@ -191,15 +170,15 @@ function handleAppEvent(appEvent: any): boolean {
     navigateClient(appEvent.route)
     return true
   }
-  if (appEvent.type === 'pipeline.dataset_prepared') {
-    syncPreparedDataset(appEvent)
+  if (appEvent.type === 'data.library_changed') {
+    syncDataLibrary(appEvent)
     return true
   }
   if (
-    appEvent.type === 'pipeline.quality_run_started'
-    || appEvent.type === 'pipeline.quality_state_changed'
+    appEvent.type === 'data.job_started'
+    || appEvent.type === 'data.job_changed'
   ) {
-    syncWorkflowEvent(appEvent)
+    syncDataJob(appEvent)
     return true
   }
   return false

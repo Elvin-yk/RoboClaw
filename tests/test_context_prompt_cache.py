@@ -84,14 +84,15 @@ def test_runtime_context_includes_current_web_app_metadata(tmp_path) -> None:
         chat_id="chat-1",
         metadata={
             "app_context": {
-                "route": "/curation/data-overview",
-                "selected_dataset": "session:remote:demo",
-                "selected_dataset_label": "demo dataset",
-                "workflow": {"quality_validation": "completed", "annotation": "completed"},
-                "explorer": {
+                "route": "/data/overview",
+                "data": {
+                    "selected_dataset_ids": ["local/demo"],
+                    "packages": [{"id": "pkg_demo", "stage": "validated"}],
+                },
+                "inspect": {
                     "source": "remote",
-                    "active_dataset_ref": {"source": "remote", "dataset": "demo/raw"},
-                    "summary_total_episodes": 271,
+                    "dataset": "demo/raw",
+                    "summary_dataset": "demo/raw",
                 },
             }
         },
@@ -100,7 +101,7 @@ def test_runtime_context_includes_current_web_app_metadata(tmp_path) -> None:
     user_content = messages[-1]["content"]
     assert isinstance(user_content, str)
     assert "Current Web App Context:" in user_content
-    assert "- route: /curation/data-overview" in user_content
-    assert "- selected_dataset: session:remote:demo" in user_content
-    assert "quality_validation=completed" in user_content
-    assert "- explorer.active_dataset_ref: {'source': 'remote', 'dataset': 'demo/raw'}" in user_content
+    assert "- route: /data/overview" in user_content
+    assert "- data.selected_dataset_ids: ['local/demo']" in user_content
+    assert "- data.packages: [{'id': 'pkg_demo', 'stage': 'validated'}]" in user_content
+    assert "- inspect.dataset: demo/raw" in user_content

@@ -50,20 +50,20 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M12 7v5l3 3" />
     </svg>
   ),
-  '/curation': (
+  '/data': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 11l3 3L22 4" />
       <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
     </svg>
   ),
-  '/curation/text-alignment': (
+  '/data/annotation': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 6h16" />
       <path d="M4 12h10" />
       <path d="M4 18h14" />
     </svg>
   ),
-  '/curation/data-overview': (
+  '/data/overview': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 3h18v18H3z" />
       <path d="M7 15l3-3 2 2 5-5" />
@@ -90,18 +90,18 @@ interface NavItem {
   badge?: number
 }
 
-type NavGroupId = 'collection' | 'pipeline' | 'settings'
+type NavGroupId = 'collection' | 'data' | 'settings'
 
 const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
   collection: '/collection',
-  pipeline: '/curation',
+  data: '/data',
   settings: '/settings',
 }
 
 function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
   return {
     collection: pathname.startsWith(NAV_GROUP_ROOTS.collection),
-    pipeline: pathname.startsWith(NAV_GROUP_ROOTS.pipeline),
+    data: pathname.startsWith(NAV_GROUP_ROOTS.data),
     settings: pathname.startsWith(NAV_GROUP_ROOTS.settings),
   }
 }
@@ -170,7 +170,7 @@ export default function AppShell() {
     ))
   }, [compactNav, location.pathname])
 
-  const navItemsBeforePipeline: NavItem[] = []
+  const navItemsBeforeData: NavItem[] = []
   const navItemsBeforeSettings: NavItem[] = [
     { path: '/training', label: t('trainingCenter') },
   ]
@@ -183,13 +183,13 @@ export default function AppShell() {
     { path: '/collection/control', label: '控制平台' },
     { path: '/collection/recovery', label: '修复平台', badge: recoveryFaults.length || undefined },
   ]
-  const pipelineChildren = [
-    { path: '/curation/workshop', label: t('dataWorkshop') },
-    { path: '/curation/datasets', label: t('datasetReader') },
-    { path: '/curation/dataset-clean', label: t('datasetRepair') },
-    { path: '/curation/quality', label: t('qualityWorkbench') },
-    { path: '/curation/text-alignment', label: t('textAlignment') },
-    { path: '/curation/data-overview', label: t('dataOverview') },
+  const dataChildren = [
+    { path: '/data', label: '数据台' },
+    { path: '/data/inspect', label: '数据检查' },
+    { path: '/data/clean', label: '数据清洗' },
+    { path: '/data/quality', label: '质量验证' },
+    { path: '/data/annotation', label: '语义标注' },
+    { path: '/data/overview', label: '数据总览' },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },
@@ -206,13 +206,13 @@ export default function AppShell() {
       label: '采集中心',
       children: collectionChildren,
     },
-    pipeline: {
-      id: 'pipeline',
-      rootPath: '/curation',
-      collapsedPath: '/curation',
-      iconPath: '/curation',
-      label: t('pipelineNav'),
-      children: pipelineChildren,
+    data: {
+      id: 'data',
+      rootPath: '/data',
+      collapsedPath: '/data',
+      iconPath: '/data',
+      label: '数据中心',
+      children: dataChildren,
     },
     settings: {
       id: 'settings',
@@ -420,9 +420,9 @@ export default function AppShell() {
         <nav className="app-sidebar__nav">
           {renderNavGroup(navGroups.collection)}
 
-          {navItemsBeforePipeline.map(renderNavItem)}
+          {navItemsBeforeData.map(renderNavItem)}
 
-          {renderNavGroup(navGroups.pipeline)}
+          {renderNavGroup(navGroups.data)}
 
           {navItemsBeforeSettings.map(renderNavItem)}
 

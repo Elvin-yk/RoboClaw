@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { postJson } from '@/shared/api/client'
-import { useDatasetsStore } from '@/domains/datasets/store/useDatasetsStore'
+import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useTrainingStore } from '@/domains/training/store/useTrainingStore'
 
 const HUB = '/api/hub'
@@ -39,7 +39,7 @@ export const useHubTransferStore = create<HubTransferStore>((set) => ({
     set({ hubLoading: 'pullDataset', hubProgress: null })
     try {
       await postJson(`${HUB}/datasets/pull`, { repo_id: repoId, dataset_id: datasetId || '' })
-      await useDatasetsStore.getState().loadDatasets()
+      await useDataLibraryStore.getState().load()
     } finally {
       set({ hubLoading: null, hubProgress: null })
     }
