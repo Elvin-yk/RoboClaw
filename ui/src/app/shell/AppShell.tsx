@@ -103,6 +103,7 @@ export default function AppShell() {
   const [collectionExpanded, setCollectionExpanded] = useState(
     location.pathname.startsWith('/collection'),
   )
+  const [trainingExpanded, setTrainingExpanded] = useState(location.pathname.startsWith('/training'))
   const [pipelineExpanded, setPipelineExpanded] = useState(location.pathname.startsWith('/curation'))
   const [chatWidgetVisible, setChatWidgetVisible] = useState(true)
 
@@ -121,6 +122,9 @@ export default function AppShell() {
     ) {
       setCollectionExpanded(true)
     }
+    if (location.pathname.startsWith('/training')) {
+      setTrainingExpanded(true)
+    }
     if (location.pathname.startsWith('/curation')) {
       setPipelineExpanded(true)
     }
@@ -128,7 +132,6 @@ export default function AppShell() {
 
   const navItemsBeforePipeline: NavItem[] = []
   const navItemsAfterPipeline: NavItem[] = [
-    { path: '/training', label: t('trainingCenter') },
     { path: '/settings', label: t('settings') },
     { path: '/logs', label: t('logs') },
   ]
@@ -138,6 +141,11 @@ export default function AppShell() {
     { path: '/collection/recovery', label: '修复平台', badge: recoveryFaults.length || undefined },
   ]
   const collectionActive = location.pathname.startsWith('/collection')
+  const trainingChildren = [
+    { path: '/training/local', label: t('localTraining') },
+    { path: '/training/remote', label: t('remoteTraining') },
+  ]
+  const trainingActive = location.pathname.startsWith('/training')
   const pipelineChildren = [
     { path: '/curation/datasets', label: t('datasetReader') },
     { path: '/curation/quality', label: t('qualityWorkbench') },
@@ -275,6 +283,79 @@ export default function AppShell() {
           )}
 
           {navItemsBeforePipeline.map(renderNavItem)}
+
+          {sidebarCollapsed ? (
+            <Link
+              to="/training/local"
+              className={cn('app-sidebar__link', trainingActive && 'app-sidebar__link--active')}
+              title={t('trainingCenter')}
+            >
+              <span className="app-sidebar__link-icon">
+                {NAV_ICONS['/training']}
+              </span>
+            </Link>
+          ) : (
+            <div className="app-sidebar__group">
+              <button
+                type="button"
+                className={cn(
+                  'app-sidebar__link',
+                  'app-sidebar__group-trigger',
+                  trainingActive && 'app-sidebar__link--active',
+                )}
+                onClick={() => setTrainingExpanded((value) => !value)}
+                aria-expanded={trainingExpanded}
+              >
+                <span className="app-sidebar__link-icon">
+                  {NAV_ICONS['/training']}
+                </span>
+                <span className="app-sidebar__link-label">{t('trainingCenter')}</span>
+                <span
+                  className={cn(
+                    'app-sidebar__caret',
+                    trainingExpanded && 'app-sidebar__caret--expanded',
+                  )}
+                  aria-hidden="true"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </button>
+
+              {trainingExpanded && (
+                <div className="app-sidebar__children">
+                  {trainingChildren.map((child) => {
+                    const active =
+                      location.pathname === child.path
+                      || location.pathname.startsWith(`${child.path}/`)
+                    return (
+                      <Link
+                        key={child.path}
+                        to={child.path}
+                        className={cn(
+                          'app-sidebar__child-link',
+                          active && 'app-sidebar__child-link--active',
+                        )}
+                      >
+                        <span className="app-sidebar__child-dot" aria-hidden="true" />
+                        <span className="app-sidebar__child-label">{child.label}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {sidebarCollapsed ? (
             <Link

@@ -59,7 +59,9 @@ function App() {
                         <Route path="collection/recovery" element={<RecoveryCenterPage />} />
                         <Route path="datasets" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
-                        <Route path="training" element={<TrainingCenterPage />} />
+                        <Route path="training" element={<Navigate to="/training/local" replace />} />
+                        <Route path="training/local" element={<TrainingCenterPage />} />
+                        <Route path="training/remote" element={<TrainingCenterPage />} />
                         <Route path="curation" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="curation/datasets" element={<DatasetExplorerPage />} />
                         <Route path="curation/datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
