@@ -27,7 +27,7 @@ export function recoveryFaultKey(faultType: RecoveryFaultType, deviceAlias: stri
   return `${faultType}:${deviceAlias}`
 }
 
-interface RecoveryStore {
+interface DeviceRecoveryStore {
   faults: RecoveryFault[]
   hasCheckedHardware: boolean
   checkingHardware: boolean
@@ -47,13 +47,13 @@ async function waitForDashboardRecovery(timeoutMs: number = 30000): Promise<void
         return
       }
     } catch {
-      // Dashboard still restarting; keep polling until timeout.
+      // The dashboard process is expected to be temporarily unavailable while restarting.
     }
   }
   throw new Error('Dashboard restart timed out')
 }
 
-export const useRecoveryStore = create<RecoveryStore>((set) => ({
+export const useDeviceRecoveryStore = create<DeviceRecoveryStore>((set) => ({
   faults: [],
   hasCheckedHardware: false,
   checkingHardware: false,

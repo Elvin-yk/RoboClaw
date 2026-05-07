@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
-import RecoveryCenterPage from '@/domains/recovery/pages/RecoveryCenterPage'
 import DataQcPage from '@/domains/data/pages/DataQcPage'
 import DataAnalysisPage from '@/domains/data/pages/DataAnalysisPage'
 import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
@@ -56,7 +55,6 @@ function App() {
                         <Route path="collection" element={<Navigate to="/collection/control" replace />} />
                         <Route path="collection/control" element={<ControlPage />} />
                         <Route path="collection/publish" element={<TaskPublishPage />} />
-                        <Route path="collection/recovery" element={<RecoveryCenterPage />} />
                         <Route path="training" element={<TrainingCenterPage />} />
                         <Route path="data" element={<DataOverviewPage />} />
                         <Route path="data/qc" element={<DataQcPage />} />

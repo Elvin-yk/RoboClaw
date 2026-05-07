@@ -819,21 +819,19 @@ function Pager({
 }) {
   const { t } = useI18n()
   const count = pageCount(total, pageSize)
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
   return (
     <div className="data-manage-column__pager">
-      <span className="data-manage-page-range">{start}-{Math.min(page * pageSize, total)} / {total}</span>
-      <div className="data-manage-page-picker">
-        <button type="button" onClick={() => onPageChange(page - 1)} disabled={page === 1}>{t('dataManagePrevPage')}</button>
-        <span>{page} / {count}</span>
-        <button type="button" onClick={() => onPageChange(page + 1)} disabled={page === count}>{t('dataManageNextPage')}</button>
-      </div>
       <label className="data-manage-page-size">
         <span>{t('dataManagePageSize')}</span>
         <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
           {PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
         </select>
       </label>
+      <div className="data-manage-page-picker">
+        <button type="button" onClick={() => onPageChange(page - 1)} disabled={page === 1}>{t('dataManagePrevPage')}</button>
+        <span>{page} / {count}</span>
+        <button type="button" onClick={() => onPageChange(page + 1)} disabled={page === count}>{t('dataManageNextPage')}</button>
+      </div>
     </div>
   )
 }

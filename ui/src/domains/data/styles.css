@@ -635,19 +635,17 @@
 }
 
 .data-manage-column__pager {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "range size"
-    "picker picker";
+  display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 12px;
   border-top: 1px solid #e5e7eb;
   background: rgba(255, 255, 255, 0.72);
-  padding: 8px 12px 10px;
+  padding: 10px 12px 12px;
   color: var(--text-secondary, #667085);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .data-manage-column__filters {
@@ -705,33 +703,23 @@
   color: #166534;
 }
 
-.data-manage-page-range {
-  grid-area: range;
-  white-space: nowrap;
-}
-
 .data-manage-page-picker {
-  grid-area: picker;
-  display: grid;
-  grid-template-columns: auto auto auto;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   white-space: nowrap;
 }
 
 .data-manage-page-picker button {
   min-height: 28px;
-  padding: 4px 8px;
+  padding: 4px 9px;
   font-size: 12px;
 }
 
 .data-manage-page-size {
-  grid-area: size;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  justify-self: end;
   white-space: nowrap;
 }
 

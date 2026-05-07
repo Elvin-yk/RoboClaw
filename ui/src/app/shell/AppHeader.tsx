@@ -1,7 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useToast } from '@/app/shell/ToastOutlet'
 import { useChatSocket } from '@/domains/chat/store/useChatSocket'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
+import { useDeviceRecoveryStore } from '@/domains/control/store/useDeviceRecoveryStore'
 import { useI18n } from '@/i18n'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { StatusPill } from '@/shared/ui'
@@ -17,10 +19,14 @@ function roleColor(role: MembershipRole | null): string {
 export default function AppHeader() {
     const navigate = useNavigate()
     const { connected } = useChatSocket()
+    const toast = useToast((state) => state.add)
     const networkInfo = useHardwareStore((state) => state.networkInfo)
     const fetchNetworkInfo = useHardwareStore((state) => state.fetchNetworkInfo)
+    const restarting = useDeviceRecoveryStore((state) => state.restarting)
+    const restartDashboard = useDeviceRecoveryStore((state) => state.restartDashboard)
     const { t, locale, setLocale } = useI18n()
-    const { user, isLoggedIn, isChecking, logout } = useAuthStore()
+    const { user, isLoggedIn, isChecking } = useAuthStore()
+    const [systemPopoverOpen, setSystemPopoverOpen] = useState(false)
     const role = currentMembershipRole(user)
     const hasPendingInvites = user?.memberships.some((membership) => membership.status === 'invited') ?? false
 
@@ -32,68 +38,73 @@ export default function AppHeader() {
         ? (user.nickname ? user.nickname.slice(0, 1).toUpperCase() : user.phone.slice(0, 3))
         : '?'
 
-    function handleLogout() {
-        logout()
-        navigate('/login', { replace: true })
+    async function handleRestartDashboard() {
+        try {
+            await restartDashboard()
+        } catch (error) {
+            toast(error instanceof Error ? error.message : t('recoveryRestartFailed'), 'e')
+        }
     }
 
     return (
         <header className="app-topbar">
             <div className="app-topbar__connection">
-                <StatusPill active={connected}>
-                    {connected ? t('connected') : t('disconnected')}
-                </StatusPill>
+                <button
+                    type="button"
+                    className="app-topbar__status-button"
+                    onClick={() => setSystemPopoverOpen((open) => !open)}
+                    aria-label={connected ? t('connected') : t('disconnected')}
+                    aria-expanded={systemPopoverOpen}
+                >
+                    <StatusPill active={connected}>
+                        {connected ? t('connected') : t('disconnected')}
+                    </StatusPill>
+                </button>
                 {networkInfo && (
                     <div className="app-topbar__network">
                         {networkInfo.lan_ip}:{networkInfo.port}
                     </div>
                 )}
+                {systemPopoverOpen && (
+                    <>
+                        <button
+                            type="button"
+                            className="app-system-popover__backdrop"
+                            onClick={() => setSystemPopoverOpen(false)}
+                            aria-label="Close dashboard actions"
+                        />
+                        <aside className="app-system-popover" aria-label="Dashboard actions">
+                            <button
+                                type="button"
+                                className="app-system-popover__restart"
+                                onClick={() => { void handleRestartDashboard() }}
+                                disabled={restarting}
+                            >
+                                {restarting ? t('recoveryRestarting') : t('recoveryRestartDashboard')}
+                            </button>
+                        </aside>
+                    </>
+                )}
             </div>
             <div className="app-topbar__actions">
                 {!isChecking && (
                     isLoggedIn && user ? (
-                        <>
-                            <button
-                                type="button"
-                                className="header-user-badge"
-                                title={maskPhone(user.phone)}
-                                aria-label={t('accountSettingsTab')}
-                                onClick={() => navigate('/settings/account')}
+                        <button
+                            type="button"
+                            className="header-user-badge"
+                            title={maskPhone(user.phone)}
+                            aria-label={t('accountSettingsTab')}
+                            onClick={() => navigate('/settings/account')}
+                        >
+                            <div
+                                className="header-user-badge__avatar"
+                                style={{ background: `linear-gradient(180deg, ${roleColor(role)}cc, ${roleColor(role)})` }}
                             >
-                                <div
-                                    className="header-user-badge__avatar"
-                                    style={{ background: `linear-gradient(180deg, ${roleColor(role)}cc, ${roleColor(role)})` }}
-                                >
-                                    {avatarInitial}
-                                </div>
-                                <span className="header-user-badge__phone">{maskPhone(user.phone)}</span>
-                                {hasPendingInvites && <span className="header-user-badge__notice" aria-hidden="true" />}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleLogout}
-                                className="header-logout-btn"
-                                title={t('authLogout')}
-                            >
-                                <span className="header-logout-btn__icon" aria-hidden="true">
-                                    <svg
-                                        width="17"
-                                        height="17"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="1.9"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    >
-                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                                        <polyline points="16 17 21 12 16 7" />
-                                        <line x1="21" y1="12" x2="9" y2="12" />
-                                    </svg>
-                                </span>
-                                <span className="header-logout-btn__label">{t('authLogout')}</span>
-                            </button>
-                        </>
+                                {avatarInitial}
+                            </div>
+                            <span className="header-user-badge__phone">{maskPhone(user.phone)}</span>
+                            {hasPendingInvites && <span className="header-user-badge__notice" aria-hidden="true" />}
+                        </button>
                     ) : (
                         <Link to="/login" className="header-login-btn">
                             {t('authLoginPrompt')}

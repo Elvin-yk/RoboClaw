@@ -2,7 +2,6 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useChatSocket } from '@/domains/chat/store/useChatSocket'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
-import { useRecoveryStore } from '@/domains/recovery/store/useRecoveryStore'
 import { useI18n } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 import ChatPanel from '@/domains/chat/components/ChatPanel'
@@ -41,13 +40,6 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M4 19h16" />
       <path d="M7 15l3-4 3 2 4-7" />
       <path d="M17 6h3v3" />
-    </svg>
-  ),
-  '/collection/recovery': (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-      <path d="M21 3v6h-6" />
-      <path d="M12 7v5l3 3" />
     </svg>
   ),
   '/data': (
@@ -145,7 +137,6 @@ export default function AppShell() {
   const location = useLocation()
   const { connect, disconnect, connected, messages } = useChatSocket()
   const fetchHardwareStatus = useHardwareStore((state) => state.fetchHardwareStatus)
-  const recoveryFaults = useRecoveryStore((state) => state.faults)
   const { t } = useI18n()
   const user = useAuthStore((state) => state.user)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -202,7 +193,6 @@ export default function AppShell() {
   const collectionChildren = [
     ...(canPublishTasks ? [{ path: '/collection/publish', label: t('collectionManageNav') }] : []),
     { path: '/collection/control', label: t('collectionControlNav') },
-    { path: '/collection/recovery', label: t('collectionRecoveryNav'), badge: recoveryFaults.length || undefined },
   ]
   const dataChildren = [
     { path: '/data', label: t('dataOverviewNav') },

@@ -38,21 +38,12 @@ APP_PAGES: list[dict[str, Any]] = [
         "state_sources": ["/api/hardware/status", "/api/session/status"],
         "actions": [
             _action("hardware.get_status", "读取硬件状态", "app", "describe_page"),
+            _action("hardware.check_connections", "检查设备连接状态", "doctor", "check"),
+            _action("dashboard.restart", "重启 Dashboard", "app", "describe_page"),
             _action("teleop.teleoperate", "启动遥操作", "teleop", "teleoperate"),
             _action("record.record", "采集数据集", "record", "record"),
             _action("replay.replay", "回放数据集 episode", "replay", "replay"),
             _action("infer.run_policy", "运行策略推理", "infer", "run_policy"),
-        ],
-    },
-    {
-        "id": "recovery",
-        "route": "/recovery",
-        "name": "恢复中心",
-        "description": "Hardware fault recovery, recheck guidance, and dashboard restart controls.",
-        "state_sources": ["/api/recovery/faults", "/api/recovery/guides"],
-        "actions": [
-            _action("recovery.recheck", "重新检测硬件", "app", "describe_page"),
-            _action("doctor.check", "检查 embodied 环境", "doctor", "check"),
         ],
     },
     {
