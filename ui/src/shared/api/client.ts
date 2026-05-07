@@ -10,7 +10,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(url: string, opts?: RequestInit) {
+export async function api<T = any>(url: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(url, opts)
   let j: any
   try {
@@ -25,25 +25,25 @@ export async function api(url: string, opts?: RequestInit) {
     }
     throw new Error(detail || j.error || j.message || `HTTP ${r.status}`)
   }
-  return j
+  return j as T
 }
 
-export function postJson(url: string, body?: unknown) {
-  return api(url, {
+export function postJson<T = any>(url: string, body?: unknown): Promise<T> {
+  return api<T>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
 }
 
-export function patchJson(url: string, body: unknown) {
-  return api(url, {
+export function patchJson<T = any>(url: string, body: unknown): Promise<T> {
+  return api<T>(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
 
-export function deleteApi(url: string) {
-  return api(url, { method: 'DELETE' })
+export function deleteApi<T = any>(url: string): Promise<T> {
+  return api<T>(url, { method: 'DELETE' })
 }

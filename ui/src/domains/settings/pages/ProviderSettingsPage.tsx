@@ -15,10 +15,14 @@ const UI_PROVIDERS = [
   'custom',
 ]
 
-function providerCategory(p: ProviderOption): 'standard' | 'gateway' | 'local' | 'custom' {
+type ProviderGroupKey = 'standard' | 'gateway' | 'local' | 'custom'
+
+const GATEWAY_PROVIDER_NAMES = new Set(['openrouter', 'aihubmix', 'siliconflow', 'volcengine'])
+
+function providerCategory(p: ProviderOption): ProviderGroupKey {
   if (p.name === 'custom') return 'custom'
   if (p.local) return 'local'
-  if (p.name === 'openrouter' || p.name === 'aihubmix' || p.name === 'siliconflow' || p.name === 'volcengine') return 'gateway'
+  if (GATEWAY_PROVIDER_NAMES.has(p.name)) return 'gateway'
   return 'standard'
 }
 
@@ -44,6 +48,7 @@ export default function ProviderSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [openProviderGroup, setOpenProviderGroup] = useState<ProviderGroupKey | null>('standard')
 
   useEffect(() => {
     let cancelled = false
@@ -57,11 +62,12 @@ export default function ProviderSettingsPage() {
         setActiveProvider(payload.active_provider)
         setActiveModel(payload.default_model)
 
-        const initial = payload.active_provider && uiProviders.some((provider) => provider.name === payload.active_provider)
-          ? payload.active_provider
-          : 'custom'
-        setSelectedProvider(initial)
-        setApiBase(uiProviders.find((provider) => provider.name === initial)?.api_base || '')
+        const initial = uiProviders.find((provider) => provider.name === payload.active_provider)
+          ?? uiProviders.find((provider) => provider.name === 'custom')
+          ?? null
+        setSelectedProvider(initial?.name ?? null)
+        setOpenProviderGroup(initial ? providerCategory(initial) : null)
+        setApiBase(initial?.api_base || '')
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Failed to load settings.')
@@ -75,12 +81,13 @@ export default function ProviderSettingsPage() {
     return () => { cancelled = true }
   }, [])
 
-  function handleSelectProvider(name: string) {
-    setSelectedProvider(name)
+  function handleSelectProvider(provider: ProviderOption) {
+    setSelectedProvider(provider.name)
+    setOpenProviderGroup(providerCategory(provider))
     setError('')
     setNotice('')
     setApiKey('')
-    setApiBase(providers.find((provider) => provider.name === name)?.api_base || '')
+    setApiBase(provider.api_base || '')
   }
 
   async function handleSave(event: React.FormEvent) {
@@ -111,20 +118,17 @@ export default function ProviderSettingsPage() {
   const selected = providers.find((provider) => provider.name === selectedProvider) || null
 
   const groups = useMemo(() => ([
-    { key: 'standard', title: t('providerGroupStandard') },
-    { key: 'gateway', title: t('providerGroupGateway') },
-    { key: 'local', title: t('providerGroupLocal') },
-    { key: 'custom', title: t('providerGroupCustom') },
+    { key: 'standard' as const, title: t('providerGroupStandard') },
+    { key: 'gateway' as const, title: t('providerGroupGateway') },
+    { key: 'local' as const, title: t('providerGroupLocal') },
+    { key: 'custom' as const, title: t('providerGroupCustom') },
   ]).map((group) => ({
     ...group,
     items: providers.filter((provider) => providerCategory(provider) === group.key),
   })).filter((group) => group.items.length > 0), [providers, t])
 
   return (
-    <SettingsPageFrame
-      title={t('settingsProvider')}
-      description={t('settingsProviderDesc')}
-    >
+    <SettingsPageFrame>
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
         <div className="space-y-6">
           <section className="rounded-2xl border border-bd/30 bg-white p-5 shadow-card">
@@ -145,50 +149,62 @@ export default function ProviderSettingsPage() {
             </section>
           )}
 
-          {!loading && groups.map((group) => (
-            <section key={group.key} className="rounded-2xl border border-bd/30 bg-sf p-5 shadow-card">
-              <div className="mb-4">
-                <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-tx">{group.title}</h3>
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {group.items.map((provider) => {
-                  const isSelected = provider.name === selectedProvider
-                  const isActive = provider.name === activeProvider
+          {!loading && (
+            <section className="rounded-2xl border border-bd/30 bg-sf p-5 shadow-card">
+              <div className="space-y-3">
+                {groups.map((group) => {
+                  const expanded = openProviderGroup === group.key
                   return (
-                    <button
-                      key={provider.name}
-                      type="button"
-                      onClick={() => handleSelectProvider(provider.name)}
-                      className={`rounded-2xl border px-4 py-4 text-left transition-all ${
-                        isSelected
-                          ? 'border-ac bg-ac/10 text-ac shadow-glow-ac'
-                          : 'border-bd/30 bg-white text-tx hover:border-ac/30'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="break-words text-sm font-semibold">{provider.label}</div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs">
-                            {provider.configured && (
-                              <span className="rounded-full bg-gn/10 px-2 py-0.5 font-medium text-gn">
-                                {t('saved')}
-                              </span>
-                            )}
-                            {isActive && (
-                              <span className="rounded-full bg-ac/10 px-2 py-0.5 font-medium text-ac">
-                                {t('inUse')}
-                              </span>
-                            )}
-                          </div>
+                    <div key={group.key} className="rounded-2xl border border-bd/30 bg-white">
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                        onClick={() => setOpenProviderGroup(expanded ? null : group.key)}
+                      >
+                        <span className="text-sm font-bold text-tx">{group.title}</span>
+                        <span className="text-xs font-semibold text-tx3">{group.items.length}</span>
+                      </button>
+
+                      {expanded && (
+                        <div className="grid gap-2 border-t border-bd/30 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {group.items.map((provider) => {
+                            const isSelected = provider.name === selectedProvider
+                            const isActive = provider.name === activeProvider
+                            return (
+                              <button
+                                key={provider.name}
+                                type="button"
+                                onClick={() => handleSelectProvider(provider)}
+                                className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                                  isSelected
+                                    ? 'border-ac bg-ac/10 text-ac shadow-glow-ac'
+                                    : 'border-bd/30 bg-sf text-tx hover:border-ac/30'
+                                }`}
+                              >
+                                <div className="break-words text-sm font-semibold">{provider.label}</div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs">
+                                  {provider.configured && (
+                                    <span className="rounded-full bg-gn/10 px-2 py-0.5 font-medium text-gn">
+                                      {t('saved')}
+                                    </span>
+                                  )}
+                                  {isActive && (
+                                    <span className="rounded-full bg-ac/10 px-2 py-0.5 font-medium text-ac">
+                                      {t('inUse')}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
-                      </div>
-                    </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
             </section>
-          ))}
+          )}
         </div>
 
         <div>

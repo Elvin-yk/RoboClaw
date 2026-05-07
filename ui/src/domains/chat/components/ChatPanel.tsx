@@ -231,9 +231,7 @@ export default function ChatPanel({
   } as LiquidGlassStyle
   const [input, setInput] = useState('')
   const [providerConfigured, setProviderConfigured] = useState(true)
-  const [widgetCollapsed, setWidgetCollapsed] = useState(compact)
   const { messages, sendMessage, connected, sessionId } = useChatSocket()
-  const collapsedTriggerRef = useRef<HTMLButtonElement>(null)
   const conversationRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const pagePanelRef = useRef<HTMLElement>(null)
@@ -258,7 +256,7 @@ export default function ChatPanel({
   }, [messages])
 
   useEffect(() => {
-    if (!compact || widgetCollapsed) return undefined
+    if (!compact) return undefined
 
     let frameId = window.requestAnimationFrame(() => {
       scrollToLatestMessage('auto')
@@ -266,7 +264,7 @@ export default function ChatPanel({
     })
 
     return () => window.cancelAnimationFrame(frameId)
-  }, [compact, widgetCollapsed])
+  }, [compact])
 
   useEffect(() => {
     let cancelled = false
@@ -303,31 +301,6 @@ export default function ChatPanel({
   }
 
   if (compact) {
-    if (widgetCollapsed) {
-      return (
-        <>
-          <LiquidGlassFilter filterId={filterId} targetRef={collapsedTriggerRef} />
-          <button
-            ref={collapsedTriggerRef}
-            type="button"
-            className="chat-widget__collapsed-trigger"
-            style={liquidGlassStyle}
-            onClick={() => setWidgetCollapsed(false)}
-            aria-label="Open RoboClaw AI chat"
-          >
-            <span
-              className={cn(
-                'chat-widget__collapsed-dot',
-                connected && 'chat-widget__collapsed-dot--live',
-              )}
-              aria-hidden="true"
-            />
-            <span className="chat-widget__collapsed-label" aria-hidden="true">AI</span>
-          </button>
-        </>
-      )
-    }
-
     return (
       <>
         <LiquidGlassFilter filterId={filterId} targetRef={widgetSurfaceRef} />
@@ -340,22 +313,11 @@ export default function ChatPanel({
           <button
             type="button"
             className="chat-widget__minimize"
-            onClick={() => setWidgetCollapsed(true)}
+            onClick={onClose}
             aria-label="Minimize RoboClaw AI chat"
-            style={onClose ? { right: 46 } : undefined}
           >
             <span aria-hidden="true">-</span>
           </button>
-          {onClose && (
-            <button
-              type="button"
-              className="chat-widget__minimize"
-              onClick={onClose}
-              aria-label="Dismiss RoboClaw AI chat"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          )}
 
           <div ref={conversationRef} className="chat-widget__conversation" aria-live="polite">
             {!providerConfigured ? (

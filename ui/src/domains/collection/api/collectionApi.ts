@@ -11,6 +11,7 @@ export interface TaskParams {
 
 export interface CollectionTask {
   id: string
+  org_id: string
   name: string
   description: string | null
   task_prompt: string
@@ -28,6 +29,7 @@ export interface CollectionTask {
 
 export interface Assignment {
   id: string
+  org_id: string
   user_id: string | null
   phone: string
   task_id: string
@@ -153,6 +155,12 @@ function patchJson<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+function deleteJson<T>(path: string): Promise<T> {
+  return collectionRequest<T>(path, {
+    method: 'DELETE',
+  })
+}
+
 export const collectionApi = {
   getToday: (): Promise<CollectionToday> => collectionRequest('/today'),
   getStatus: (): Promise<CollectionStatus> => collectionRequest('/status'),
@@ -169,6 +177,7 @@ export const collectionApi = {
   createTask: (payload: TaskPayload): Promise<CollectionTask> => postJson('/publish/tasks', payload),
   updateTask: (taskId: string, payload: Partial<TaskPayload>): Promise<CollectionTask> =>
     patchJson(`/publish/tasks/${taskId}`, payload),
+  deleteTask: (taskId: string): Promise<void> => deleteJson(`/publish/tasks/${taskId}`),
   upsertAssignment: (payload: AssignmentPayload): Promise<Assignment> =>
     postJson('/publish/assignments', payload),
   getProgress: (targetDate?: string): Promise<Assignment[]> => {

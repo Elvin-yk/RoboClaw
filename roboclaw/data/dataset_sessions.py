@@ -396,12 +396,16 @@ def resolve_dataset_handle_or_workspace(name: str) -> Path:
 
     root = _datasets_root().resolve()
     candidate = (root / name).resolve()
-    if candidate.is_dir() and _path_is_relative_to(candidate, root):
+    if _path_is_relative_to(candidate, root) and (candidate / "meta" / "info.json").is_file():
         return candidate
 
     for parent in root.iterdir() if root.exists() else []:
         nested = (parent / name).resolve()
-        if parent.is_dir() and nested.is_dir() and _path_is_relative_to(nested, root):
+        if (
+            parent.is_dir()
+            and _path_is_relative_to(nested, root)
+            and (nested / "meta" / "info.json").is_file()
+        ):
             return nested
 
     raise FileNotFoundError(f"Dataset '{name}' not found")

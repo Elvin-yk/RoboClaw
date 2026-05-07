@@ -22,6 +22,7 @@ from roboclaw.data.curation.features import (
     extract_state_names,
     resolve_timestamp,
 )
+from roboclaw.data.curation.paths import datasets_root
 from roboclaw.data.dataset_sessions import (
     create_uploaded_directory_session,
     register_remote_dataset_session,
@@ -164,15 +165,15 @@ async def _run_remote_dataset_call(
 
 
 def _local_dataset_name(dataset_path: Path) -> str:
-    try:
-        from roboclaw.data.curation.paths import datasets_root
+    root = datasets_root().expanduser()
+    expanded = dataset_path.expanduser()
+    if expanded.is_absolute() and expanded.is_relative_to(root):
+        return expanded.relative_to(root).as_posix()
 
-        root = datasets_root().resolve()
-        resolved = dataset_path.resolve()
-        if str(resolved).startswith(str(root) + "/"):
-            return resolved.relative_to(root).as_posix()
-    except Exception:
-        logger.debug("Failed to derive local dataset name from datasets root", exc_info=True)
+    resolved_root = root.resolve()
+    resolved = expanded.resolve()
+    if resolved.is_relative_to(resolved_root):
+        return resolved.relative_to(resolved_root).as_posix()
     return dataset_path.name
 
 
@@ -329,15 +330,49 @@ def _resolve_dataset_context(
     return resolved_source, dataset_name, dataset_path
 
 
+async def _list_explorer_dataset_options(
+    *,
+    query: str,
+    limit: int,
+    source: str,
+    remote_limit_max: int,
+    local_limit_max: int,
+) -> list[dict[str, Any]]:
+    resolved_source = normalize_explorer_source(source)
+    needle = query.strip().lower()
+    if resolved_source == "remote":
+        if not needle:
+            return []
+        safe_limit = max(1, min(limit, remote_limit_max))
+        return await _run_remote_dataset_call(query, search_remote_datasets, query, safe_limit)
+
+    safe_limit = max(1, min(limit, local_limit_max))
+    local_items = await asyncio.to_thread(list_local_dataset_options)
+    if needle:
+        local_items = [
+            item
+            for item in local_items
+            if needle in item["id"].lower() or needle in item["path"].lower()
+        ]
+    return local_items[:safe_limit]
+
+
 def register_explorer_routes(app: FastAPI) -> None:
     """Register all explorer API routes on *app*."""
 
     @app.get("/api/explorer/datasets")
-    async def explorer_datasets(source: str = "local") -> list[dict]:
-        resolved_source = normalize_explorer_source(source)
-        if resolved_source == "remote":
-            return []
-        return await asyncio.to_thread(list_local_dataset_options)
+    async def explorer_datasets(
+        query: str = "",
+        limit: int = 8,
+        source: str = "remote",
+    ) -> list[dict]:
+        return await _list_explorer_dataset_options(
+            query=query,
+            limit=limit,
+            source=source,
+            remote_limit_max=50,
+            local_limit_max=500,
+        )
 
     @app.get("/api/explorer/dashboard")
     async def explorer_dashboard(
@@ -521,17 +556,13 @@ def register_explorer_routes(app: FastAPI) -> None:
         source: str = "remote",
     ) -> list[dict[str, Any]]:
         resolved_source = normalize_explorer_source(source)
-        safe_limit = max(1, min(limit, 12))
-        if resolved_source == "remote":
-            payload = await _run_remote_dataset_call(q, search_remote_datasets, q, safe_limit)
-        else:
-            needle = q.strip().lower()
-            local_items = await asyncio.to_thread(list_local_dataset_options)
-            payload = [
-                item
-                for item in local_items
-                if needle in item["id"].lower() or needle in item["path"].lower()
-            ][:safe_limit]
+        payload = await _list_explorer_dataset_options(
+            query=q,
+            limit=limit,
+            source=resolved_source,
+            remote_limit_max=12,
+            local_limit_max=12,
+        )
         logger.info("Explorer dataset suggestions loaded for '{}' ({})", q, resolved_source)
         return payload
 

@@ -100,10 +100,7 @@ export default function HubSettingsPage() {
   ]
 
   return (
-    <SettingsPageFrame
-      title={t('hfConfig')}
-      description={t('settingsHubDesc')}
-    >
+    <SettingsPageFrame>
       <div className="grid gap-6 xl:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
         <section className="rounded-2xl border border-bd/30 bg-white p-5 shadow-card">
           <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-tx">{t('settingsHubSummary')}</h3>

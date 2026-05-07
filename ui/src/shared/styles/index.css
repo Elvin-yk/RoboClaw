@@ -8,4 +8,5 @@
 @import '@/domains/datasets/explorer/styles.css';
 @import '@/domains/curation/styles.css';
 @import '@/domains/settings/styles.css';
+@import '@/domains/auth/styles.css';
 @import '@/domains/chat/styles.css';

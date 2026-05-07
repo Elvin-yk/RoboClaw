@@ -209,24 +209,18 @@ def _camera_from_dict(
     port = data.get("port", "")
 
     if scanned_cameras is None:
-        interface = VideoInterface.from_stable_address(
-            port,
-            width=data.get("width", 640),
-            height=data.get("height", 480),
-            fps=data.get("fps", 30),
-            fourcc=data.get("fourcc", ""),
-        )
+        resolved = VideoInterface.from_stable_address(port)
     else:
         from roboclaw.embodied.embodiment.hardware.scan import resolve_camera_interface
 
         resolved = resolve_camera_interface(port, scanned_cameras)
-        interface = replace(
-            resolved,
-            width=data.get("width", resolved.width),
-            height=data.get("height", resolved.height),
-            fps=data.get("fps", resolved.fps),
-            fourcc=data.get("fourcc", resolved.fourcc),
-        )
+    interface = replace(
+        resolved,
+        width=data.get("width", resolved.width),
+        height=data.get("height", resolved.height),
+        fps=data.get("fps", resolved.fps),
+        fourcc=data.get("fourcc", resolved.fourcc),
+    )
     return CameraBinding(
         alias=data["alias"],
         interface=interface,

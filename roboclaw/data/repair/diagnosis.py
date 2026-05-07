@@ -19,21 +19,66 @@ from .io import (
     safe_read_parquet_table,
     scan_parquet_files,
 )
-from .types import DamageType, DiagnosisResult
+from .types import DamageType, DiagnosisResult, TmpVideo
 
 log = logging.getLogger(__name__)
 
 
-def find_tmp_videos(dataset_dir: Path) -> dict[str, Path]:
-    result: dict[str, Path] = {}
+def parse_tmp_video_filename(mp4_path: Path) -> tuple[str, int | None]:
+    """Recover ``(video_key, episode_index)`` from a stuck tmp mp4 filename.
+
+    Mirrors the two lerobot writer naming patterns; falls back to the bare
+    stem when neither matches.
+    """
+    stem = mp4_path.stem
+    if stem.endswith("_streaming"):
+        return stem[: -len("_streaming")], None
+    parts = stem.rsplit("_", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return parts[0], int(parts[1])
+    return stem, None
+
+
+def find_tmp_videos(dataset_dir: Path) -> list[TmpVideo]:
+    """Walk top-level ``tmp*/`` dirs and return every stuck mp4 found.
+
+    Multiple files per video_key are common (different episodes from batch
+    encoding, or per-episode streaming residue from repeated crashes); each
+    file is its own ``TmpVideo`` entry — callers decide how to group.
+    """
+    result: list[TmpVideo] = []
+    if not dataset_dir.exists():
+        return result
     for tmp_dir in sorted(dataset_dir.iterdir()):
         if not tmp_dir.is_dir() or not tmp_dir.name.startswith("tmp"):
             continue
-        for mp4_path in tmp_dir.glob("*.mp4"):
-            parts = mp4_path.stem.rsplit("_", 1)
-            video_key = parts[0] if len(parts) == 2 and parts[1].isdigit() else mp4_path.stem
-            result[video_key] = mp4_path
+        for mp4_path in sorted(tmp_dir.glob("*.mp4")):
+            video_key, episode_index = parse_tmp_video_filename(mp4_path)
+            result.append(
+                TmpVideo(video_key=video_key, path=mp4_path, episode_index=episode_index)
+            )
     return result
+
+
+def find_recoverable_tmp_videos(
+    tmp_videos: list[TmpVideo],
+    video_keys: list[str],
+    dataset_dir: Path,
+) -> list[TmpVideo]:
+    """Subset of *tmp_videos* whose key is declared in *video_keys* and whose
+    canonical ``videos/<key>/`` location has no mp4 yet.
+    """
+    declared = set(video_keys)
+    return [
+        tmp
+        for tmp in tmp_videos
+        if tmp.video_key in declared and not _has_canonical_video(dataset_dir, tmp.video_key)
+    ]
+
+
+def _has_canonical_video(dataset_dir: Path, video_key: str) -> bool:
+    canonical = dataset_dir / "videos" / video_key
+    return canonical.exists() and any(canonical.rglob("*.mp4"))
 
 
 def has_frame_mismatch(recovery_count: int, images_per_camera: dict[str, int]) -> bool:
@@ -57,6 +102,8 @@ def is_repairable(damage_type: DamageType, details: dict[str, Any]) -> bool:
         return details["n_recovery_lines"] > 0 and details["min_images_per_camera"] > 0
     if damage_type == DamageType.TMP_VIDEOS_STUCK:
         return details["n_recovery_lines"] > 0 and details["n_tmp_videos"] > 0
+    if damage_type == DamageType.PARTIAL_TMP_VIDEOS_STUCK:
+        return details["n_recoverable_tmp_videos"] > 0 and details["n_parquet_rows"] > 0
     if damage_type == DamageType.PARQUET_NO_VIDEO:
         return details["n_parquet_rows"] > 0 and details["min_images_per_camera"] > 0
     if damage_type == DamageType.META_STALE:
@@ -76,6 +123,7 @@ def _classify_damage(
     n_video_files: int,
     video_keys: list[str],
     tmp_videos: dict[str, Path],
+    n_recoverable_tmp_videos: int,
     images_per_camera: dict[str, int],
     records_cp_intervals: bool,
     has_cp_intervals: bool,
@@ -85,6 +133,8 @@ def _classify_damage(
         return DamageType.EMPTY_SHELL
     if n_video_files == 0 and tmp_videos:
         return DamageType.TMP_VIDEOS_STUCK
+    if n_recoverable_tmp_videos > 0 and n_parquet_rows > 0:
+        return DamageType.PARTIAL_TMP_VIDEOS_STUCK
     if records_cp_intervals and n_parquet_rows == 0 and n_video_files == 0 and (n_recovery_lines > 0 or image_floor > 0):
         return DamageType.CRASH_NO_SAVE
     if n_parquet_rows > 0 and n_video_files == 0 and video_keys:
@@ -111,6 +161,7 @@ class DatasetDiagnosisService:
         n_video_files = count_video_files(dataset_dir)
         video_keys = get_video_keys(info)
         tmp_videos = find_tmp_videos(dataset_dir)
+        recoverable_tmp_videos = find_recoverable_tmp_videos(tmp_videos, video_keys, dataset_dir)
         has_cp_intervals = records_cp_intervals and (dataset_dir / "critical_phase_intervals.json").exists()
         log_path = find_log_for_dataset(dataset_dir) if records_cp_intervals else None
         log_cp_intervals = parse_cp_from_log(log_path) if log_path and not has_cp_intervals else []
@@ -128,6 +179,8 @@ class DatasetDiagnosisService:
             "n_video_keys": len(video_keys),
             "n_tmp_videos": len(tmp_videos),
             "tmp_videos": tmp_videos,
+            "n_recoverable_tmp_videos": len(recoverable_tmp_videos),
+            "recoverable_tmp_videos": recoverable_tmp_videos,
             "truncate_target_frames": truncate_target_frames(
                 n_recovery_lines=n_recovery_lines,
                 image_floor=image_floor,
@@ -147,6 +200,7 @@ class DatasetDiagnosisService:
             n_video_files=n_video_files,
             video_keys=video_keys,
             tmp_videos=tmp_videos,
+            n_recoverable_tmp_videos=len(recoverable_tmp_videos),
             images_per_camera=images_per_camera,
             records_cp_intervals=records_cp_intervals,
             has_cp_intervals=has_cp_intervals,

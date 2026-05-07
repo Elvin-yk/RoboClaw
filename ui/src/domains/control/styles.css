@@ -1,1 +1,125 @@
-.control-page {}
+.control-status-stack {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.control-hardware-summary {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 6px 0 4px;
+}
+
+.control-device-row {
+  display: flex;
+  flex: 0 1 280px;
+  min-width: 220px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid rgba(47, 111, 228, 0.10);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  padding: 8px 12px 8px 14px;
+  backdrop-filter: blur(14px);
+}
+
+.control-device-label {
+  color: rgba(29, 43, 54, 0.72);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.control-device-dots {
+  display: flex;
+  min-height: 16px;
+  align-items: center;
+  gap: 7px;
+}
+
+.control-device-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62), 0 2px 8px rgba(27, 37, 55, 0.10);
+}
+
+.control-device-empty {
+  color: rgba(96, 111, 130, 0.7);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.control-hardware-state {
+  display: flex;
+  min-width: 130px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-align: center;
+}
+
+.control-hardware-readiness {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.control-hardware-readiness.is-ready {
+  color: #178a48;
+}
+
+.control-hardware-readiness.is-warning {
+  color: #a16207;
+}
+
+.control-hardware-busy {
+  color: var(--tx3);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.control-teleop-panel {
+  width: 100%;
+}
+
+@media (max-width: 620px) {
+  .control-hardware-summary {
+    flex-direction: column;
+  }
+
+  .control-device-row {
+    width: min(100%, 280px);
+    flex-basis: auto;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .control-device-row {
+    gap: 10px;
+    padding-right: 10px;
+    padding-left: 12px;
+  }
+
+  .control-device-label {
+    font-size: 11px;
+  }
+
+  .control-device-dots {
+    gap: 5px;
+  }
+
+  .control-device-dot {
+    width: 9px;
+    height: 9px;
+  }
+}

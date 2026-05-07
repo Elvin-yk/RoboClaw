@@ -143,7 +143,6 @@ export default function LoginPage() {
     // 初始获取图形验证码
     useEffect(() => {
         void fetchCaptcha()
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useEffect(() => {

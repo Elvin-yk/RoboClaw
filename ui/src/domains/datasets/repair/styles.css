@@ -1,0 +1,21 @@
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tag-pill--dirty {
+  background: rgba(214, 150, 38, 0.16);
+  color: #a87715;
+}
+
+.tag-pill--checked {
+  background: rgba(34, 160, 98, 0.16);
+  color: #1f8b56;
+}

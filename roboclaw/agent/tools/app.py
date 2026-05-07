@@ -69,6 +69,16 @@ APP_PAGES: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "curation_workshop",
+        "route": "/curation/workshop",
+        "name": "数据车间",
+        "description": "Dataset workshop control page for dirty, clean, and complete dataset package workflow state.",
+        "state_sources": ["/api/data-workshop/datasets", "/api/data-workshop/assemblies"],
+        "actions": [
+            _action("app.describe_page", "解释数据车间页面", "app", "describe_page"),
+        ],
+    },
+    {
         "id": "curation_datasets",
         "route": "/curation/datasets",
         "name": "数据集读取",

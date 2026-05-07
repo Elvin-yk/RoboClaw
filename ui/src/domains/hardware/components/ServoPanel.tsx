@@ -174,7 +174,7 @@ export function ServoPanel({ state }: { state: SessionState }) {
     return (
       <div className="bg-sf rounded-lg p-4 shadow-card space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')}</h3>
+          <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')} / {t('servoTemperature')}</h3>
           <ServoPollingToggle />
         </div>
         <div className="rounded-lg border border-rd/20 bg-rd/5 px-3 py-2 text-sm text-rd">
@@ -188,7 +188,7 @@ export function ServoPanel({ state }: { state: SessionState }) {
     return (
       <div className="bg-sf rounded-lg p-4 shadow-card space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')}</h3>
+          <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')} / {t('servoTemperature')}</h3>
           <ServoPollingToggle />
         </div>
         <div className="flex items-center justify-center">
@@ -201,7 +201,7 @@ export function ServoPanel({ state }: { state: SessionState }) {
   return (
     <div className="bg-sf rounded-lg p-4 shadow-card space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')}</h3>
+        <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('servoPositions')} / {t('servoTemperature')}</h3>
         <ServoPollingToggle />
       </div>
       {busy && (

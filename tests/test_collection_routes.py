@@ -123,6 +123,8 @@ class FakeCloud:
             return {"id": "run-1", "status": json_body["status"], "duration_seconds": json_body["duration_seconds"]}
         if path == "/collection/admin/tasks":
             return []
+        if path.startswith("/collection/admin/tasks/") and method == "DELETE":
+            return None
         if path == "/collection/admin/progress":
             return []
         raise AssertionError(f"unexpected cloud path {path}")
@@ -304,6 +306,16 @@ def test_publish_tasks_route_proxies_admin_cloud_endpoint(client: TestClient, ap
     assert request["params"] == {"include_inactive": True}
 
 
+def test_publish_delete_task_route_proxies_admin_cloud_endpoint(client: TestClient, app: FastAPI) -> None:
+    resp = client.delete("/api/collection/publish/tasks/task-1", headers={"Authorization": "Bearer abc"})
+
+    assert resp.status_code == 204
+    request = app.state.fake_cloud.requests[-1]
+    assert request["method"] == "DELETE"
+    assert request["path"] == "/collection/admin/tasks/task-1"
+    assert request["authorization"] == "Bearer abc"
+
+
 def test_finish_failure_is_queued_without_persisting_token(client: TestClient, app: FastAPI, tmp_path: Path) -> None:
     start = client.post(
         "/api/collection/runs/start",
@@ -343,6 +355,12 @@ def test_stop_failure_marks_cloud_run_failed_and_clears_active(client: TestClien
         json={"assignment_id": "assign-1"},
     )
     assert start.status_code == 200
+    dataset_meta = app.state.fake_service.datasets.root / "local" / "cloud_dataset" / "meta"
+    dataset_meta.mkdir(parents=True)
+    (dataset_meta / "info.json").write_text(
+        json.dumps({"total_episodes": 3, "total_frames": 600, "fps": 20}),
+        encoding="utf-8",
+    )
     app.state.fake_service.fail_stop = True
 
     stop = client.post("/api/collection/runs/stop", headers={"Authorization": "Bearer secret-token"})
@@ -353,6 +371,10 @@ def test_stop_failure_marks_cloud_run_failed_and_clears_active(client: TestClien
     finish = app.state.fake_cloud.requests[-1]
     assert finish["path"] == "/collection/runs/run-1/finish"
     assert finish["json"]["status"] == "failed"
+    assert finish["json"]["saved_episodes"] == 3
+    assert finish["json"]["total_frames"] == 600
+    assert finish["json"]["fps"] == 20
+    assert finish["json"]["duration_seconds"] == 30
     assert finish["json"]["error_message"] == "local recording process already crashed"
 
     status = client.get("/api/collection/status")

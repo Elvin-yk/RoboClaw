@@ -163,3 +163,157 @@ class TestDatasetDiagnosis:
         assert diagnosis.damage_type is DamageType.HEALTHY
         assert diagnosis.details["records_critical_phase_intervals"] is False
         assert diagnosis.details["log_path"] is None
+
+    def test_partial_tmp_videos_stuck_when_one_camera_missing_video(self, tmp_path: Path) -> None:
+        """Two declared cameras, one has its mp4 in videos/, the other only has
+        a tmp file matching its key. Should classify as PARTIAL_TMP_VIDEOS_STUCK.
+        """
+        dataset_dir = tmp_path / "partial_stuck"
+        _write_info(
+            dataset_dir,
+            total_episodes=0,
+            total_frames=0,
+            features={
+                "observation.images.front": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.images.side": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.state": {"dtype": "float32", "shape": [2], "names": None},
+                "episode_index": {"dtype": "int64", "shape": [1], "names": None},
+            },
+        )
+        _write_parquet(dataset_dir, 3)
+        _write_video(dataset_dir, camera="observation.images.front")
+        tmp_dir = dataset_dir / "tmpabc"
+        tmp_dir.mkdir(parents=True)
+        (tmp_dir / "observation.images.side_000.mp4").write_bytes(b"mp4")
+
+        diagnosis = diagnose_dataset(dataset_dir)
+
+        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        assert diagnosis.repairable is True
+        assert diagnosis.details["n_recoverable_tmp_videos"] == 1
+        recoverable = diagnosis.details["recoverable_tmp_videos"]
+        assert [tmp.video_key for tmp in recoverable] == ["observation.images.side"]
+        assert recoverable[0].episode_index == 0
+
+    def test_streaming_tmp_with_canonical_present_falls_back_to_meta_stale(
+        self, tmp_path: Path
+    ) -> None:
+        """A ``<key>_streaming.mp4`` whose canonical mp4 already exists is
+        garbage (residue from a finalized episode); the dataset still
+        classifies as META_STALE because info totals are stale.
+        """
+        dataset_dir = tmp_path / "streaming_with_canonical"
+        _write_info(dataset_dir, total_episodes=0, total_frames=0)
+        _write_parquet(dataset_dir, 3)
+        _write_video(dataset_dir)
+        tmp_dir = dataset_dir / "tmpzzz"
+        tmp_dir.mkdir(parents=True)
+        (tmp_dir / "observation.images.front_streaming.mp4").write_bytes(b"mp4")
+
+        diagnosis = diagnose_dataset(dataset_dir)
+
+        assert diagnosis.damage_type is DamageType.META_STALE
+        assert diagnosis.details["n_recoverable_tmp_videos"] == 0
+        # The streaming filename is parsed correctly even though it isn't recoverable.
+        assert {tmp.video_key for tmp in diagnosis.details["tmp_videos"]} == {
+            "observation.images.front",
+        }
+
+    def test_streaming_tmp_with_missing_canonical_is_recoverable(
+        self, tmp_path: Path
+    ) -> None:
+        """A ``<key>_streaming.mp4`` whose canonical doesn't exist is what the
+        ``rec_20260422`` style of damage looks like: PARTIAL_TMP_VIDEOS_STUCK,
+        with the streaming file's video_key parsed by stripping ``_streaming``.
+        """
+        dataset_dir = tmp_path / "streaming_missing_canonical"
+        _write_info(
+            dataset_dir,
+            total_episodes=0,
+            total_frames=0,
+            features={
+                "observation.images.front": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.images.right_front": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.state": {"dtype": "float32", "shape": [2], "names": None},
+                "episode_index": {"dtype": "int64", "shape": [1], "names": None},
+            },
+        )
+        _write_parquet(dataset_dir, 3)
+        _write_video(dataset_dir, camera="observation.images.front")
+        tmp_dir = dataset_dir / "tmploht2yz9"
+        tmp_dir.mkdir(parents=True)
+        (tmp_dir / "observation.images.right_front_streaming.mp4").write_bytes(b"mp4")
+
+        diagnosis = diagnose_dataset(dataset_dir)
+
+        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        recoverable = diagnosis.details["recoverable_tmp_videos"]
+        assert [tmp.video_key for tmp in recoverable] == ["observation.images.right_front"]
+        assert recoverable[0].episode_index is None  # streaming pattern carries no episode
+
+    def test_multiple_tmp_dirs_for_multiple_cameras(self, tmp_path: Path) -> None:
+        """Real-world scenario: 3 declared cameras, 1 has its canonical mp4
+        and the other 2 each left their own ``tmp*/`` dir. ``find_tmp_videos``
+        must return both stuck files; ``find_recoverable_tmp_videos`` keeps
+        both because their canonicals are missing.
+        """
+        dataset_dir = tmp_path / "multi_tmp"
+        _write_info(
+            dataset_dir,
+            total_episodes=0,
+            total_frames=0,
+            features={
+                "observation.images.front": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.images.right_front": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.images.right_wrist": {
+                    "dtype": "video",
+                    "shape": [64, 64, 3],
+                    "names": ["height", "width", "channel"],
+                },
+                "observation.state": {"dtype": "float32", "shape": [2], "names": None},
+                "episode_index": {"dtype": "int64", "shape": [1], "names": None},
+            },
+        )
+        _write_parquet(dataset_dir, 5)
+        _write_video(dataset_dir, camera="observation.images.front")
+        for tmp_name, key in (
+            ("tmpzl1tmnp3", "observation.images.right_front"),
+            ("tmpfm6tjx_i", "observation.images.right_wrist"),
+        ):
+            tmp_dir = dataset_dir / tmp_name
+            tmp_dir.mkdir(parents=True)
+            (tmp_dir / f"{key}_streaming.mp4").write_bytes(b"mp4")
+
+        diagnosis = diagnose_dataset(dataset_dir)
+
+        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        assert diagnosis.details["n_tmp_videos"] == 2
+        assert diagnosis.details["n_recoverable_tmp_videos"] == 2
+        assert {tmp.video_key for tmp in diagnosis.details["recoverable_tmp_videos"]} == {
+            "observation.images.right_front",
+            "observation.images.right_wrist",
+        }

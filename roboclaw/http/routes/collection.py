@@ -599,6 +599,20 @@ def register_collection_routes(
             )
         )
 
+    @app.delete("/api/collection/publish/tasks/{task_id}")
+    async def publish_delete_task(
+        task_id: str,
+        authorization: str | None = Header(None),
+    ) -> Response:
+        await _cloud_or_http_exception(
+            cloud.request(
+                "DELETE",
+                f"/collection/admin/tasks/{task_id}",
+                authorization=authorization,
+            )
+        )
+        return Response(status_code=204)
+
     @app.post("/api/collection/publish/assignments")
     async def publish_upsert_assignment(
         body: dict[str, Any] = Body(...),
