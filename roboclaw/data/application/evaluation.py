@@ -12,7 +12,7 @@ from roboclaw.data.infrastructure.filesystem import DataRepository
 from .jobs import DataJobCoordinator, DataJobHandle
 
 
-class DataQualityService:
+class DataEvaluationService:
     def __init__(self, repository: DataRepository, jobs: DataJobCoordinator) -> None:
         self.repository = repository
         self.jobs = jobs
@@ -46,7 +46,7 @@ class DataQualityService:
                 object_type="package",
                 key="validate",
                 status="running",
-                message="Running package quality validators",
+                message="Running package data evaluation",
             )
             per_episode: list[dict[str, Any]] = []
             passed = 0
@@ -68,7 +68,7 @@ class DataQualityService:
                 else:
                     failed += 1
                 await handle.item(episode_result)
-                await handle.update(processed=index, message=f"Validated episode {episode_index}")
+                await handle.update(processed=index, message=f"Evaluated episode {episode_index}")
             aggregate = aggregate_quality_results(
                 per_episode,
                 selected_validators,
@@ -80,7 +80,7 @@ class DataQualityService:
             payload = {"package_id": package_id, "status": "completed", "results": aggregate}
             self._write_results(path, payload)
             state = self.repository.state_store.load_package_state(path)
-            state["quality_summary"] = {
+            state["evaluation_summary"] = {
                 "overall_score": aggregate["overall_score"],
                 "passed": aggregate["passed"],
                 "failed": aggregate["failed"],
@@ -92,18 +92,18 @@ class DataQualityService:
                 object_type="package",
                 key="validate",
                 status="passed" if failed == 0 else "needs_review",
-                message="Quality validation completed",
-                details=state["quality_summary"],
+                message="Data evaluation completed",
+                details=state["evaluation_summary"],
             )
             self.repository.state_store.set_package_stage(path, "validated")
             return payload
 
         job = self.jobs.start(
-            kind="quality",
+            kind="evaluation",
             target_type="package",
             target_id=package_id,
             total=len(indices),
-            message="Queued package quality run",
+            message="Queued package data evaluation",
             runner=runner,
         )
         return job.to_dict()
@@ -120,7 +120,7 @@ class DataQualityService:
         return list(range(int(info.get("total_episodes", 0) or 0)))
 
     def _results_path(self, package_path: Path) -> Path:
-        return package_path / ".data" / "quality" / "latest.json"
+        return package_path / ".data" / "evaluation" / "latest.json"
 
     def _write_results(self, package_path: Path, payload: dict[str, Any]) -> None:
         path = self._results_path(package_path)

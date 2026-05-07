@@ -44,6 +44,36 @@ def test_provider_status_and_save_roundtrip(tmp_path: Path) -> None:
     assert saved["custom_provider"]["masked_api_key"] == "已保存"
 
 
+def test_unknown_api_route_does_not_fall_through_to_spa(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    set_config_path(config_path)
+
+    app = create_app(config_path=str(config_path), workspace=str(tmp_path / "workspace"))
+    client = TestClient(app)
+
+    response = client.get("/api/data/quality/defaults")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+
+
+def test_removed_frontend_routes_do_not_fall_through_to_spa(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    set_config_path(config_path)
+
+    app = create_app(config_path=str(config_path), workspace=str(tmp_path / "workspace"))
+    client = TestClient(app)
+
+    assert client.get("/data").status_code == 200
+    assert client.get("/curation/workshop").status_code == 404
+    assert client.get("/datasets").status_code == 404
+    assert client.get("/data/quality").status_code == 404
+    assert client.get("/data/inspect").status_code == 404
+    assert client.get("/data/overview").status_code == 404
+
+
 def test_provider_save_auto_discovers_model(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)

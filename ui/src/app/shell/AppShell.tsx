@@ -56,6 +56,22 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
     </svg>
   ),
+  '/data/qc': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M8 6v12" />
+      <path d="M16 6v12" />
+      <path d="M5 18h14" />
+    </svg>
+  ),
+  '/data/analysis': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19V5" />
+      <path d="M4 19h16" />
+      <path d="M7 15l3-3 3 2 4-6" />
+      <circle cx="17" cy="8" r="1.5" />
+    </svg>
+  ),
   '/data/annotation': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 6h16" />
@@ -63,11 +79,12 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M4 18h14" />
     </svg>
   ),
-  '/data/overview': (
+  '/data/manage': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 3h18v18H3z" />
-      <path d="M7 15l3-3 2 2 5-5" />
-      <path d="M7 7h.01" />
+      <path d="M12 3v18" />
+      <path d="M5 8h14" />
+      <path d="M5 16h14" />
+      <path d="M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
     </svg>
   ),
   '/settings': (
@@ -109,6 +126,10 @@ function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
 function activeNavGroupId(pathname: string): NavGroupId | null {
   return (Object.entries(NAV_GROUP_ROOTS) as Array<[NavGroupId, string]>)
     .find(([, rootPath]) => pathname.startsWith(rootPath))?.[0] ?? null
+}
+
+function isLeafNavActive(pathname: string, itemPath: string): boolean {
+  return pathname === itemPath
 }
 
 interface NavGroup {
@@ -179,17 +200,16 @@ export default function AppShell() {
   ]
   const canPublishTasks = canManageCollection(user)
   const collectionChildren = [
-    ...(canPublishTasks ? [{ path: '/collection/publish', label: '管理平台' }] : []),
-    { path: '/collection/control', label: '控制平台' },
-    { path: '/collection/recovery', label: '修复平台', badge: recoveryFaults.length || undefined },
+    ...(canPublishTasks ? [{ path: '/collection/publish', label: t('collectionManageNav') }] : []),
+    { path: '/collection/control', label: t('collectionControlNav') },
+    { path: '/collection/recovery', label: t('collectionRecoveryNav'), badge: recoveryFaults.length || undefined },
   ]
   const dataChildren = [
-    { path: '/data', label: '数据台' },
-    { path: '/data/inspect', label: '数据检查' },
-    { path: '/data/clean', label: '数据清洗' },
-    { path: '/data/quality', label: '质量验证' },
-    { path: '/data/annotation', label: '语义标注' },
-    { path: '/data/overview', label: '数据总览' },
+    { path: '/data', label: t('dataOverviewNav') },
+    { path: '/data/qc', label: t('dataQcNav') },
+    { path: '/data/analysis', label: t('dataAnalysisNav') },
+    { path: '/data/annotation', label: t('dataAnnotationNav') },
+    { path: '/data/manage', label: t('dataManageNav') },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },
@@ -203,7 +223,7 @@ export default function AppShell() {
       rootPath: '/collection',
       collapsedPath: '/collection/control',
       iconPath: '/collection',
-      label: '采集中心',
+      label: t('collectionCenterNav'),
       children: collectionChildren,
     },
     data: {
@@ -211,7 +231,7 @@ export default function AppShell() {
       rootPath: '/data',
       collapsedPath: '/data',
       iconPath: '/data',
-      label: '数据中心',
+      label: t('dataCenter'),
       children: dataChildren,
     },
     settings: {
@@ -277,9 +297,7 @@ export default function AppShell() {
   )
 
   const renderNavItem = (item: NavItem) => {
-    const active =
-      location.pathname === item.path
-      || location.pathname.startsWith(`${item.path}/`)
+    const active = isLeafNavActive(location.pathname, item.path)
     return (
       <Link
         key={item.path}
@@ -365,8 +383,7 @@ export default function AppShell() {
         {expanded && (
           <div className="app-sidebar__children">
             {group.children.map((child) => {
-              const childActive =
-                location.pathname === child.path || location.pathname.startsWith(`${child.path}/`)
+              const childActive = isLeafNavActive(location.pathname, child.path)
               return (
                 <Link
                   key={child.path}
@@ -438,7 +455,7 @@ export default function AppShell() {
           <Outlet />
         </main>
 
-        <div className="chat-widget">
+        <div className={cn('chat-widget', chatWidgetVisible && 'chat-widget--open')}>
           {chatWidgetVisible ? (
             <ChatPanel variant="widget" onClose={() => setChatWidgetVisible(false)} />
           ) : (

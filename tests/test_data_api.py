@@ -91,10 +91,41 @@ def test_library_list_detail_delete_and_old_routes_are_not_registered(tmp_path: 
     assert client.get("/api/explorer/summary").status_code == 404
     assert client.get("/api/data-workshop/datasets").status_code == 404
     assert client.get("/api/dataset-repair/datasets").status_code == 404
+    assert client.get("/api/data/quality/defaults").status_code == 404
 
     deleted = client.delete("/api/data/library/datasets/local/demo")
     assert deleted.status_code == 200
     assert not (tmp_path / "local" / "demo").exists()
+
+
+def test_library_import_starts_data_job(monkeypatch, tmp_path: Path) -> None:
+    def fake_snapshot_download(*, repo_id: str, repo_type: str, local_dir: str, allow_patterns: list[str]) -> str:
+        assert repo_id == "remote/demo"
+        assert repo_type == "dataset"
+        assert "meta/**" in allow_patterns
+        meta = Path(local_dir) / "meta"
+        meta.mkdir(parents=True)
+        (meta / "info.json").write_text(
+            json.dumps({
+                "total_episodes": 1,
+                "total_frames": 10,
+                "fps": 30,
+                "robot_type": "so100",
+                "features": {},
+            }),
+            encoding="utf-8",
+        )
+        return local_dir
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
+    client = _client(tmp_path)
+
+    started = client.post("/api/data/library/imports", json={"dataset_id": "remote/demo"})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
+    detail = client.get("/api/data/library/datasets/remote/demo")
+    assert detail.status_code == 200
+    assert detail.json()["lifecycle_stage"] == "raw"
 
 
 def test_local_inspect_summary_details_and_episode_page(tmp_path: Path) -> None:
@@ -117,7 +148,15 @@ def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/demo")
     client = _client(tmp_path)
 
-    started = client.post("/api/data/clean/runs", json={"dataset_ids": ["local/demo"]})
+    diagnosis = client.post("/api/data/qc/diagnosis-runs", json={"dataset_ids": ["local/demo"]})
+    assert diagnosis.status_code == 200
+    assert _wait_job(client, diagnosis.json()["job_id"])["phase"] == "completed"
+    diagnosed = client.get("/api/data/library/datasets/local/demo").json()
+    assert diagnosed["lifecycle_stage"] == "raw"
+    assert diagnosed["gates"]["inspect"]["status"] == "passed"
+    assert diagnosed["gates"]["diagnose"]["status"] == "passed"
+
+    started = client.post("/api/data/qc/runs", json={"dataset_ids": ["local/demo"]})
     assert started.status_code == 200
     job = _wait_job(client, started.json()["job_id"])
 
@@ -128,7 +167,7 @@ def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
     assert detail["gates"]["clean"]["status"] == "passed"
 
 
-def test_package_quality_annotation_and_overview(tmp_path: Path) -> None:
+def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/a", with_data=True)
     _create_dataset(tmp_path, "local/b", with_data=True)
     client = _client(tmp_path)
@@ -157,16 +196,18 @@ def test_package_quality_annotation_and_overview(tmp_path: Path) -> None:
     assert sorted({row["episode_index"] for row in package_rows}) == [0, 1, 2, 3]
     assert [row["index"] for row in package_rows] == list(range(40))
 
-    defaults = client.get("/api/data/quality/defaults", params={"package_id": "pkg_ab"})
+    defaults = client.get("/api/data/evaluation/defaults", params={"package_id": "pkg_ab"})
     assert defaults.status_code == 200
-    quality_job = client.post(
-        "/api/data/quality/runs",
+    evaluation_job = client.post(
+        "/api/data/evaluation/runs",
         json={"package_id": "pkg_ab", "selected_validators": []},
     )
-    assert quality_job.status_code == 200
-    assert _wait_job(client, quality_job.json()["job_id"])["phase"] == "completed"
-    results = client.get("/api/data/quality/results", params={"package_id": "pkg_ab"}).json()
+    assert evaluation_job.status_code == 200
+    assert _wait_job(client, evaluation_job.json()["job_id"])["phase"] == "completed"
+    results = client.get("/api/data/evaluation/results", params={"package_id": "pkg_ab"}).json()
     assert results["results"]["total"] == 4
+    package_detail = client.get("/api/data/packages/pkg_ab").json()
+    assert package_detail["evaluation_summary"]["total"] == 4
 
     saved = client.post(
         "/api/data/annotation/annotations",
@@ -186,11 +227,35 @@ def test_package_quality_annotation_and_overview(tmp_path: Path) -> None:
     assert overview["summary"]["dataset_count"] == 2
     assert overview["summary"]["package_count"] == 1
 
+    upload_calls = []
+
+    def fake_push_folder(**kwargs):
+        upload_calls.append(kwargs)
+        return "https://huggingface.co/datasets/acme/pkg_ab/commit/1"
+
+    monkeypatch.setattr("roboclaw.embodied.service.hub.transfer.push_folder", fake_push_folder)
+    upload = client.post(
+        "/api/data/packages/pkg_ab/uploads",
+        json={"repo_id": "acme/pkg_ab", "token": "hf_test", "private": True},
+    )
+    assert upload.status_code == 200
+    assert _wait_job(client, upload.json()["job_id"])["phase"] == "completed"
+    assert upload_calls[0]["local_path"] == tmp_path / "packages" / "pkg_ab"
+    assert upload_calls[0]["repo_type"] == "dataset"
+    assert upload_calls[0]["token"] == "hf_test"
+    assert upload_calls[0]["private"] is True
+    assert upload_calls[0]["ignore_patterns"] == [".data/*", "sources/*"]
+    assert client.get("/api/data/packages/pkg_ab").json()["lifecycle_stage"] == "uploaded"
+
+    deleted = client.delete("/api/data/packages/pkg_ab")
+    assert deleted.status_code == 200
+    assert not (tmp_path / "packages" / "pkg_ab").exists()
+
 
 def test_data_job_sse_emits_snapshot_and_completion(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/demo")
     client = _client(tmp_path)
-    started = client.post("/api/data/clean/runs", json={"dataset_ids": ["local/demo"]})
+    started = client.post("/api/data/qc/runs", json={"dataset_ids": ["local/demo"]})
     job_id = started.json()["job_id"]
 
     with client.stream("GET", f"/api/data/jobs/{job_id}/events") as response:

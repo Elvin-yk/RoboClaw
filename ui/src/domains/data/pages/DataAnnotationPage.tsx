@@ -43,13 +43,6 @@ export default function DataAnnotationPage() {
 
   return (
     <section className="data-page">
-      <header className="data-page__header">
-        <div>
-          <h1>语义标注</h1>
-          <p>标注 workspace、prototype、propagation 都绑定 DatasetPackage。</p>
-        </div>
-      </header>
-
       <section className="data-panel">
         <div className="data-toolbar">
           <select

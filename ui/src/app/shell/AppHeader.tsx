@@ -28,7 +28,6 @@ export default function AppHeader() {
         void fetchNetworkInfo()
     }, [fetchNetworkInfo])
 
-    /** 用户头像首字母（昵称优先，否则取手机号前3位）*/
     const avatarInitial = user
         ? (user.nickname ? user.nickname.slice(0, 1).toUpperCase() : user.phone.slice(0, 3))
         : '?'
@@ -58,7 +57,7 @@ export default function AppHeader() {
                                 type="button"
                                 className="header-user-badge"
                                 title={maskPhone(user.phone)}
-                                aria-label="打开账号设置"
+                                aria-label={t('accountSettingsTab')}
                                 onClick={() => navigate('/settings/account')}
                             >
                                 <div
@@ -107,7 +106,7 @@ export default function AppHeader() {
                     onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
                     className="app-topbar__locale"
                 >
-                    {locale === 'zh' ? 'EN' : '中文'}
+                    {locale === 'zh' ? 'EN' : 'ZH'}
                 </button>
             </div>
         </header>

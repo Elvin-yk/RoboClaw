@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { dataApi } from '@/domains/data/api/dataApi'
+import { useDataJobStore } from '@/domains/data/store/jobStore'
 import type { Dataset, DatasetPackage } from '@/domains/data/model/types'
 
 interface LibraryState {
@@ -10,8 +11,11 @@ interface LibraryState {
   error: string
   load: () => Promise<void>
   toggleDataset: (datasetId: string) => void
+  clearSelection: () => void
   createPackage: (packageId: string) => Promise<DatasetPackage>
   importDataset: (datasetId: string) => Promise<void>
+  deleteDataset: (datasetId: string) => Promise<void>
+  deletePackage: (packageId: string) => Promise<void>
 }
 
 export const useDataLibraryStore = create<LibraryState>((set, get) => ({
@@ -36,6 +40,7 @@ export const useDataLibraryStore = create<LibraryState>((set, get) => ({
         : [...state.selectedDatasetIds, datasetId],
     }))
   },
+  clearSelection: () => set({ selectedDatasetIds: [] }),
   createPackage: async (packageId) => {
     const created = await dataApi.createPackage({
       package_id: packageId,
@@ -46,6 +51,15 @@ export const useDataLibraryStore = create<LibraryState>((set, get) => ({
     return created
   },
   importDataset: async (datasetId) => {
-    await dataApi.importDataset({ dataset_id: datasetId, include_videos: true, force: false })
+    const job = await dataApi.importDataset({ dataset_id: datasetId, include_videos: true, force: false })
+    useDataJobStore.getState().attach(job)
+  },
+  deleteDataset: async (datasetId) => {
+    await dataApi.deleteDataset(datasetId)
+    await get().load()
+  },
+  deletePackage: async (packageId) => {
+    await dataApi.deletePackage(packageId)
+    await get().load()
   },
 }))

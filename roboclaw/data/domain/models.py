@@ -62,6 +62,7 @@ class DatasetStats:
     robot_type: str = ""
     features: tuple[str, ...] = ()
     episode_lengths: tuple[int, ...] = ()
+    task_description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +72,7 @@ class DatasetStats:
             "robot_type": self.robot_type,
             "features": list(self.features),
             "episode_lengths": list(self.episode_lengths),
+            "task_description": self.task_description,
         }
 
 
@@ -114,7 +116,7 @@ class DatasetPackage:
     stage: DatasetPackageStage = "assembled"
     stats: DatasetStats = field(default_factory=DatasetStats)
     gates: dict[str, Gate] = field(default_factory=dict)
-    quality_summary: dict[str, Any] = field(default_factory=dict)
+    evaluation_summary: dict[str, Any] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,7 +131,7 @@ class DatasetPackage:
             "lifecycle_stage": self.stage,
             "stats": self.stats.to_dict(),
             "gates": {key: gate.to_dict() for key, gate in self.gates.items()},
-            "quality_summary": self.quality_summary,
+            "evaluation_summary": self.evaluation_summary,
             "updated_at": self.updated_at,
         }
 

@@ -29,6 +29,7 @@ export interface DatasetStats {
   robot_type: string
   features: string[]
   episode_lengths: number[]
+  task_description?: string
 }
 
 export interface Dataset {
@@ -37,7 +38,7 @@ export interface Dataset {
   label: string
   path: string
   real_path: string
-  source: 'local' | 'remote' | 'path'
+  source: 'local' | 'remote'
   lifecycle_stage: DatasetStage
   stats: DatasetStats
   gates: Record<string, DataGate>
@@ -55,7 +56,7 @@ export interface DatasetPackage {
   lifecycle_stage: DatasetPackageStage
   stats: DatasetStats
   gates: Record<string, DataGate>
-  quality_summary: Record<string, unknown>
+  evaluation_summary: Record<string, unknown>
   updated_at: string
 }
 

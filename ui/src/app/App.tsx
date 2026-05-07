@@ -4,12 +4,11 @@ import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
 import RecoveryCenterPage from '@/domains/recovery/pages/RecoveryCenterPage'
-import DataDashboardPage from '@/domains/data/pages/DataDashboardPage'
-import DataInspectPage from '@/domains/data/pages/DataInspectPage'
-import DataCleanPage from '@/domains/data/pages/DataCleanPage'
-import DataQualityPage from '@/domains/data/pages/DataQualityPage'
+import DataQcPage from '@/domains/data/pages/DataQcPage'
+import DataAnalysisPage from '@/domains/data/pages/DataAnalysisPage'
 import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
 import DataOverviewPage from '@/domains/data/pages/DataOverviewPage'
+import DataManagePage from '@/domains/data/pages/DataManagePage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
@@ -59,12 +58,11 @@ function App() {
                         <Route path="collection/publish" element={<TaskPublishPage />} />
                         <Route path="collection/recovery" element={<RecoveryCenterPage />} />
                         <Route path="training" element={<TrainingCenterPage />} />
-                        <Route path="data" element={<DataDashboardPage />} />
-                        <Route path="data/inspect" element={<DataInspectPage />} />
-                        <Route path="data/clean" element={<DataCleanPage />} />
-                        <Route path="data/quality" element={<DataQualityPage />} />
+                        <Route path="data" element={<DataOverviewPage />} />
+                        <Route path="data/qc" element={<DataQcPage />} />
+                        <Route path="data/analysis" element={<DataAnalysisPage />} />
                         <Route path="data/annotation" element={<DataAnnotationPage />} />
-                        <Route path="data/overview" element={<DataOverviewPage />} />
+                        <Route path="data/manage" element={<DataManagePage />} />
                         <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
                         <Route path="settings/hardware" element={<HardwareSettingsPage />} />
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />

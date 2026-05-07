@@ -23,7 +23,7 @@ def test_app_tool_lists_pages() -> None:
 
     page_ids = {page["id"] for page in result["pages"]}
     assert "control" in page_ids
-    assert "data_quality" in page_ids
+    assert "data_analysis" in page_ids
     assert "training" in page_ids
 
 
@@ -34,7 +34,7 @@ def test_app_tool_uses_current_web_context() -> None:
         "chat-1",
         metadata={
             "app_context": {
-                "route": "/data/quality",
+                "route": "/data/analysis",
                 "data": {"selected_dataset_ids": ["demo-dataset"], "packages": [{"id": "pkg"}]},
             }
         },
@@ -44,7 +44,7 @@ def test_app_tool_uses_current_web_context() -> None:
 
     assert result["context_available"] is True
     assert result["context"]["data"]["selected_dataset_ids"] == ["demo-dataset"]
-    assert result["page"]["id"] == "data_quality"
+    assert result["page"]["id"] == "data_analysis"
 
 
 def test_app_tool_navigation_emits_web_event() -> None:
@@ -73,9 +73,9 @@ def test_app_tool_data_overview_exposes_episode_workspace_action() -> None:
     assert "data.get_overview" in action_ids
 
 
-def test_app_tool_dataset_explorer_exposes_read_actions() -> None:
+def test_app_tool_data_analysis_exposes_read_actions() -> None:
     result = json.loads(
-        asyncio.run(AppTool().execute(action="list_page_actions", page="data_inspect"))
+        asyncio.run(AppTool().execute(action="list_page_actions", page="data_analysis"))
     )
 
     action_ids = {item["id"] for item in result["actions"]}
@@ -83,6 +83,8 @@ def test_app_tool_dataset_explorer_exposes_read_actions() -> None:
     assert "data.get_inspect_summary" in action_ids
     assert "data.get_inspect_details" in action_ids
     assert "data.get_inspect_episodes" in action_ids
+    assert "data.get_evaluation_defaults" in action_ids
+    assert "data.run_evaluation" in action_ids
 
 
 def test_app_tool_text_alignment_exposes_read_actions() -> None:

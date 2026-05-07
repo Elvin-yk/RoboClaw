@@ -24,7 +24,7 @@ export default function OrganizationMemberPicker({
   onChange,
   disabled = false,
   inputClassName,
-  placeholder = '输入手机号或昵称',
+  placeholder = 'Phone or nickname',
   required = false,
 }: OrganizationMemberPickerProps) {
   const [focused, setFocused] = useState(false)

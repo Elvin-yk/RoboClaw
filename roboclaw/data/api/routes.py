@@ -10,13 +10,14 @@ from roboclaw.data.application.jobs import format_sse
 
 from .schemas import (
     AnnotationSaveRequest,
-    CleanRunRequest,
     GateUpdateRequest,
     ImportRequest,
     PackageCreateRequest,
+    PackageUploadRequest,
     PropagationRunRequest,
+    QcRunRequest,
     PrototypeRunRequest,
-    QualityRunRequest,
+    EvaluationRunRequest,
 )
 
 
@@ -116,8 +117,15 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
             dataset_path=dataset_path,
         )
 
-    @app.post("/api/data/clean/runs")
-    async def data_clean_run(body: CleanRunRequest) -> dict[str, Any]:
+    @app.post("/api/data/qc/diagnosis-runs")
+    async def data_diagnosis_run(body: QcRunRequest) -> dict[str, Any]:
+        try:
+            return service.clean.start_diagnosis_run(dataset_ids=body.dataset_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/data/qc/runs")
+    async def data_qc_run(body: QcRunRequest) -> dict[str, Any]:
         try:
             return service.clean.start_run(
                 dataset_ids=body.dataset_ids,
@@ -166,10 +174,29 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/api/data/quality/runs")
-    async def data_quality_run(body: QualityRunRequest) -> dict[str, Any]:
+    @app.delete("/api/data/packages/{package_id}")
+    async def data_package_delete(package_id: str) -> dict[str, str]:
         try:
-            return service.quality.start_run(
+            return service.packages.delete_package(package_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/data/packages/{package_id}/uploads")
+    async def data_package_upload(package_id: str, body: PackageUploadRequest) -> dict[str, Any]:
+        try:
+            return service.packages.start_upload(
+                package_id=package_id,
+                repo_id=body.repo_id,
+                token=body.token,
+                private=body.private,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404 if isinstance(exc, FileNotFoundError) else 400, detail=str(exc)) from exc
+
+    @app.post("/api/data/evaluation/runs")
+    async def data_evaluation_run(body: EvaluationRunRequest) -> dict[str, Any]:
+        try:
+            return service.evaluation.start_run(
                 package_id=body.package_id,
                 selected_validators=body.selected_validators,
                 episode_indices=body.episode_indices,
@@ -178,17 +205,17 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/api/data/quality/defaults")
-    async def data_quality_defaults(package_id: str) -> dict[str, Any]:
+    @app.get("/api/data/evaluation/defaults")
+    async def data_evaluation_defaults(package_id: str) -> dict[str, Any]:
         try:
-            return service.quality.defaults(package_id)
+            return service.evaluation.defaults(package_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.get("/api/data/quality/results")
-    async def data_quality_results(package_id: str) -> dict[str, Any]:
+    @app.get("/api/data/evaluation/results")
+    async def data_evaluation_results(package_id: str) -> dict[str, Any]:
         try:
-            return service.quality.results(package_id)
+            return service.evaluation.results(package_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

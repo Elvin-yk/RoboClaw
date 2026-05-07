@@ -54,7 +54,34 @@ class DataCleanService:
             target_type="dataset",
             target_id=target_id,
             total=len(dataset_ids),
-            message="Queued data clean run",
+            message="Queued data QC run",
+            runner=runner,
+        )
+        return job.to_dict()
+
+    def start_diagnosis_run(self, *, dataset_ids: list[str]) -> dict[str, Any]:
+        if not dataset_ids:
+            raise ValueError("dataset_ids must not be empty")
+        target_id = ",".join(dataset_ids)
+
+        async def runner(handle: DataJobHandle) -> dict[str, Any]:
+            results: list[dict[str, Any]] = []
+            for index, dataset_id in enumerate(dataset_ids, start=1):
+                if handle.cancelled:
+                    break
+                await handle.update(processed=index - 1, message=f"Diagnosing {dataset_id}")
+                result = await asyncio.to_thread(self._diagnose_dataset, dataset_id)
+                results.append(result)
+                await handle.item(result)
+                await handle.update(processed=index, message=f"Diagnosed {dataset_id}")
+            return {"datasets": results}
+
+        job = self.jobs.start(
+            kind="diagnose",
+            target_type="dataset",
+            target_id=target_id,
+            total=len(dataset_ids),
+            message="Queued data diagnosis run",
             runner=runner,
         )
         return job.to_dict()
@@ -82,6 +109,40 @@ class DataCleanService:
         if gate_key == "review" and status in {"failed", "needs_review"}:
             state = self.repository.state_store.set_dataset_stage(path, "needs_review")
         return {"dataset": self.repository.read_dataset(dataset_id).to_dict(), "state": state}
+
+    def _diagnose_dataset(self, dataset_id: str) -> dict[str, Any]:
+        dataset_path = self.repository.resolve_dataset_path(dataset_id)
+        self.repository.state_store.set_dataset_stage(dataset_path, "inspecting")
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="inspect",
+            status="running",
+            message="Inspecting dataset artifacts",
+        )
+        diagnosis = diagnose_dataset(dataset_path)
+        diagnosis_payload = {
+            "damage_type": diagnosis.damage_type.value,
+            "repairable": diagnosis.repairable,
+            "details": json_ready(diagnosis.details),
+        }
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="inspect",
+            status="passed",
+            message="Inspection completed",
+        )
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="diagnose",
+            status="passed",
+            message=diagnosis.damage_type.value,
+            details=diagnosis_payload,
+        )
+        self.repository.state_store.set_dataset_stage(dataset_path, "raw")
+        return {"dataset_id": dataset_id, "diagnosis": diagnosis_payload}
 
     def _clean_dataset(self, dataset_id: str, *, task: str, vcodec: str, force: bool) -> dict[str, Any]:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)

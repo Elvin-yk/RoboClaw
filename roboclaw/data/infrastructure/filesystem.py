@@ -134,7 +134,7 @@ class DataRepository:
             stage=state["lifecycle_stage"],
             stats=self._stats_from_info(path, info),
             gates={key: Gate(**gate) for key, gate in state["gates"].items()},
-            quality_summary=dict(state.get("quality_summary") or {}),
+            evaluation_summary=dict(state.get("evaluation_summary") or {}),
             updated_at=str(state.get("updated_at") or ""),
         )
 
@@ -160,7 +160,46 @@ class DataRepository:
             robot_type=str(info.get("robot_type", "")),
             features=tuple((info.get("features") or {}).keys()),
             episode_lengths=tuple(episode_lengths),
+            task_description=self._task_description(root, info),
         )
+
+    def _task_description(self, root: Path, info: dict[str, Any]) -> str:
+        info_text = self._task_text(info)
+        if info_text:
+            return info_text
+        tasks_path = root / "meta" / "tasks.jsonl"
+        if not tasks_path.is_file():
+            return ""
+        for raw_line in tasks_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            task_text = self._task_text(json.loads(line))
+            if task_text:
+                return task_text
+        return ""
+
+    def _task_text(self, payload: dict[str, Any]) -> str:
+        for key in ("task_description", "task", "description", "task_desc"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        tasks = payload.get("tasks")
+        if isinstance(tasks, list):
+            return self._first_task_list_text(tasks)
+        if isinstance(tasks, dict):
+            return self._task_text(tasks)
+        return ""
+
+    def _first_task_list_text(self, tasks: list[Any]) -> str:
+        for item in tasks:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+            if isinstance(item, dict):
+                task_text = self._task_text(item)
+                if task_text:
+                    return task_text
+        return ""
 
     def _is_dataset_dir(self, path: Path) -> bool:
         return path.is_dir() and (path / "meta" / "info.json").is_file()

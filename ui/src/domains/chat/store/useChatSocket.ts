@@ -88,7 +88,6 @@ function buildAppContext(): Record<string, unknown> {
     inspect: {
       source: inspect.source,
       dataset: inspect.dataset,
-      path: inspect.path,
       summary_dataset: inspect.summary?.dataset ?? null,
     },
     jobs: {

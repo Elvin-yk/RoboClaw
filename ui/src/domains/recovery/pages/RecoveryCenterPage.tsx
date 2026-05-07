@@ -1,17 +1,31 @@
 import { useEffect, useMemo } from 'react'
 import { useToast } from '@/app/shell/ToastOutlet'
 import { CameraPreviewPanel } from '@/domains/control/components/CameraPreviewPanel'
-import { ServoPanel } from '@/domains/hardware/components/ServoPanel'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
 import {
   RECOVERY_FAULT_TYPES,
   recoveryFaultKey,
+  type RecoveryFault,
   type RecoveryFaultType,
   useRecoveryStore,
 } from '@/domains/recovery/store/useRecoveryStore'
-import { useSessionStore } from '@/domains/session/store/useSessionStore'
 import { useSetup } from '@/domains/hardware/setup/store/useSetupStore'
 import { useI18n } from '@/i18n'
+
+type HardwareRow = {
+  key: string
+  kind: 'arm' | 'camera'
+  alias: string
+  badge: string
+}
+
+type PrimaryFault = {
+  key: string
+  alias: string
+  badge: string
+  title: string
+  message: string
+}
 
 export default function RecoveryCenterPage() {
   const { t } = useI18n()
@@ -26,21 +40,10 @@ export default function RecoveryCenterPage() {
   const loadDevices = useSetup((state) => state.loadDevices)
   const hardwareStatus = useHardwareStore((state) => state.hardwareStatus)
   const fetchHardwareStatus = useHardwareStore((state) => state.fetchHardwareStatus)
-  const session = useSessionStore((state) => state.session)
-  const fetchSessionStatus = useSessionStore((state) => state.fetchSessionStatus)
 
   useEffect(() => {
     void loadDevices()
-    void fetchHardwareStatus()
-    void fetchSessionStatus()
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void fetchHardwareStatus()
-        void fetchSessionStatus()
-      }
-    }, 5000)
-    return () => clearInterval(timer)
-  }, [fetchHardwareStatus, fetchSessionStatus, loadDevices])
+  }, [loadDevices])
 
   const hardwareRows = useMemo(
     () => [
@@ -63,6 +66,13 @@ export default function RecoveryCenterPage() {
     () => new Map(faults.map((fault) => [recoveryFaultKey(fault.fault_type, fault.device_alias), fault])),
     [faults],
   )
+  const visibleFaults = useMemo(
+    () => hasCheckedHardware
+      ? hardwareRows.map((device) => primaryFaultFor(device)).filter((fault): fault is PrimaryFault => fault !== null)
+      : [],
+    [faultMap, hardwareRows, hasCheckedHardware],
+  )
+  const connectedCameras = hardwareStatus?.cameras.filter((camera) => camera.connected) || []
 
   async function handleRestart(): Promise<void> {
     try {
@@ -74,7 +84,9 @@ export default function RecoveryCenterPage() {
 
   async function handleHardwareCheck(): Promise<void> {
     try {
+      await loadDevices()
       await checkHardware()
+      await fetchHardwareStatus()
     } catch (error) {
       toast(error instanceof Error ? error.message : t('recoveryCheckHardwareFailed'), 'e')
     }
@@ -84,120 +96,46 @@ export default function RecoveryCenterPage() {
     return faultMap.get(recoveryFaultKey(faultType, alias))
   }
 
-  function statusText(ok: boolean): string {
-    return ok ? t('recoveryStatusNormal') : t('recoveryStatusAbnormal')
-  }
-
-  function statusTone(ok: boolean): string {
-    return ok ? 'text-gn' : 'text-rd'
-  }
-
-  const busy = session.state !== 'idle' && session.state !== 'error'
-  const camerasExist = hardwareStatus && hardwareStatus.cameras.some((camera) => camera.connected)
-
-  function motorStatus(alias: string): { text: string; tone: string } {
-    if (!hasCheckedHardware) {
-      return { text: '--', tone: 'text-tx3' }
-    }
-    const fault = faultFor(RECOVERY_FAULT_TYPES.ARM_MOTOR_DISCONNECTED, alias)
-    if (!fault) {
-      return { text: t('recoveryStatusNormal'), tone: 'text-gn' }
-    }
+  function buildPrimaryFault(device: HardwareRow, fault: RecoveryFault, title: string, fallback: string): PrimaryFault {
     return {
-      text: t('recoveryMotorFaultDetail' as never, { motors: fault.message } as never),
-      tone: 'text-rd',
+      key: recoveryFaultKey(fault.fault_type, fault.device_alias),
+      alias: device.alias,
+      badge: device.badge,
+      title,
+      message: fault.message || fallback,
     }
   }
 
-  function renderMetric(label: string, value: string, tone = 'text-tx2') {
-    return (
-      <div key={label} className="min-w-0">
-        <div className="text-[11px] font-semibold text-tx3">{label}</div>
-        <div className={`mt-1 truncate text-sm font-semibold ${tone}`}>{value}</div>
-      </div>
-    )
-  }
-
-  function deviceMetrics(device: typeof hardwareRows[number]) {
-    if (!hasCheckedHardware) {
-      const pendingMetrics = [
-        { label: t('recoverySerialConnection'), value: '--', tone: 'text-tx3' },
-      ]
-      if (device.kind === 'arm') {
-        return [
-          ...pendingMetrics,
-          { label: t('recoveryCalibrationStatus'), value: '--', tone: 'text-tx3' },
-          { label: t('recoveryMotorWiring'), value: '--', tone: 'text-tx3' },
-        ]
-      }
-      return [
-        ...pendingMetrics,
-        { label: t('camera'), value: '--', tone: 'text-tx3' },
-      ]
-    }
-
-    const serialOk = !faultFor(
-      device.kind === 'arm'
-        ? RECOVERY_FAULT_TYPES.ARM_DISCONNECTED
-        : RECOVERY_FAULT_TYPES.CAMERA_DISCONNECTED,
-      device.alias,
-    )
-    const serialMetric = {
-      label: t('recoverySerialConnection'),
-      value: statusText(serialOk),
-      tone: statusTone(serialOk),
-    }
+  function primaryFaultFor(device: HardwareRow): PrimaryFault | null {
     if (device.kind === 'camera') {
-      return [
-        serialMetric,
-        { label: t('camera'), value: serialMetric.value, tone: serialMetric.tone },
-      ]
+      const serialFault = faultFor(RECOVERY_FAULT_TYPES.CAMERA_DISCONNECTED, device.alias)
+      if (serialFault) return buildPrimaryFault(device, serialFault, t('recoveryFaultCameraTitle'), t('recoveryFaultCameraFallback'))
+
+      const frameFault = faultFor(RECOVERY_FAULT_TYPES.CAMERA_FRAME_DROP, device.alias)
+      if (frameFault) return buildPrimaryFault(device, frameFault, t('recoveryFaultCameraFrameTitle'), t('recoveryFaultCameraFrameFallback'))
+      return null
     }
+
+    const serialFault = faultFor(RECOVERY_FAULT_TYPES.ARM_DISCONNECTED, device.alias)
+    if (serialFault) return buildPrimaryFault(device, serialFault, t('recoveryFaultSerialTitle'), t('recoveryFaultSerialFallback'))
 
     const calibrationFault = faultFor(RECOVERY_FAULT_TYPES.ARM_NOT_CALIBRATED, device.alias)
-    const motor = motorStatus(device.alias)
-    return [
-      serialMetric,
-      {
-        label: t('recoveryCalibrationStatus'),
-        value: calibrationFault ? t('hwUncalibrated') : t('hwCalibrated'),
-        tone: calibrationFault ? 'text-rd' : 'text-gn',
-      },
-      { label: t('recoveryMotorWiring'), value: motor.text, tone: motor.tone },
-    ]
-  }
+    if (calibrationFault) return buildPrimaryFault(device, calibrationFault, t('recoveryFaultCalibrationTitle'), t('recoveryFaultCalibrationFallback'))
 
-  function renderDeviceRow(device: typeof hardwareRows[number]) {
-    const baseClass = 'grid items-center gap-3 rounded-lg border border-bd/45 bg-white/85 px-4 py-3 shadow-card md:grid-cols-[minmax(150px,0.65fr)_minmax(0,2.35fr)]'
-    const metrics = deviceMetrics(device)
+    const motorFault = faultFor(RECOVERY_FAULT_TYPES.ARM_MOTOR_DISCONNECTED, device.alias)
+    if (motorFault) {
+      const fallback = t('recoveryMotorFaultDetail', { motors: motorFault.message || device.alias })
+      return buildPrimaryFault(device, motorFault, t('recoveryFaultMotorTitle'), fallback)
+    }
 
-    return (
-      <div key={device.key} className={baseClass}>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-bold text-tx">{device.alias}</span>
-          <span className="rounded border border-bd/40 bg-white px-1.5 py-0.5 text-2xs font-mono text-tx2">
-            {device.badge}
-          </span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {metrics.map((metric) => renderMetric(metric.label, metric.value, metric.tone))}
-        </div>
-      </div>
-    )
+    return null
   }
 
   return (
     <div className="page-enter flex h-full flex-col overflow-y-auto">
       <div className="w-full px-6 pt-5 2xl:px-10">
-        <section className="flex min-h-[88px] items-center justify-between gap-4 rounded-lg border border-bd/45 bg-white/82 px-5 py-4 shadow-card backdrop-blur">
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-tx3">Dashboard</div>
-            <div className="mt-1 text-lg font-black text-tx">恢复操作</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden rounded-full border border-gn/20 bg-gn/10 px-3 py-1 text-xs font-bold text-gn sm:inline-flex">
-              可用
-            </span>
+        <section className="flex min-h-[88px] items-center justify-center rounded-lg border border-bd/45 bg-white/82 px-5 py-4 shadow-card backdrop-blur">
+          <div className="flex items-center justify-center">
             <button
               type="button"
               onClick={() => { void handleRestart() }}
@@ -211,62 +149,80 @@ export default function RecoveryCenterPage() {
       </div>
 
       <div className="flex-1 w-full px-6 py-5 2xl:px-10">
-        <div className="space-y-5">
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-tx">
-                  {t('recoveryActiveFaults')}
-                </h3>
-                <p className="mt-1 text-sm text-tx3">
-                  {t('recoveryFaultCount', { count: String(faults.length) })}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => { void handleHardwareCheck() }}
-                disabled={checkingHardware}
-                className="rounded-full bg-ac px-4 py-2 text-sm font-semibold text-white shadow-glow-ac transition-all hover:bg-ac2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {checkingHardware ? t('recoveryCheckingHardware') : t('recoveryCheckHardware')}
-              </button>
-            </div>
-
-            {hardwareRows.length === 0 ? (
-              <div className="rounded-lg border border-bd/45 bg-white/85 p-4 text-sm text-tx3 shadow-card">
-                {t('noConfiguredDevices')}
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {hardwareRows.map((device) => renderDeviceRow(device))}
-                {hasCheckedHardware && faults.length === 0 && (
-                  <div className="rounded-lg border border-gn/20 bg-gn/5 px-4 py-3 text-sm font-semibold text-gn">
-                    {t('recoveryNoFaultsDesc')}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-tx">
-                设备诊断
-              </h3>
-            </div>
-
-            <div className="grid min-h-[240px] grid-cols-2 gap-4 max-[1000px]:grid-cols-1">
-              {camerasExist ? (
-                <CameraPreviewPanel cameras={hardwareStatus!.cameras} busy={busy} />
-              ) : (
-                <div className="flex items-center justify-center rounded-lg bg-white/85 p-4 text-sm text-tx3 shadow-card">
-                  没有可用相机画面
+        {!hasCheckedHardware ? (
+          <section className="rounded-[28px] border border-bd/45 bg-white/80 p-5 shadow-card backdrop-blur">
+            <div className="grid min-h-[260px] place-items-center">
+              {hardwareRows.length === 0 ? (
+                <div className="rounded-2xl border border-bd/45 bg-white px-6 py-4 text-sm font-semibold text-tx3">
+                  {t('noConfiguredDevices')}
                 </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { void handleHardwareCheck() }}
+                  disabled={checkingHardware}
+                  className="min-h-[56px] rounded-full bg-ac px-8 text-sm font-bold text-white shadow-glow-ac transition-all hover:bg-ac2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {checkingHardware ? t('recoveryCheckingHardware') : t('recoveryCheckHardware')}
+                </button>
               )}
-              <ServoPanel state={session.state} />
             </div>
           </section>
-        </div>
+        ) : (
+          <section className="space-y-5">
+            <div className="space-y-5">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { void handleHardwareCheck() }}
+                  disabled={checkingHardware}
+                  className="rounded-full bg-ac px-5 py-2 text-sm font-semibold text-white shadow-glow-ac transition-all hover:bg-ac2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {checkingHardware ? t('recoveryCheckingHardware') : t('recoveryCheckHardware')}
+                </button>
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-[minmax(280px,0.82fr)_minmax(360px,1.18fr)]">
+                <section className="min-w-0">
+                  <div className="text-sm font-black tracking-[0.08em] text-tx3">
+                    {visibleFaults.length ? t('recoveryFaultsFoundTitle') : t('recoveryNoFaultsTitle')}
+                  </div>
+                  {visibleFaults.length ? (
+                    <div className="mt-4 space-y-3">
+                      {visibleFaults.map((fault) => (
+                        <article key={fault.key} className="border-l-2 border-rd bg-white/72 py-3 pl-4 pr-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <strong className="truncate text-sm text-tx">{fault.alias}</strong>
+                            <span className="font-mono text-xs text-tx3">
+                              {fault.badge}
+                            </span>
+                          </div>
+                          <div className="mt-3 text-sm font-black text-rd">{fault.title}</div>
+                          <p className="mt-1 text-sm leading-6 text-tx2">{fault.message}</p>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm leading-6 text-tx2">{t('recoveryNoFaultsDesc')}</p>
+                  )}
+                </section>
+
+                <section className="min-w-0 rounded-[24px] bg-white/78 p-5 shadow-card">
+                  <div className="mb-4 text-sm font-black tracking-[0.08em] text-tx3">
+                    {t('recoveryCameraPreviewTitle')}
+                  </div>
+                  {connectedCameras.length ? (
+                    <CameraPreviewPanel cameras={connectedCameras} busy={false} />
+                  ) : (
+                    <div className="grid min-h-[240px] place-items-center rounded-2xl bg-bg px-5 text-sm font-semibold text-tx3">
+                      {t('recoveryNoCameraPreview')}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   )

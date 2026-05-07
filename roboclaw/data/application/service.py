@@ -13,7 +13,7 @@ from .jobs import DataJobCoordinator
 from .library import DataLibraryService
 from .overview import DataOverviewService
 from .packages import DatasetPackageService
-from .quality import DataQualityService
+from .evaluation import DataEvaluationService
 
 
 class DataService:
@@ -24,7 +24,7 @@ class DataService:
         self.library = DataLibraryService(self.repository, self.jobs)
         self.inspect = DataInspectService(self.repository)
         self.clean = DataCleanService(self.repository, self.jobs)
-        self.packages = DatasetPackageService(self.repository)
-        self.quality = DataQualityService(self.repository, self.jobs)
+        self.packages = DatasetPackageService(self.repository, self.jobs)
+        self.evaluation = DataEvaluationService(self.repository, self.jobs)
         self.annotation = DataAnnotationService(self.repository, self.jobs)
         self.overview = DataOverviewService(self.repository)

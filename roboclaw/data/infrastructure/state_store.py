@@ -109,7 +109,7 @@ class DataStateStore:
         payload.setdefault("lifecycle_stage", "assembled")
         payload.setdefault("dataset_ids", [])
         payload.setdefault("groups", {})
-        payload.setdefault("quality_summary", {})
+        payload.setdefault("evaluation_summary", {})
         payload["gates"] = self._normalize_gates(payload.get("gates"), PACKAGE_GATE_KEYS)
         payload.setdefault("updated_at", utc_now_iso())
         return payload

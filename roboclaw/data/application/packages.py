@@ -8,19 +8,27 @@ from typing import Any
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 
+from .jobs import DataJobCoordinator, DataJobHandle
+
 PACKAGE_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
 PACKAGE_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
 
 
 class DatasetPackageService:
-    def __init__(self, repository: DataRepository) -> None:
+    def __init__(self, repository: DataRepository, jobs: DataJobCoordinator) -> None:
         self.repository = repository
+        self.jobs = jobs
 
     def list_packages(self) -> list[dict[str, Any]]:
         return [package.to_dict() for package in self.repository.list_packages()]
 
     def get_package(self, package_id: str) -> dict[str, Any]:
         return self.repository.read_package(package_id).to_dict()
+
+    def delete_package(self, package_id: str) -> dict[str, str]:
+        path = self.repository.resolve_package_path(package_id)
+        shutil.rmtree(path)
+        return {"status": "deleted", "package_id": package_id}
 
     def create_package(
         self,
@@ -58,6 +66,96 @@ class DatasetPackageService:
         gates["assemble"]["updated_at"] = utc_now_iso()
         self.repository.state_store.write_package_state(package_path, state)
         return self.repository.read_package(package_id).to_dict()
+
+    def start_upload(
+        self,
+        *,
+        package_id: str,
+        repo_id: str,
+        token: str,
+        private: bool,
+    ) -> dict[str, Any]:
+        package_path = self.repository.resolve_package_path(package_id)
+        if not repo_id.strip() or "/" not in repo_id:
+            raise ValueError("repo_id must be in 'namespace/name' format")
+
+        async def runner(handle: DataJobHandle) -> dict[str, Any]:
+            self.repository.state_store.set_package_stage(package_path, "upload_queued")
+            self.repository.state_store.set_gate(
+                package_path,
+                object_type="package",
+                key="upload",
+                status="running",
+                message=f"Uploading to {repo_id}",
+                details={"repo_id": repo_id},
+            )
+            await handle.update(processed=0, message=f"Uploading {package_id} to {repo_id}")
+            try:
+                url = await self._upload_package_folder(
+                    package_path=package_path,
+                    repo_id=repo_id,
+                    token=token,
+                    private=private,
+                )
+            except Exception:
+                self.repository.state_store.set_package_stage(package_path, "failed")
+                self.repository.state_store.set_gate(
+                    package_path,
+                    object_type="package",
+                    key="upload",
+                    status="failed",
+                    message=f"Upload to {repo_id} failed",
+                    details={"repo_id": repo_id},
+                )
+                raise
+            details = {"repo_id": repo_id, "url": url, "private": private}
+            self.repository.state_store.set_gate(
+                package_path,
+                object_type="package",
+                key="upload",
+                status="passed",
+                message=f"Uploaded to {repo_id}",
+                details=details,
+            )
+            self.repository.state_store.set_package_stage(package_path, "uploaded")
+            await handle.update(processed=1, message=f"Uploaded {package_id} to {repo_id}")
+            return {"package_id": package_id, **details}
+
+        job = self.jobs.start(
+            kind="package_upload",
+            target_type="package",
+            target_id=package_id,
+            total=1,
+            message=f"Queued package upload to {repo_id}",
+            runner=runner,
+        )
+        return job.to_dict()
+
+    async def _upload_package_folder(
+        self,
+        *,
+        package_path: Path,
+        repo_id: str,
+        token: str,
+        private: bool,
+    ) -> str:
+        import asyncio
+
+        from roboclaw.config.loader import load_runtime_config
+        from roboclaw.embodied.service.hub.transfer import push_folder
+
+        defaults = load_runtime_config().huggingface
+        return await asyncio.to_thread(
+            push_folder,
+            local_path=package_path,
+            repo_id=repo_id,
+            repo_type="dataset",
+            token=token or defaults.token,
+            private=private,
+            ignore_patterns=[".data/*", "sources/*"],
+            endpoint=defaults.endpoint,
+            proxy=defaults.proxy,
+        )
 
     def update_package_gate(
         self,

@@ -11,7 +11,7 @@ class ImportRequest(BaseModel):
     force: bool = False
 
 
-class CleanRunRequest(BaseModel):
+class QcRunRequest(BaseModel):
     dataset_ids: list[str]
     task: str = ""
     vcodec: str = "libx264"
@@ -31,7 +31,13 @@ class PackageCreateRequest(BaseModel):
     force: bool = False
 
 
-class QualityRunRequest(BaseModel):
+class PackageUploadRequest(BaseModel):
+    repo_id: str
+    token: str = ""
+    private: bool = False
+
+
+class EvaluationRunRequest(BaseModel):
     package_id: str
     selected_validators: list[str]
     episode_indices: list[int] | None = None

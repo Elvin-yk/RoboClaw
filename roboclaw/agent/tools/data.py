@@ -32,8 +32,8 @@ class DataTool(Tool):
     def description(self) -> str:
         return (
             "Control RoboClaw's data bounded context: list datasets/packages, inspect local or remote "
-            "datasets, run dataset cleaning, materialize DatasetPackage directories, run package quality "
-            "validation, manage semantic annotations, and read DataJob status."
+            "datasets, run dataset diagnosis/cleaning, materialize DatasetPackage directories, run package data "
+            "evaluation, manage semantic annotations, upload packages, and read DataJob status."
         )
 
     @property
@@ -52,11 +52,15 @@ class DataTool(Tool):
                         "get_inspect_summary",
                         "get_inspect_details",
                         "get_inspect_episodes",
+                        "run_diagnosis",
                         "run_clean",
+                        "delete_dataset",
                         "create_package",
-                        "get_quality_defaults",
-                        "get_quality_results",
-                        "run_quality",
+                        "delete_package",
+                        "upload_package",
+                        "get_evaluation_defaults",
+                        "get_evaluation_results",
+                        "run_evaluation",
                         "get_annotation_workspace",
                         "save_annotations",
                         "run_prototype",
@@ -74,6 +78,9 @@ class DataTool(Tool):
                 "page_size": {"type": "integer", "minimum": 1, "maximum": 200},
                 "include_videos": {"type": "boolean"},
                 "force": {"type": "boolean"},
+                "repo_id": {"type": "string"},
+                "token": {"type": "string"},
+                "private": {"type": "boolean"},
                 "selected_validators": {"type": "array", "items": {"type": "string"}},
                 "threshold_overrides": {"type": "object", "additionalProperties": {"type": "number"}},
                 "episode_indices": {"type": "array", "items": {"type": "integer"}},
@@ -102,6 +109,9 @@ class DataTool(Tool):
         page_size: int = 50,
         include_videos: bool = True,
         force: bool = False,
+        repo_id: str = "",
+        token: str = "",
+        private: bool = False,
         selected_validators: list[str] | None = None,
         threshold_overrides: dict[str, float] | None = None,
         episode_indices: list[int] | None = None,
@@ -134,11 +144,22 @@ class DataTool(Tool):
             return _json({**job, "event_sent": event_sent})
         if action.startswith("get_inspect_"):
             return await self._inspect_action(action, dataset, source, path, page, page_size)
+        if action == "run_diagnosis":
+            ids = dataset_ids or ([dataset] if dataset else [])
+            job = self._data.clean.start_diagnosis_run(dataset_ids=ids)
+            event_sent = await self._send_app_event({"type": "data.job_started", "job_id": job["job_id"]})
+            return _json({**job, "event_sent": event_sent})
         if action == "run_clean":
             ids = dataset_ids or ([dataset] if dataset else [])
             job = self._data.clean.start_run(dataset_ids=ids, task="", vcodec="libx264", force=True)
             event_sent = await self._send_app_event({"type": "data.job_started", "job_id": job["job_id"]})
             return _json({**job, "event_sent": event_sent})
+        if action == "delete_dataset":
+            if not dataset:
+                return _json({"error": "dataset is required"})
+            payload = self._data.library.delete_dataset(dataset)
+            event_sent = await self._send_app_event({"type": "data.library_changed", "dataset_id": dataset})
+            return _json({**payload, "event_sent": event_sent})
         if action == "create_package":
             if not package_id:
                 return _json({"error": "package_id is required"})
@@ -150,15 +171,32 @@ class DataTool(Tool):
             )
             event_sent = await self._send_app_event({"type": "data.library_changed", "package_id": package_id})
             return _json({**payload, "event_sent": event_sent})
-        if action == "get_quality_defaults":
-            return _json(self._data.quality.defaults(self._require_package(package_id)))
-        if action == "get_quality_results":
-            return _json(self._data.quality.results(self._require_package(package_id)))
-        if action == "run_quality":
+        if action == "delete_package":
             resolved_package = self._require_package(package_id)
-            defaults = self._data.quality.defaults(resolved_package)
+            payload = self._data.packages.delete_package(resolved_package)
+            event_sent = await self._send_app_event({"type": "data.library_changed", "package_id": resolved_package})
+            return _json({**payload, "event_sent": event_sent})
+        if action == "upload_package":
+            resolved_package = self._require_package(package_id)
+            if not repo_id.strip():
+                return _json({"error": "repo_id is required"})
+            job = self._data.packages.start_upload(
+                package_id=resolved_package,
+                repo_id=repo_id,
+                token=token,
+                private=private,
+            )
+            event_sent = await self._send_app_event({"type": "data.job_started", "job_id": job["job_id"]})
+            return _json({**job, "event_sent": event_sent})
+        if action == "get_evaluation_defaults":
+            return _json(self._data.evaluation.defaults(self._require_package(package_id)))
+        if action == "get_evaluation_results":
+            return _json(self._data.evaluation.results(self._require_package(package_id)))
+        if action == "run_evaluation":
+            resolved_package = self._require_package(package_id)
+            defaults = self._data.evaluation.defaults(resolved_package)
             validators = selected_validators or [str(item) for item in defaults.get("selected_validators", ["metadata"])]
-            job = self._data.quality.start_run(
+            job = self._data.evaluation.start_run(
                 package_id=resolved_package,
                 selected_validators=validators,
                 episode_indices=episode_indices,
@@ -252,17 +290,28 @@ class DataTool(Tool):
         page_size: int,
     ) -> dict[str, Any]:
         route = _normalize_route(str(context.get("route") or context.get("pathname") or ""))
-        if route.startswith("/data/inspect"):
-            params = self._inspect_params(dataset, source, path)
-            summary = await self._data.inspect.summary(**params)
-            episodes = await self._data.inspect.episodes(**params, page=page, page_size=page_size)
-            return {"page": "data_inspect", "context": context, "summary": summary, "episodes": episodes}
-        if route.startswith("/data/quality") and package_id:
+        if route.startswith("/data/analysis"):
+            payload: dict[str, Any] = {"page": "data_analysis", "context": context}
+            if dataset or path:
+                params = self._inspect_params(dataset, source, path)
+                payload["summary"] = await self._data.inspect.summary(**params)
+                payload["episodes"] = await self._data.inspect.episodes(**params, page=page, page_size=page_size)
+            if package_id:
+                payload["defaults"] = self._data.evaluation.defaults(package_id)
+                payload["results"] = self._data.evaluation.results(package_id)
+            return payload
+        if route.startswith("/data/qc"):
             return {
-                "page": "data_quality",
+                "page": "data_qc",
                 "context": context,
-                "defaults": self._data.quality.defaults(package_id),
-                "results": self._data.quality.results(package_id),
+                "datasets": self._data.library.list_datasets(),
+            }
+        if route.startswith("/data/manage"):
+            return {
+                "page": "data_manage",
+                "context": context,
+                "datasets": self._data.library.list_datasets(),
+                "packages": self._data.packages.list_packages(),
             }
         if route.startswith("/data/annotation") and package_id:
             return {
@@ -270,6 +319,8 @@ class DataTool(Tool):
                 "context": context,
                 "workspace": self._data.annotation.workspace(package_id=package_id, episode_index=0),
             }
+        if route == "/data":
+            return {"page": "data_overview", "context": context, "overview": self._data.overview.overview()}
         return {"page": route or "data", "context": context, "overview": self._data.overview.overview()}
 
     async def _inspect_action(
