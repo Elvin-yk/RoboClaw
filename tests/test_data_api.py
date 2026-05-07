@@ -11,7 +11,18 @@ from roboclaw.data.api import register_data_routes
 from roboclaw.data.application import DataService
 
 
-def _create_dataset(root: Path, dataset_id: str, *, episodes: int = 2, frames: int = 20, with_data: bool = False) -> Path:
+def _create_dataset(
+    root: Path,
+    dataset_id: str,
+    *,
+    episodes: int = 2,
+    frames: int = 20,
+    with_data: bool = False,
+    with_videos: bool = False,
+    task_text: str = "",
+    zero_episode_lengths: bool = False,
+    write_episodes_meta: bool = True,
+) -> Path:
     dataset_path = root / dataset_id
     meta = dataset_path / "meta"
     meta.mkdir(parents=True)
@@ -20,28 +31,52 @@ def _create_dataset(root: Path, dataset_id: str, *, episodes: int = 2, frames: i
         "total_frames": frames,
         "fps": 30,
         "robot_type": "so100",
-        "features": {"observation.state": {"dtype": "float32"}, "action": {"dtype": "float32"}},
+        "features": {
+            "observation.state": {"dtype": "float32"},
+            "observation.images.front": {"dtype": "video", "shape": [480, 640, 3]},
+            "action": {"dtype": "float32"},
+        },
         "chunks_size": 1000,
         "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
     }
+    if with_videos:
+        info["video_path"] = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
     (meta / "info.json").write_text(json.dumps(info), encoding="utf-8")
     episode_length = frames // episodes
-    rows = [
-        json.dumps({
+    stored_episode_length = 0 if zero_episode_lengths else episode_length
+    episode_rows = []
+    for index in range(episodes):
+        entry = {
             "episode_index": index,
-            "length": episode_length,
+            "length": stored_episode_length,
             "dataset_from_index": index * episode_length,
             "dataset_to_index": (index + 1) * episode_length,
             "data/chunk_index": 0,
             "data/file_index": 0,
-        })
-        for index in range(episodes)
-    ]
-    (meta / "episodes.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        }
+        if with_videos:
+            entry.update({
+                "videos/observation.images.front/chunk_index": 0,
+                "videos/observation.images.front/file_index": 0,
+                "videos/observation.images.front/from_timestamp": index * episode_length / 30,
+                "videos/observation.images.front/to_timestamp": (index + 1) * episode_length / 30,
+            })
+        episode_rows.append(json.dumps(entry))
+    if write_episodes_meta:
+        (meta / "episodes.jsonl").write_text("\n".join(episode_rows) + "\n", encoding="utf-8")
+    if with_videos:
+        video_path = dataset_path / "videos" / "observation.images.front" / "chunk-000" / "file-000.mp4"
+        video_path.parent.mkdir(parents=True)
+        video_path.write_bytes(b"video")
     if with_data:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
+        if task_text:
+            pq.write_table(
+                pa.Table.from_pylist([{"task_index": 0, "task": task_text}]),
+                meta / "tasks.parquet",
+            )
         data_rows = []
         for frame_index in range(frames):
             episode_index = min(frame_index // episode_length, episodes - 1)
@@ -50,6 +85,7 @@ def _create_dataset(root: Path, dataset_id: str, *, episodes: int = 2, frames: i
                 "episode_index": episode_index,
                 "frame_index": frame_index - episode_index * episode_length,
                 "timestamp": frame_index / 30,
+                "task_index": 0,
             })
         data_path = dataset_path / "data" / "chunk-000" / "file-000.parquet"
         data_path.parent.mkdir(parents=True)
@@ -138,10 +174,81 @@ def test_local_inspect_summary_details_and_episode_page(tmp_path: Path) -> None:
 
     assert summary.status_code == 200
     assert summary.json()["dataset"] == "local/demo"
+    assert summary.json()["summary"]["episode_lengths"] == [10, 10]
+    assert summary.json()["summary"]["camera_resolutions"] == [
+        {"name": "observation.images.front", "width": 640, "height": 480}
+    ]
     assert details.status_code == 200
     assert details.json()["dataset"] == "local/demo"
     assert episodes.status_code == 200
     assert episodes.json()["total_episodes"] == 2
+
+
+def test_single_episode_zero_length_meta_uses_total_frames(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/demo", episodes=1, frames=4873, zero_episode_lengths=True)
+    client = _client(tmp_path)
+
+    summary = client.get("/api/data/inspect/summary", params={"source": "local", "dataset": "local/demo"})
+    details = client.get("/api/data/inspect/details", params={"source": "local", "dataset": "local/demo"})
+    episodes = client.get("/api/data/inspect/episodes", params={"source": "local", "dataset": "local/demo"})
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"]["episode_lengths"] == [4873]
+    assert details.status_code == 200
+    assert details.json()["summary"]["episode_lengths"] == [4873]
+    assert episodes.status_code == 200
+    assert episodes.json()["episodes"][0]["length"] == 4873
+
+
+def test_missing_episode_meta_lengths_are_inferred_from_data(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/no-meta", episodes=2, frames=20, with_data=True, write_episodes_meta=False)
+    client = _client(tmp_path)
+
+    summary = client.get("/api/data/inspect/summary", params={"source": "local", "dataset": "local/no-meta"})
+    episodes = client.get("/api/data/inspect/episodes", params={"source": "local", "dataset": "local/no-meta"})
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"]["episode_lengths"] == [10, 10]
+    assert episodes.status_code == 200
+    assert episodes.json()["episodes"] == [
+        {"episode_index": 0, "length": 10},
+        {"episode_index": 1, "length": 10},
+    ]
+
+
+def test_local_inspect_episode_uses_video_feature_key_and_clip_window(tmp_path: Path) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/video",
+        episodes=2,
+        frames=20,
+        with_data=True,
+        with_videos=True,
+        task_text="Plug the power cord into the socket",
+    )
+    client = _client(tmp_path)
+
+    first = client.get(
+        "/api/data/inspect/episode",
+        params={"source": "local", "dataset": "local/video", "episode_index": 0},
+    )
+    second = client.get(
+        "/api/data/inspect/episode",
+        params={"source": "local", "dataset": "local/video", "episode_index": 1},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["task_description"] == "Plug the power cord into the socket"
+    first_video = first.json()["videos"][0]
+    second_video = second.json()["videos"][0]
+    assert first_video["stream"] == "observation.images.front"
+    assert second_video["stream"] == "observation.images.front"
+    assert first_video["path"] == second_video["path"]
+    assert first_video["from_timestamp"] == 0
+    assert first_video["to_timestamp"] == 10 / 30
+    assert second_video["from_timestamp"] == 10 / 30
+    assert second_video["to_timestamp"] == 20 / 30
 
 
 def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:

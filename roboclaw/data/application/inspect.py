@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path, PurePosixPath
 from typing import Any, TypeVar
 from urllib.parse import quote
 
 import httpx
+import pyarrow.parquet as pq
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from huggingface_hub.errors import HFValidationError, HfHubHTTPError, RepositoryNotFoundError
@@ -16,6 +18,7 @@ from roboclaw.data.curation.features import (
     extract_state_names,
     resolve_timestamp,
 )
+from roboclaw.data.curation.serializers import video_clip_bounds, video_key_from_relative_path
 from roboclaw.data.curation.validators import load_episode_data
 from roboclaw.data.explorer.local import (
     build_explorer_episode_page_from_artifacts,
@@ -184,16 +187,20 @@ class DataInspectService:
         info = load_json_file(dataset_path / "meta" / "info.json")
         stats = load_json_file(dataset_path / "meta" / "stats.json")
         siblings = scan_dataset_siblings(dataset_path)
+        episodes_meta = load_episodes_list_file(dataset_path)
         return build_explorer_overview_from_artifacts(
             dataset_name=dataset_name,
             info=info,
             stats=stats,
             siblings=siblings,
+            episodes_meta=episodes_meta,
+            dataset_path=dataset_path,
         )
 
     def _local_summary(self, dataset_path: Path, dataset_name: str) -> dict[str, Any]:
         info = load_json_file(dataset_path / "meta" / "info.json")
-        return build_explorer_summary_from_info(dataset_name, info)
+        episodes_meta = load_episodes_list_file(dataset_path)
+        return build_explorer_summary_from_info(dataset_name, info, episodes_meta, dataset_path)
 
     def _local_episode_page(self, dataset_path: Path, dataset_name: str, page: int, page_size: int) -> dict[str, Any]:
         info = load_json_file(dataset_path / "meta" / "info.json")
@@ -204,6 +211,7 @@ class DataInspectService:
             episodes_meta=episodes_meta,
             page=page,
             page_size=page_size,
+            dataset_path=dataset_path,
         )
 
     def _local_episode_payload(
@@ -224,9 +232,19 @@ class DataInspectService:
         start_ts = timestamps[0] if timestamps else None
         end_ts = timestamps[-1] if timestamps else None
         duration_s = max(end_ts - start_ts, 0.0) if start_ts is not None and end_ts is not None else 0.0
-        videos = self._episode_videos(dataset_path, dataset_name, data.get("video_files", []), source, duration_s)
+        videos = self._episode_videos(
+            dataset_path,
+            dataset_name,
+            data.get("video_files", []),
+            source,
+            info,
+            data.get("episode_meta", {}),
+            duration_s,
+        )
+        task_description = self._episode_task_description(dataset_path, data.get("episode_meta", {}), rows)
         return {
             "episode_index": episode_index,
+            "task_description": task_description,
             "summary": {
                 "row_count": len(rows),
                 "fps": info.get("fps", 0),
@@ -240,12 +258,105 @@ class DataInspectService:
             "videos": videos,
         }
 
+    def _episode_task_description(
+        self,
+        dataset_path: Path,
+        episode_meta: dict[str, Any],
+        rows: list[dict[str, Any]],
+    ) -> str:
+        direct_text = self._task_text(episode_meta)
+        if direct_text:
+            return direct_text
+
+        for row in rows:
+            direct_text = self._task_text(row)
+            if direct_text:
+                return direct_text
+
+        task_index = self._task_index(episode_meta)
+        if task_index is None:
+            for row in rows:
+                task_index = self._task_index(row)
+                if task_index is not None:
+                    break
+        if task_index is None:
+            return ""
+
+        return self._task_lookup(dataset_path).get(task_index, "")
+
+    def _task_lookup(self, dataset_path: Path) -> dict[int, str]:
+        tasks_parquet = dataset_path / "meta" / "tasks.parquet"
+        if tasks_parquet.is_file():
+            rows = pq.read_table(tasks_parquet).to_pylist()
+            return self._task_lookup_from_rows(rows)
+
+        tasks_jsonl = dataset_path / "meta" / "tasks.jsonl"
+        if not tasks_jsonl.is_file():
+            return {}
+        rows = [
+            json.loads(line)
+            for line in tasks_jsonl.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return self._task_lookup_from_rows(rows)
+
+    def _task_lookup_from_rows(self, rows: list[dict[str, Any]]) -> dict[int, str]:
+        lookup: dict[int, str] = {}
+        for row in rows:
+            task_index = self._task_index(row)
+            task_text = self._task_text(row)
+            if task_index is not None and task_text:
+                lookup[task_index] = task_text
+        return lookup
+
+    def _task_text(self, payload: dict[str, Any]) -> str:
+        for key in (
+            "task_description",
+            "task",
+            "task_label",
+            "description",
+            "task_desc",
+            "instruction",
+            "language_instruction",
+            "language_instruction_2",
+            "language_instruction_3",
+        ):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        tasks = payload.get("tasks")
+        if isinstance(tasks, list):
+            for item in tasks:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+                if isinstance(item, dict):
+                    text = self._task_text(item)
+                    if text:
+                        return text
+        if isinstance(tasks, dict):
+            return self._task_text(tasks)
+        return ""
+
+    def _task_index(self, payload: dict[str, Any]) -> int | None:
+        value = payload.get("task_index")
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            if text.lstrip("-").isdigit():
+                return int(text)
+        return None
+
     def _episode_videos(
         self,
         dataset_path: Path,
         dataset_name: str,
         video_files: list[Path],
         source: str,
+        info: dict[str, Any],
+        episode_meta: dict[str, Any],
         duration_s: float,
     ) -> list[dict[str, Any]]:
         videos: list[dict[str, Any]] = []
@@ -253,17 +364,22 @@ class DataInspectService:
             relative = video_path.relative_to(dataset_path).as_posix()
             if source == "path":
                 url = (
-                    f"/api/data/inspect/video/{relative}"
+                    f"/api/data/inspect/video/{quote(relative, safe='/')}"
                     f"?source=path&dataset_path={quote(dataset_path.as_posix(), safe='')}"
                 )
             else:
-                url = f"/api/data/inspect/video/{relative}?source=local&dataset={quote(dataset_name, safe='')}"
+                url = (
+                    f"/api/data/inspect/video/{quote(relative, safe='/')}"
+                    f"?source=local&dataset={quote(dataset_name, safe='')}"
+                )
+            video_key = video_key_from_relative_path(relative, info)
+            clip_start, clip_end = video_clip_bounds(episode_meta, video_key, duration_s)
             videos.append({
                 "path": relative,
                 "url": url,
-                "stream": Path(relative).stem,
-                "from_timestamp": 0,
-                "to_timestamp": duration_s if duration_s > 0 else None,
+                "stream": video_key or Path(relative).stem,
+                "from_timestamp": clip_start,
+                "to_timestamp": clip_end,
             })
         return videos
 

@@ -19,6 +19,9 @@ interface InspectState {
   loadEpisode: (episodeIndex: number) => Promise<void>
 }
 
+let inspectRequestId = 0
+let episodeRequestId = 0
+
 export const useDataInspectStore = create<InspectState>((set, get) => ({
   source: 'local',
   dataset: '',
@@ -32,6 +35,7 @@ export const useDataInspectStore = create<InspectState>((set, get) => ({
   setDataset: (dataset) => set({ dataset }),
   inspect: async () => {
     const { source, dataset } = get()
+    const requestId = ++inspectRequestId
     set({ loading: true, error: '' })
     try {
       const params = { source, dataset: dataset || undefined }
@@ -40,13 +44,16 @@ export const useDataInspectStore = create<InspectState>((set, get) => ({
         dataApi.inspectDetails(params),
         dataApi.inspectEpisodes({ ...params, page: 1, page_size: 25 }),
       ])
+      if (requestId !== inspectRequestId) return
       set({ summary, details, episodes, episode: null, loading: false })
     } catch (error) {
+      if (requestId !== inspectRequestId) return
       set({ error: error instanceof Error ? error.message : String(error), loading: false })
     }
   },
   loadEpisode: async (episodeIndex) => {
     const { source, dataset } = get()
+    const requestId = ++episodeRequestId
     set({ loading: true, error: '' })
     try {
       const episode = await dataApi.inspectEpisode({
@@ -55,8 +62,11 @@ export const useDataInspectStore = create<InspectState>((set, get) => ({
         episode_index: episodeIndex,
         preview: false,
       })
+      const current = get()
+      if (requestId !== episodeRequestId || current.source !== source || current.dataset !== dataset) return
       set({ episode, loading: false })
     } catch (error) {
+      if (requestId !== episodeRequestId) return
       set({ error: error instanceof Error ? error.message : String(error), loading: false })
     }
   },

@@ -527,20 +527,22 @@ def build_remote_explorer_payload(dataset: str) -> dict[str, Any]:
 
 
 def build_remote_explorer_summary(dataset: str) -> dict[str, Any]:
-    repo_index = _get_remote_dataset_repo_index(dataset)
-    info = _get_remote_info_json(dataset)
-    return build_explorer_summary_from_info(repo_index["dataset"], info)
+    artifacts = get_remote_dataset_artifacts(dataset)
+    return build_explorer_summary_from_info(
+        artifacts["dataset"],
+        artifacts["info"],
+        artifacts["episodes_meta"],
+    )
 
 
 def build_remote_explorer_details(dataset: str) -> dict[str, Any]:
-    repo_index = _get_remote_dataset_repo_index(dataset)
-    info = _get_remote_info_json(dataset)
-    stats = _get_remote_stats_json(dataset)
+    artifacts = get_remote_dataset_artifacts(dataset)
     return build_explorer_overview_from_artifacts(
-        dataset_name=repo_index["dataset"],
-        info=info,
-        stats=stats,
-        siblings=repo_index["siblings"],
+        dataset_name=artifacts["dataset"],
+        info=artifacts["info"],
+        stats=artifacts["stats"],
+        siblings=artifacts["siblings"],
+        episodes_meta=artifacts["episodes_meta"],
     )
 
 
@@ -744,10 +746,6 @@ def _episode_meta_entry(
 
 
 def _stream_name_from_video_key(video_key: str) -> str:
-    if video_key.startswith("observation.images."):
-        return video_key.split("observation.images.", 1)[1]
-    if "." in video_key:
-        return video_key.rsplit(".", 1)[-1]
     return video_key
 
 

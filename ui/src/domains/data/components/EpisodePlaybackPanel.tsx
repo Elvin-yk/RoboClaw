@@ -1,0 +1,513 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  TrajectoryCharts,
+  type TrajectoryPayload,
+} from '@/domains/data/components/TrajectoryCharts'
+import {
+  asArray,
+  asRecord,
+  formatSeconds,
+  numberValue,
+  textValue,
+  type AnyRecord,
+} from '@/domains/data/lib/analysisPayload'
+
+interface EpisodeVideo {
+  path: string
+  url: string
+  stream: string
+  from_timestamp: number | null
+  to_timestamp: number | null
+}
+
+const VIDEO_SYNC_TOLERANCE = 0.15
+const LOOP_EPSILON = 0.05
+
+export function EpisodePlaybackPanel({
+  episode,
+  episodeIndex,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  onEpisodeIndexChange,
+  onLoadEpisode,
+}: {
+  episode: AnyRecord
+  episodeIndex: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  onEpisodeIndexChange: (episodeIndex: number) => void
+  onLoadEpisode: (episodeIndex: number) => void
+}) {
+  const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
+  const summary = asRecord(episode.summary)
+  const videos = useMemo(() => readVideos(episode), [episode])
+  const trajectory = useMemo(() => readTrajectory(episode), [episode])
+  const taskDescription = useMemo(() => readTaskDescription(episode), [episode])
+  const duration = useMemo(
+    () => resolvePlaybackDuration(summary, videos, trajectory),
+    [summary, videos, trajectory],
+  )
+  const [playbackTime, setPlaybackTime] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackError, setPlaybackError] = useState('')
+  const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
+  const syncLockRef = useRef(false)
+  const playbackTimeRef = useRef(0)
+  const dragWasPlayingRef = useRef(false)
+
+  useEffect(() => {
+    playbackTimeRef.current = playbackTime
+  }, [playbackTime])
+
+  const syncVideosTo = useCallback((relativeTime: number, forceSeek: boolean, skipIndex = -1) => {
+    syncLockRef.current = true
+    videoRefs.current.forEach((video, index) => {
+      if (!video || index === skipIndex || video.readyState === 0) return
+      const targetTime = getAbsoluteTime(videos[index], relativeTime, video.duration)
+      if (forceSeek || Math.abs(video.currentTime - targetTime) > VIDEO_SYNC_TOLERANCE) {
+        video.currentTime = targetTime
+      }
+    })
+    queueMicrotask(() => {
+      syncLockRef.current = false
+    })
+  }, [videos])
+
+  const seekTo = useCallback((nextTime: number, forceSeek = true) => {
+    const bounded = clamp(nextTime, 0, duration || 0)
+    playbackTimeRef.current = bounded
+    setPlaybackTime(bounded)
+    syncVideosTo(bounded, forceSeek)
+  }, [duration, syncVideosTo])
+
+  useEffect(() => {
+    videoRefs.current = []
+    playbackTimeRef.current = 0
+    setPlaybackTime(0)
+    setIsPlaying(false)
+    setPlaybackError('')
+  }, [loadedEpisodeIndex])
+
+  useEffect(() => {
+    const videosReady = videoRefs.current.filter((video): video is HTMLVideoElement => Boolean(video))
+    if (!videosReady.length) return
+
+    if (!isPlaying) {
+      videosReady.forEach((video) => video.pause())
+      return
+    }
+
+    syncVideosTo(playbackTimeRef.current, true)
+    videosReady.forEach((video) => {
+      const playPromise = video.play()
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          setPlaybackError(message || '视频播放失败')
+          setIsPlaying(false)
+        })
+      }
+    })
+  }, [isPlaying, syncVideosTo, videos])
+
+  const handleLeaderTimeUpdate = (index: number) => {
+    if (syncLockRef.current || index !== 0) return
+    const video = videoRefs.current[index]
+    if (!video) return
+
+    const videoMeta = videos[index]
+    const clipEnd = getClipEnd(videoMeta, video.duration)
+    if (isPlaying && clipEnd != null && video.currentTime >= clipEnd - LOOP_EPSILON) {
+      seekTo(0)
+      return
+    }
+
+    const nextTime = clamp(video.currentTime - getClipStart(videoMeta), 0, duration || 0)
+    if (Math.abs(nextTime - playbackTimeRef.current) >= 0.025) {
+      playbackTimeRef.current = nextTime
+      setPlaybackTime(nextTime)
+    }
+    syncVideosTo(nextTime, false, index)
+  }
+
+  const hasPlaybackData = videos.length > 0 || trajectory.items.length > 0
+
+  if (!hasPlaybackData) {
+    return (
+      <section className="data-panel">
+        <div className="data-panel__title"><h2>Episode 可视化</h2></div>
+        <div className="data-empty">加载 episode 后显示视频和 action / observation 曲线</div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="data-panel data-analysis-player">
+      <div className="data-panel__title">
+        <h2>Episode 可视化</h2>
+        <div className="data-analysis-player__summary">
+          <EpisodePicker
+            value={episodeIndex}
+            totalEpisodes={totalEpisodes}
+            loading={loading}
+            canLoadEpisode={canLoadEpisode}
+            onChange={onEpisodeIndexChange}
+            onLoad={onLoadEpisode}
+          />
+          <span>Episode #{loadedEpisodeIndex}</span>
+          <span>{formatSeconds(duration)}</span>
+          <span>{summary.video_count == null ? videos.length : textValue(summary.video_count)} videos</span>
+        </div>
+      </div>
+
+      {playbackError && <div className="data-alert">{playbackError}</div>}
+
+      {taskDescription && (
+        <div className="data-analysis-task-strip">
+          <span>Task</span>
+          <strong>{taskDescription}</strong>
+        </div>
+      )}
+
+      <div className="data-analysis-video-grid">
+        {videos.map((video, index) => (
+          <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
+            <video
+              ref={(node) => {
+                videoRefs.current[index] = node
+              }}
+              src={video.url}
+              muted
+              playsInline
+              preload="metadata"
+              onClick={() => setIsPlaying((current) => !current)}
+              onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+              onTimeUpdate={() => handleLeaderTimeUpdate(index)}
+            />
+            <figcaption>{video.stream || video.path}</figcaption>
+          </figure>
+        ))}
+      </div>
+
+      <PlaybackTimeline
+        currentTime={playbackTime}
+        duration={duration}
+        isPlaying={isPlaying}
+        onPlayToggle={() => setIsPlaying((current) => !current)}
+        onSeek={seekTo}
+        onDragStart={() => {
+          dragWasPlayingRef.current = isPlaying
+          setIsPlaying(false)
+        }}
+        onDragEnd={() => {
+          if (dragWasPlayingRef.current) setIsPlaying(true)
+        }}
+      />
+
+      <TrajectoryCharts
+        trajectory={trajectory}
+        currentTime={playbackTime}
+        duration={duration}
+        onSeek={(seconds) => seekTo(seconds)}
+      />
+    </section>
+  )
+}
+
+function EpisodePicker({
+  value,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  onChange,
+  onLoad,
+}: {
+  value: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  onChange: (episodeIndex: number) => void
+  onLoad: (episodeIndex: number) => void
+}) {
+  const hasUpperBound = totalEpisodes > 0
+  const maxEpisodeIndex = hasUpperBound ? Math.max(totalEpisodes - 1, 0) : Number.POSITIVE_INFINITY
+  const normalizedValue = clamp(value, 0, maxEpisodeIndex)
+
+  function updateValue(rawValue: string) {
+    const nextValue = Number(rawValue)
+    if (!Number.isFinite(nextValue)) return
+    onChange(clamp(Math.trunc(nextValue), 0, maxEpisodeIndex))
+  }
+
+  return (
+    <div className="data-analysis-episode-picker">
+      <button
+        type="button"
+        className="data-analysis-secondary-button"
+        onClick={() => onLoad(Math.max(0, normalizedValue - 1))}
+        disabled={loading || !canLoadEpisode || normalizedValue <= 0}
+        title="上一个 episode"
+      >
+        Prev
+      </button>
+      <label>
+        <span>Episode</span>
+        <input
+          type="number"
+          min={0}
+          max={hasUpperBound ? maxEpisodeIndex : undefined}
+          value={normalizedValue}
+          onChange={(event) => updateValue(event.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        className="data-analysis-secondary-button"
+        onClick={() => onLoad(normalizedValue)}
+        disabled={loading || !canLoadEpisode}
+      >
+        Load
+      </button>
+      <button
+        type="button"
+        className="data-analysis-secondary-button"
+        onClick={() => onLoad(normalizedValue + 1)}
+        disabled={loading || !canLoadEpisode || (hasUpperBound && normalizedValue >= maxEpisodeIndex)}
+        title="下一个 episode"
+      >
+        Next
+      </button>
+    </div>
+  )
+}
+
+function PlaybackTimeline({
+  currentTime,
+  duration,
+  isPlaying,
+  onPlayToggle,
+  onSeek,
+  onDragStart,
+  onDragEnd,
+}: {
+  currentTime: number
+  duration: number
+  isPlaying: boolean
+  onPlayToggle: () => void
+  onSeek: (seconds: number) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+}) {
+  const disabled = duration <= 0
+  const progress = duration > 0 ? clamp((currentTime / duration) * 100, 0, 100) : 0
+  const rangeStyle = { '--timeline-progress': `${progress}%` } as CSSProperties
+
+  return (
+    <div className="data-analysis-timeline">
+      <button
+        type="button"
+        className="data-analysis-icon-button"
+        onClick={() => onSeek(Math.max(0, currentTime - 5))}
+        disabled={disabled}
+        title="后退 5 秒"
+        aria-label="后退 5 秒"
+      >
+        <SkipBackIcon />
+      </button>
+      <button
+        type="button"
+        className="data-analysis-play-button"
+        onClick={onPlayToggle}
+        disabled={disabled}
+        title={isPlaying ? '暂停' : '播放'}
+        aria-label={isPlaying ? '暂停' : '播放'}
+      >
+        {isPlaying ? <PauseIcon /> : <PlayIcon />}
+      </button>
+      <button
+        type="button"
+        className="data-analysis-icon-button"
+        onClick={() => onSeek(Math.min(duration, currentTime + 5))}
+        disabled={disabled}
+        title="前进 5 秒"
+        aria-label="前进 5 秒"
+      >
+        <SkipForwardIcon />
+      </button>
+      <button
+        type="button"
+        className="data-analysis-icon-button"
+        onClick={() => onSeek(0)}
+        disabled={disabled}
+        title="回到开头"
+        aria-label="回到开头"
+      >
+        <ResetIcon />
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={Math.max(duration, 0)}
+        step={0.01}
+        value={clamp(currentTime, 0, duration || 0)}
+        disabled={disabled}
+        style={rangeStyle}
+        onPointerDown={onDragStart}
+        onPointerUp={onDragEnd}
+        onChange={(event) => onSeek(Number(event.target.value))}
+        aria-label="Episode playback timeline"
+      />
+      <span className="data-analysis-timeline__time">
+        {Math.floor(currentTime)}s / {Math.floor(duration)}s
+      </span>
+    </div>
+  )
+}
+
+function SkipBackIcon() {
+  return (
+    <svg className="data-analysis-timeline__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M11.2 6.4v11.2L5.4 12l5.8-5.6Z" fill="currentColor" />
+      <path d="M18.6 6.4v11.2L12.8 12l5.8-5.6Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function PlayIcon() {
+  return (
+    <svg className="data-analysis-timeline__icon data-analysis-timeline__icon--play" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8 5.4v13.2L18.4 12 8 5.4Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function PauseIcon() {
+  return (
+    <svg className="data-analysis-timeline__icon data-analysis-timeline__icon--pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="7" y="5.5" width="3.4" height="13" rx="1.1" fill="currentColor" />
+      <rect x="13.6" y="5.5" width="3.4" height="13" rx="1.1" fill="currentColor" />
+    </svg>
+  )
+}
+
+function SkipForwardIcon() {
+  return (
+    <svg className="data-analysis-timeline__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12.8 6.4v11.2l5.8-5.6-5.8-5.6Z" fill="currentColor" />
+      <path d="M5.4 6.4v11.2l5.8-5.6-5.8-5.6Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function ResetIcon() {
+  return (
+    <svg className="data-analysis-timeline__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8.2 7.2h-3V4.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="M5.6 7.2A7.3 7.3 0 1 1 4.8 13" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function readVideos(episode: AnyRecord): EpisodeVideo[] {
+  return asArray(episode.videos).map(asRecord).map((video) => ({
+    path: textValue(video.path),
+    url: textValue(video.url),
+    stream: textValue(video.stream) || textValue(video.path),
+    from_timestamp: numberValue(video.from_timestamp),
+    to_timestamp: numberValue(video.to_timestamp),
+  })).filter((video) => Boolean(video.url))
+}
+
+function readTaskDescription(episode: AnyRecord): string {
+  const summary = asRecord(episode.summary)
+  const candidates = [
+    episode.task_description,
+    episode.task,
+    episode.task_label,
+    episode.instruction,
+    episode.language_instruction,
+    summary.task_description,
+    summary.task,
+    summary.task_label,
+    summary.instruction,
+    summary.language_instruction,
+  ]
+  for (const candidate of candidates) {
+    const text = textValue(candidate).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function readTrajectory(episode: AnyRecord): TrajectoryPayload {
+  const trajectory = asRecord(episode.joint_trajectory)
+  const timeValues = asArray(trajectory.time_values)
+    .map(numberValue)
+    .filter((value): value is number => value != null)
+  const items = asArray(trajectory.joint_trajectories).map(asRecord).map((item, index) => ({
+    jointName: textValue(item.joint_name) || textValue(item.action_name) || textValue(item.state_name) || `joint_${index + 1}`,
+    actionName: textValue(item.action_name),
+    stateName: textValue(item.state_name),
+    actionValues: numericSeries(item.action_values),
+    stateValues: numericSeries(item.state_values),
+  })).filter((item) => item.actionValues.length > 0 || item.stateValues.length > 0)
+
+  return {
+    timeValues,
+    items,
+    totalPoints: numberValue(trajectory.total_points) ?? 0,
+  }
+}
+
+function numericSeries(value: unknown): Array<number | null> {
+  return asArray(value).map((item) => numberValue(item))
+}
+
+function resolvePlaybackDuration(
+  summary: AnyRecord,
+  videos: EpisodeVideo[],
+  trajectory: TrajectoryPayload,
+): number {
+  const summaryDuration = numberValue(summary.duration_s) ?? 0
+  const rowCount = numberValue(summary.row_count) ?? 0
+  const fps = numberValue(summary.fps) ?? 0
+  const rowDuration = fps > 0 ? rowCount / fps : 0
+  const videoDuration = videos.reduce((maxDuration, video) => {
+    const end = video.to_timestamp
+    const start = getClipStart(video)
+    return end != null && end >= start ? Math.max(maxDuration, end - start) : maxDuration
+  }, 0)
+  const trajectoryTimes = relativeTimeValues(trajectory.timeValues)
+  const trajectoryDuration = trajectoryTimes[trajectoryTimes.length - 1] ?? 0
+  return Math.max(summaryDuration, rowDuration, videoDuration, trajectoryDuration, 0)
+}
+
+function relativeTimeValues(timeValues: number[]): number[] {
+  if (!timeValues.length) return []
+  const start = timeValues[0]
+  return timeValues.map((time) => Math.max(time - start, 0))
+}
+
+function getClipStart(video: EpisodeVideo | null | undefined): number {
+  return video?.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
+}
+
+function getClipEnd(video: EpisodeVideo | null | undefined, mediaDuration: number): number | null {
+  if (video?.to_timestamp != null && Number.isFinite(video.to_timestamp)) return video.to_timestamp
+  if (Number.isFinite(mediaDuration) && mediaDuration > 0) return mediaDuration
+  return null
+}
+
+function getAbsoluteTime(video: EpisodeVideo | null | undefined, relativeTime: number, mediaDuration: number): number {
+  const start = getClipStart(video)
+  const end = getClipEnd(video, mediaDuration)
+  const maxRelative = end == null ? Number.POSITIVE_INFINITY : Math.max(end - start, 0)
+  return start + clamp(relativeTime, 0, maxRelative)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min
+  return Math.min(Math.max(value, min), max)
+}
