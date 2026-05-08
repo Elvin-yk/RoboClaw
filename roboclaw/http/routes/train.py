@@ -28,12 +28,15 @@ class RemoteTrainStartRequest(BaseModel):
     username: str
     taskName: str = ""
     datasetPath: str | None = None
-    epochs: int | None = None
-    checkpointEpochs: int | None = None
+    steps: int | None = None
+    saveFreq: int | None = None
     gpuCount: int | None = None
     gpuType: str | None = None
     batchSize: int | None = None
     policyType: str | None = None
+    emptyDocker: bool | None = None
+    sleepT: int | None = None
+    logFreq: int | None = None
     action: str
 
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useSessionStore } from '@/domains/session/store/useSessionStore'
 import { useTrainingStore } from '@/domains/training/store/useTrainingStore'
@@ -36,6 +37,7 @@ type RemoteTrainingTask = {
 }
 
 export default function TrainingCenterPage() {
+  const location = useLocation()
   const datasets = useDataLibraryStore((state) => state.datasets)
   const loadDataLibrary = useDataLibraryStore((state) => state.load)
   const session = useSessionStore((state) => state.session)
@@ -61,7 +63,7 @@ export default function TrainingCenterPage() {
   const [trainSteps, setTrainSteps] = useState(100000)
   const [trainDevice, setTrainDevice] = useState('cuda')
   const [pullPolicyRepo, setPullPolicyRepo] = useState('')
-  const [trainingMode, setTrainingMode] = useState<TrainingMode>('local')
+  const trainingMode: TrainingMode = location.pathname.startsWith('/training/remote') ? 'remote' : 'local'
   const [remoteDatasetPath, setRemoteDatasetPath] = useState('')
   const [remoteEpochs, setRemoteEpochs] = useState(1)
   const [remoteCheckpointEpochs, setRemoteCheckpointEpochs] = useState(1)
@@ -70,6 +72,9 @@ export default function TrainingCenterPage() {
   const [remoteGpuType, setRemoteGpuType] = useState('')
   const [remoteBatchSize, setRemoteBatchSize] = useState(16)
   const [remotePolicyType, setRemotePolicyType] = useState('act')
+  const [remoteEmptyDocker, setRemoteEmptyDocker] = useState(false)
+  const [remoteSleepT, setRemoteSleepT] = useState(6000)
+  const [remoteLogFreq, setRemoteLogFreq] = useState(100)
   const [remoteTasks, setRemoteTasks] = useState<Record<string, RemoteTrainingTask>>({})
   const [remoteServerConnected, setRemoteServerConnected] = useState(false)
   const [remoteTrainingPending, setRemoteTrainingPending] = useState(false)
@@ -90,6 +95,10 @@ export default function TrainingCenterPage() {
     void pushPolicy(value, repoId)
   }
 
+  const clampNumber = (value: string, min: number, max: number) => {
+    return Math.min(max, Math.max(min, Number(value) || min))
+  }
+
   const startRemoteTraining = async () => {
     const taskName = remoteTaskName.trim()
     const datasetPath = remoteDatasetPath.trim()
@@ -103,6 +112,9 @@ export default function TrainingCenterPage() {
       !validCheckpointEpochs ||
       remoteCheckpointEpochs > remoteEpochs ||
       remoteGpuCount < 1 ||
+      remoteSleepT < 300 ||
+      remoteSleepT > 6000 ||
+      remoteLogFreq < 1 ||
       ![16, 32, 64, 128].includes(remoteBatchSize) ||
       !POLICY_TYPES.includes(remotePolicyType) ||
       !/^[A-Za-z0-9]{1,150}$/.test(taskName)
@@ -120,12 +132,15 @@ export default function TrainingCenterPage() {
         username,
         taskName,
         datasetPath,
-        epochs: remoteEpochs,
-        checkpointEpochs: remoteCheckpointEpochs,
+        steps: remoteEpochs,
+        saveFreq: remoteCheckpointEpochs,
         gpuCount: remoteGpuCount,
         gpuType: remoteGpuType.trim(),
         batchSize: remoteBatchSize,
         policyType: remotePolicyType,
+        emptyDocker: remoteEmptyDocker,
+        sleepT: remoteSleepT,
+        logFreq: remoteLogFreq,
         action: '开始训练',
       }) as { message?: string; tasks?: RemoteTrainingTask[] }
       const nextTasks = Object.fromEntries((response.tasks || []).map(task => [task.taskName, task]))
@@ -159,6 +174,28 @@ export default function TrainingCenterPage() {
     }
   }
 
+  const queryRemoteTaskStatus = async () => {
+    const username = user?.nickname || user?.phone || user?.id || ''
+    if (!selectedRemoteTaskName) return
+    if (!username) {
+      alert('请先登陆')
+      return
+    }
+    setRemoteTrainingPending(true)
+    try {
+      const response = await postJson(REMOTE_TRAINING_START, {
+        username,
+        taskName: selectedRemoteTaskName,
+        action: '查询状态',
+      }) as { message?: string; tasks?: RemoteTrainingTask[] }
+      const nextTasks = Object.fromEntries((response.tasks || []).map(task => [task.taskName, task]))
+      setRemoteTasks(nextTasks)
+      setRemoteCreateMessage(response.message || '查询完成')
+    } finally {
+      setRemoteTrainingPending(false)
+    }
+  }
+
   const syncRemoteTasks = async () => {
     const username = user?.nickname || user?.phone || user?.id || ''
     if (!username) {
@@ -185,33 +222,6 @@ export default function TrainingCenterPage() {
     <div className="page-enter flex flex-col h-full overflow-y-auto">
       <div className="border-b border-bd/50 px-6 py-4 bg-sf flex items-center justify-between gap-4">
         <h2 className="text-xl font-bold tracking-tight">{t('trainingCenter')}</h2>
-        <div className="relative grid w-[220px] grid-cols-2 rounded-full border border-bd/50 bg-bg p-1 shadow-inset-yl max-[520px]:w-[184px]">
-          <span
-            className={`absolute left-1 top-1 h-[calc(100%-8px)] w-[calc(50%-4px)] rounded-full bg-ac shadow-glow-ac transition-transform duration-200 ease-out ${
-              trainingMode === 'remote' ? 'translate-x-full' : 'translate-x-0'
-            }`}
-          />
-          <button
-            type="button"
-            aria-pressed={trainingMode === 'local'}
-            onClick={() => setTrainingMode('local')}
-            className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-              trainingMode === 'local' ? 'text-white' : 'text-tx3 hover:text-tx'
-            }`}
-          >
-            {t('localTraining')}
-          </button>
-          <button
-            type="button"
-            aria-pressed={trainingMode === 'remote'}
-            onClick={() => setTrainingMode('remote')}
-            className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-              trainingMode === 'remote' ? 'text-white' : 'text-tx3 hover:text-tx'
-            }`}
-          >
-            {t('remoteTraining')}
-          </button>
-        </div>
       </div>
 
       {trainingMode === 'remote' ? (
@@ -257,7 +267,7 @@ export default function TrainingCenterPage() {
                       min={1}
                       max={10000000}
                       value={remoteEpochs}
-                      onChange={(e) => setRemoteEpochs(Math.min(10000000, Math.max(1, Number(e.target.value) || 1)))}
+                      onChange={(e) => setRemoteEpochs(clampNumber(e.target.value, 1, 10000000))}
                       className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm font-mono focus:outline-none focus:border-ac"
                     />
                   </label>
@@ -268,7 +278,7 @@ export default function TrainingCenterPage() {
                       min={1}
                       max={10000000}
                       value={remoteCheckpointEpochs}
-                      onChange={(e) => setRemoteCheckpointEpochs(Math.min(10000000, Math.max(1, Number(e.target.value) || 1)))}
+                      onChange={(e) => setRemoteCheckpointEpochs(clampNumber(e.target.value, 1, 10000000))}
                       className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm font-mono focus:outline-none focus:border-ac"
                     />
                   </label>
@@ -288,7 +298,7 @@ export default function TrainingCenterPage() {
                       type="number"
                       min={1}
                       value={remoteGpuCount}
-                      onChange={(e) => setRemoteGpuCount(Math.max(1, Number(e.target.value) || 1))}
+                      onChange={(e) => setRemoteGpuCount(clampNumber(e.target.value, 1, 10000000))}
                       className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm font-mono focus:outline-none focus:border-ac"
                     />
                   </label>
@@ -324,6 +334,38 @@ export default function TrainingCenterPage() {
                       ))}
                     </select>
                   </label>
+                  <label className="flex flex-col gap-1.5 text-2xs text-tx3 font-mono">
+                    创建空容器
+                    <select
+                      value={remoteEmptyDocker ? 'true' : 'false'}
+                      onChange={(e) => setRemoteEmptyDocker(e.target.value === 'true')}
+                      className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm focus:outline-none focus:border-ac"
+                    >
+                      <option value="false">False</option>
+                      <option value="true">True</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-2xs text-tx3 font-mono">
+                    空容器时间
+                    <input
+                      type="number"
+                      min={300}
+                      max={6000}
+                      value={remoteSleepT}
+                      onChange={(e) => setRemoteSleepT(clampNumber(e.target.value, 300, 6000))}
+                      className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm font-mono focus:outline-none focus:border-ac"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-2xs text-tx3 font-mono">
+                    日志频率
+                    <input
+                      type="number"
+                      min={1}
+                      value={remoteLogFreq}
+                      onChange={(e) => setRemoteLogFreq(clampNumber(e.target.value, 1, 10000000))}
+                      className="h-10 bg-bg border border-bd text-tx px-3 rounded-lg text-sm font-mono focus:outline-none focus:border-ac"
+                    />
+                  </label>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
                   <button
@@ -352,14 +394,24 @@ export default function TrainingCenterPage() {
                       ))}
                     </select>
                   </label>
-                  <button
-                    disabled={remoteTrainingPending || !selectedRemoteTaskName}
-                    onClick={endRemoteTraining}
-                    className="h-10 w-full px-4 rounded-lg text-sm font-semibold text-white bg-rd hover:bg-rd/90
-                      transition-all active:scale-[0.97] disabled:opacity-25 disabled:cursor-not-allowed"
-                  >
-                    结束任务
-                  </button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      disabled={remoteTrainingPending || !selectedRemoteTaskName}
+                      onClick={endRemoteTraining}
+                      className="h-10 w-full px-4 rounded-lg text-sm font-semibold text-white bg-rd hover:bg-rd/90
+                        transition-all active:scale-[0.97] disabled:opacity-25 disabled:cursor-not-allowed"
+                    >
+                      结束任务
+                    </button>
+                    <button
+                      disabled={remoteTrainingPending || !selectedRemoteTaskName}
+                      onClick={queryRemoteTaskStatus}
+                      className="h-10 w-full px-4 rounded-lg text-sm font-semibold text-ac bg-ac/10 hover:bg-ac/20
+                        transition-all active:scale-[0.97] disabled:opacity-25 disabled:cursor-not-allowed"
+                    >
+                      查询状态
+                    </button>
+                  </div>
                 </div>
                 {remoteCreateMessage && (
                   <div className="mt-3 text-sm text-tx2">{remoteCreateMessage}</div>

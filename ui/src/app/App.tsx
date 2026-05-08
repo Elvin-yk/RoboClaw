@@ -55,7 +55,9 @@ function App() {
                         <Route path="collection" element={<Navigate to="/collection/control" replace />} />
                         <Route path="collection/control" element={<ControlPage />} />
                         <Route path="collection/publish" element={<TaskPublishPage />} />
-                        <Route path="training" element={<TrainingCenterPage />} />
+                        <Route path="training" element={<Navigate to="/training/local" replace />} />
+                        <Route path="training/local" element={<TrainingCenterPage />} />
+                        <Route path="training/remote" element={<TrainingCenterPage />} />
                         <Route path="data" element={<DataOverviewPage />} />
                         <Route path="data/qc" element={<DataQcPage />} />
                         <Route path="data/analysis" element={<DataAnalysisPage />} />

@@ -99,10 +99,11 @@ interface NavItem {
   badge?: number
 }
 
-type NavGroupId = 'collection' | 'data' | 'settings'
+type NavGroupId = 'collection' | 'training' | 'data' | 'settings'
 
 const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
   collection: '/collection',
+  training: '/training',
   data: '/data',
   settings: '/settings',
 }
@@ -110,6 +111,7 @@ const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
 function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
   return {
     collection: pathname.startsWith(NAV_GROUP_ROOTS.collection),
+    training: pathname.startsWith(NAV_GROUP_ROOTS.training),
     data: pathname.startsWith(NAV_GROUP_ROOTS.data),
     settings: pathname.startsWith(NAV_GROUP_ROOTS.settings),
   }
@@ -183,9 +185,7 @@ export default function AppShell() {
   }, [compactNav, location.pathname])
 
   const navItemsBeforeData: NavItem[] = []
-  const navItemsBeforeSettings: NavItem[] = [
-    { path: '/training', label: t('trainingCenter') },
-  ]
+  const navItemsBeforeSettings: NavItem[] = []
   const navItemsAfterSettings: NavItem[] = [
     { path: '/logs', label: t('logs') },
   ]
@@ -193,6 +193,10 @@ export default function AppShell() {
   const collectionChildren = [
     ...(canPublishTasks ? [{ path: '/collection/publish', label: t('collectionManageNav') }] : []),
     { path: '/collection/control', label: t('collectionControlNav') },
+  ]
+  const trainingChildren = [
+    { path: '/training/local', label: t('localTraining') },
+    { path: '/training/remote', label: t('remoteTraining') },
   ]
   const dataChildren = [
     { path: '/data', label: t('dataOverviewNav') },
@@ -215,6 +219,14 @@ export default function AppShell() {
       iconPath: '/collection',
       label: t('collectionCenterNav'),
       children: collectionChildren,
+    },
+    training: {
+      id: 'training',
+      rootPath: '/training',
+      collapsedPath: '/training/local',
+      iconPath: '/training',
+      label: t('trainingCenter'),
+      children: trainingChildren,
     },
     data: {
       id: 'data',
@@ -428,6 +440,8 @@ export default function AppShell() {
           {renderNavGroup(navGroups.collection)}
 
           {navItemsBeforeData.map(renderNavItem)}
+
+          {renderNavGroup(navGroups.training)}
 
           {renderNavGroup(navGroups.data)}
 
