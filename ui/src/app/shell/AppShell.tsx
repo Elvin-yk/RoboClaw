@@ -441,9 +441,9 @@ export default function AppShell() {
 
           {navItemsBeforeData.map(renderNavItem)}
 
-          {renderNavGroup(navGroups.training)}
-
           {renderNavGroup(navGroups.data)}
+
+          {renderNavGroup(navGroups.training)}
 
           {navItemsBeforeSettings.map(renderNavItem)}
 
