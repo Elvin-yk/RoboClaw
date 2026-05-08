@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { dataApi } from '@/domains/data/api/dataApi'
+import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
 import type { InspectSummary } from '@/domains/data/model/types'
 
 type InspectSource = 'remote' | 'local'
@@ -39,13 +40,12 @@ export const useDataInspectStore = create<InspectState>((set, get) => ({
     set({ loading: true, error: '' })
     try {
       const params = { source, dataset: dataset || undefined }
-      const [summary, details, episodes] = await Promise.all([
-        dataApi.inspectSummary(params),
+      const [details, episodes] = await Promise.all([
         dataApi.inspectDetails(params),
         dataApi.inspectEpisodes({ ...params, page: 1, page_size: 25 }),
       ])
       if (requestId !== inspectRequestId) return
-      set({ summary, details, episodes, episode: null, loading: false })
+      set({ summary: summaryFromDetails(details), details, episodes, episode: null, loading: false })
     } catch (error) {
       if (requestId !== inspectRequestId) return
       set({ error: error instanceof Error ? error.message : String(error), loading: false })
@@ -71,3 +71,10 @@ export const useDataInspectStore = create<InspectState>((set, get) => ({
     }
   },
 }))
+
+function summaryFromDetails(details: Record<string, unknown>): InspectSummary {
+  return {
+    dataset: textValue(details.dataset),
+    summary: asRecord(details.summary),
+  }
+}

@@ -6,8 +6,10 @@ import {
 import {
   asArray,
   asRecord,
+  clamp,
   formatSeconds,
   numberValue,
+  relativeTimeValues,
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
@@ -484,12 +486,6 @@ function resolvePlaybackDuration(
   return Math.max(summaryDuration, rowDuration, videoDuration, trajectoryDuration, 0)
 }
 
-function relativeTimeValues(timeValues: number[]): number[] {
-  if (!timeValues.length) return []
-  const start = timeValues[0]
-  return timeValues.map((time) => Math.max(time - start, 0))
-}
-
 function getClipStart(video: EpisodeVideo | null | undefined): number {
   return video?.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
 }
@@ -505,9 +501,4 @@ function getAbsoluteTime(video: EpisodeVideo | null | undefined, relativeTime: n
   const end = getClipEnd(video, mediaDuration)
   const maxRelative = end == null ? Number.POSITIVE_INFINITY : Math.max(end - start, 0)
   return start + clamp(relativeTime, 0, maxRelative)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min
-  return Math.min(Math.max(value, min), max)
 }

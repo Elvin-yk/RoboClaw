@@ -48,3 +48,13 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
   return `${seconds}s`
 }
 
+export function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min
+  return Math.min(Math.max(value, min), max)
+}
+
+export function relativeTimeValues(timeValues: number[]): number[] {
+  if (!timeValues.length) return []
+  const start = timeValues[0]
+  return timeValues.map((time) => Math.max(time - start, 0))
+}

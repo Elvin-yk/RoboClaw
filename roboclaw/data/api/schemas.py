@@ -44,11 +44,6 @@ class EvaluationRunRequest(BaseModel):
     threshold_overrides: dict[str, float] | None = None
 
 
-class AnnotationWorkspaceRequest(BaseModel):
-    package_id: str
-    episode_index: int = 0
-
-
 class AnnotationSaveRequest(BaseModel):
     package_id: str
     episode_index: int

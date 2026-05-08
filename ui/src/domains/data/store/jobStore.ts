@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { dataApi, jobEventsUrl } from '@/domains/data/api/dataApi'
-import type { DataJob } from '@/domains/data/model/types'
+import { isTerminalDataJobPhase, type DataJob } from '@/domains/data/model/types'
 
 interface JobState {
   jobs: Record<string, DataJob>
@@ -22,7 +22,7 @@ export const useDataJobStore = create<JobState>((set, get) => ({
     const handleJob = (event: MessageEvent<string>) => {
       const next = JSON.parse(event.data) as DataJob
       set((state) => ({ jobs: { ...state.jobs, [next.job_id]: next }, activeJobId: next.job_id }))
-      if (['completed', 'failed', 'cancelled'].includes(next.phase)) {
+      if (isTerminalDataJobPhase(next.phase)) {
         source.close()
         sources.delete(next.job_id)
       }

@@ -60,12 +60,20 @@ export interface DatasetPackage {
   updated_at: string
 }
 
+export type DataJobPhase = 'queued' | 'running' | 'completed' | 'failed' | 'cancelling' | 'cancelled'
+
+export const DATA_JOB_TERMINAL_PHASES: readonly DataJobPhase[] = ['completed', 'failed', 'cancelled']
+
+export function isTerminalDataJobPhase(phase: DataJobPhase): boolean {
+  return DATA_JOB_TERMINAL_PHASES.includes(phase)
+}
+
 export interface DataJob {
   job_id: string
   kind: string
   target_type: 'dataset' | 'package' | 'global'
   target_id: string
-  phase: 'queued' | 'running' | 'completed' | 'failed' | 'cancelling' | 'cancelled'
+  phase: DataJobPhase
   total: number
   processed: number
   message: string

@@ -3,7 +3,8 @@ import { useDataJobStore } from '@/domains/data/store/jobStore'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useDataLifecycleStore } from '@/domains/data/store/lifecycleStore'
 import { dataGateLabelKey, dataGateStatusLabelKey } from '@/domains/data/model/gates'
-import type { DataGate, Dataset } from '@/domains/data/model/types'
+import { isTerminalDataJobPhase, type DataGate, type Dataset } from '@/domains/data/model/types'
+import { textValue } from '@/domains/data/lib/analysisPayload'
 import { useI18n, type TranslationKey } from '@/i18n'
 
 type StageFilter = 'all' | Dataset['lifecycle_stage']
@@ -184,7 +185,7 @@ export default function DataQcPage() {
               </span>
               <span>{job.processed}/{job.total}</span>
               <span className={`data-badge data-badge--${job.phase}`}>{job.phase}</span>
-              {!['completed', 'failed', 'cancelled'].includes(job.phase) && (
+              {!isTerminalDataJobPhase(job.phase) && (
                 <button type="button" onClick={() => void cancel(job.job_id)}>{t('cancel')}</button>
               )}
             </div>
@@ -208,10 +209,6 @@ function Metric({ title, value }: { title: string; value: number }) {
 function diagnosis(dataset: Dataset): Record<string, unknown> {
   const gate = dataset.gates.diagnose
   return gate?.details || {}
-}
-
-function textValue(value: unknown): string {
-  return typeof value === 'string' ? value : value == null ? '' : String(value)
 }
 
 function diagnosisLabel(value: unknown, t: (key: TranslationKey) => string): string {

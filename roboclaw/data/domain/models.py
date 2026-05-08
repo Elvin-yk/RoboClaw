@@ -27,7 +27,6 @@ DataJobPhase = Literal[
     "cancelling",
     "cancelled",
 ]
-DataJobStatus = DataJobPhase
 
 
 DATASET_GATE_KEYS: tuple[DatasetGateKey, ...] = ("inspect", "diagnose", "clean", "review")

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { formatSeconds } from '@/domains/data/lib/analysisPayload'
+import { clamp, formatSeconds, relativeTimeValues } from '@/domains/data/lib/analysisPayload'
 
 export interface TrajectoryItem {
   jointName: string
@@ -270,12 +270,6 @@ function xAxisPositions(count: number): number[] {
   return Array.from({ length: count }, (_, index) => 6 + 92 * (index / (count - 1)))
 }
 
-function relativeTimeValues(timeValues: number[]): number[] {
-  if (!timeValues.length) return []
-  const start = timeValues[0]
-  return timeValues.map((time) => Math.max(time - start, 0))
-}
-
 function buildPolyline(
   values: Array<number | null>,
   relativeTimes: number[],
@@ -320,9 +314,4 @@ function formatAxisValue(value: number): string {
 
 function formatSeriesValue(value: number | null | undefined): string {
   return value == null || !Number.isFinite(value) ? '--' : value.toFixed(2)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min
-  return Math.min(Math.max(value, min), max)
 }

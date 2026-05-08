@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 
@@ -373,7 +374,7 @@ class DatasetPackageService:
         source_episode_index = int(source_episode.get("episode_index", package_episode_index) or 0)
         chunk_index = package_episode_index // output_chunks_size
         file_index = package_episode_index % output_chunks_size
-        for video_key in self._video_feature_keys(info):
+        for video_key in video_feature_keys(info):
             source_path = self._source_video_path(dataset_path, info, source_episode, video_key, source_episode_index)
             if not source_path.is_file():
                 continue
@@ -468,14 +469,6 @@ class DatasetPackageService:
             if value > 0:
                 return value
         return 1000
-
-    def _video_feature_keys(self, info: dict[str, Any]) -> list[str]:
-        features = info.get("features") or {}
-        return [
-            str(key)
-            for key, config in features.items()
-            if isinstance(config, dict) and config.get("dtype") == "video"
-        ]
 
     def _read_parquet_rows(self, root: Path) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
