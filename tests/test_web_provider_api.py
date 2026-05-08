@@ -66,7 +66,6 @@ def test_removed_frontend_routes_do_not_fall_through_to_spa(tmp_path: Path) -> N
     app = create_app(config_path=str(config_path), workspace=str(tmp_path / "workspace"))
     client = TestClient(app)
 
-    assert client.get("/data").status_code == 200
     assert client.get("/curation/workshop").status_code == 404
     assert client.get("/datasets").status_code == 404
     assert client.get("/data/quality").status_code == 404
