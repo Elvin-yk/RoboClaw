@@ -30,10 +30,15 @@ const POLICY_TYPES = [
 
 type TrainingMode = 'local' | 'remote'
 const REMOTE_TRAINING_START = '/api/train/remote/start'
+const REMOTE_WAITING_MESSAGE = '等待服务器响应'
 
 type RemoteTrainingTask = {
   taskName: string
   status: string
+}
+
+declare global {
+  var webterminal_url: string
 }
 
 export default function TrainingCenterPage() {
@@ -127,6 +132,7 @@ export default function TrainingCenterPage() {
       return
     }
     setRemoteTrainingPending(true)
+    setRemoteCreateMessage(REMOTE_WAITING_MESSAGE)
     try {
       const response = await postJson(REMOTE_TRAINING_START, {
         username,
@@ -159,6 +165,7 @@ export default function TrainingCenterPage() {
       return
     }
     setRemoteTrainingPending(true)
+    setRemoteCreateMessage(REMOTE_WAITING_MESSAGE)
     try {
       const response = await postJson(REMOTE_TRAINING_START, {
         username,
@@ -168,7 +175,7 @@ export default function TrainingCenterPage() {
       const nextTasks = Object.fromEntries((response.tasks || []).map(task => [task.taskName, task]))
       setRemoteTasks(nextTasks)
       if (!nextTasks[selectedRemoteTaskName]) setSelectedRemoteTaskName('')
-      setRemoteCreateMessage(response.message === 'delete task success' ? '删除任务成功' : '删除任务失败')
+      setRemoteCreateMessage(response.message || '')
     } finally {
       setRemoteTrainingPending(false)
     }
@@ -182,6 +189,7 @@ export default function TrainingCenterPage() {
       return
     }
     setRemoteTrainingPending(true)
+    setRemoteCreateMessage(REMOTE_WAITING_MESSAGE)
     try {
       const response = await postJson(REMOTE_TRAINING_START, {
         username,
@@ -190,7 +198,12 @@ export default function TrainingCenterPage() {
       }) as { message?: string; tasks?: RemoteTrainingTask[] }
       const nextTasks = Object.fromEntries((response.tasks || []).map(task => [task.taskName, task]))
       setRemoteTasks(nextTasks)
-      setRemoteCreateMessage(response.message || '查询完成')
+      const message = response.message || '查询完成'
+      const linkIndex = message.indexOf('Link: ')
+      if (linkIndex >= 0) {
+        globalThis.webterminal_url = message.slice(linkIndex + 'Link: '.length).trim()
+      }
+      setRemoteCreateMessage(message)
     } finally {
       setRemoteTrainingPending(false)
     }
@@ -203,6 +216,7 @@ export default function TrainingCenterPage() {
       return
     }
     setRemoteTrainingPending(true)
+    setRemoteCreateMessage(REMOTE_WAITING_MESSAGE)
     try {
       const response = await postJson(REMOTE_TRAINING_START, {
         username,
@@ -397,11 +411,13 @@ export default function TrainingCenterPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       disabled={remoteTrainingPending || !selectedRemoteTaskName}
-                      onClick={endRemoteTraining}
+                      onClick={() => {
+                        if (confirm('该操作将会停止当前的训练任务')) void endRemoteTraining()
+                      }}
                       className="h-10 w-full px-4 rounded-lg text-sm font-semibold text-white bg-rd hover:bg-rd/90
                         transition-all active:scale-[0.97] disabled:opacity-25 disabled:cursor-not-allowed"
                     >
-                      结束任务
+                      终止任务
                     </button>
                     <button
                       disabled={remoteTrainingPending || !selectedRemoteTaskName}
