@@ -90,10 +90,11 @@ interface NavItem {
   badge?: number
 }
 
-type NavGroupId = 'collection' | 'pipeline' | 'settings'
+type NavGroupId = 'collection' | 'training' | 'pipeline' | 'settings'
 
 const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
   collection: '/collection',
+  training: '/training',
   pipeline: '/curation',
   settings: '/settings',
 }
@@ -101,6 +102,7 @@ const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
 function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
   return {
     collection: pathname.startsWith(NAV_GROUP_ROOTS.collection),
+    training: pathname.startsWith(NAV_GROUP_ROOTS.training),
     pipeline: pathname.startsWith(NAV_GROUP_ROOTS.pipeline),
     settings: pathname.startsWith(NAV_GROUP_ROOTS.settings),
   }
@@ -171,9 +173,7 @@ export default function AppShell() {
   }, [compactNav, location.pathname])
 
   const navItemsBeforePipeline: NavItem[] = []
-  const navItemsBeforeSettings: NavItem[] = [
-    { path: '/training', label: t('trainingCenter') },
-  ]
+  const navItemsBeforeSettings: NavItem[] = []
   const navItemsAfterSettings: NavItem[] = [
     { path: '/logs', label: t('logs') },
   ]
@@ -182,6 +182,10 @@ export default function AppShell() {
     ...(canPublishTasks ? [{ path: '/collection/publish', label: '管理平台' }] : []),
     { path: '/collection/control', label: '控制平台' },
     { path: '/collection/recovery', label: '修复平台', badge: recoveryFaults.length || undefined },
+  ]
+  const trainingChildren = [
+    { path: '/training/local', label: t('localTraining') },
+    { path: '/training/remote', label: t('remoteTraining') },
   ]
   const pipelineChildren = [
     { path: '/curation/workshop', label: t('dataWorkshop') },
@@ -205,6 +209,14 @@ export default function AppShell() {
       iconPath: '/collection',
       label: '采集中心',
       children: collectionChildren,
+    },
+    training: {
+      id: 'training',
+      rootPath: '/training',
+      collapsedPath: '/training/local',
+      iconPath: '/training',
+      label: t('trainingCenter'),
+      children: trainingChildren,
     },
     pipeline: {
       id: 'pipeline',
@@ -421,6 +433,8 @@ export default function AppShell() {
           {renderNavGroup(navGroups.collection)}
 
           {navItemsBeforePipeline.map(renderNavItem)}
+
+          {renderNavGroup(navGroups.training)}
 
           {renderNavGroup(navGroups.pipeline)}
 
