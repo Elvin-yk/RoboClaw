@@ -311,17 +311,21 @@ class TestHardwareStatus:
 
 class TestDatasets:
     def test_list_datasets(self, client):
-        resp = client.get("/api/datasets")
+        resp = client.get("/api/data/library/datasets")
         assert resp.status_code == 200
         assert resp.json() == []
 
     def test_list_datasets_no_root_uses_default(self, client):
         """When no datasets root is configured, falls back to default path."""
-        resp = client.get("/api/datasets")
+        resp = client.get("/api/data/library/datasets")
         assert resp.status_code == 200
 
     def test_delete_nonexistent(self, client):
-        resp = client.delete("/api/datasets/nope")
+        resp = client.delete("/api/data/library/datasets/nope")
+        assert resp.status_code == 404
+
+    def test_old_dataset_api_is_not_registered(self, client):
+        resp = client.get("/api/datasets")
         assert resp.status_code == 404
 
 

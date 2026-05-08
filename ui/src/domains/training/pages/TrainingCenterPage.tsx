@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useDatasetsStore } from '@/domains/datasets/store/useDatasetsStore'
+import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useSessionStore } from '@/domains/session/store/useSessionStore'
 import { useTrainingStore } from '@/domains/training/store/useTrainingStore'
 import { useHubTransferStore } from '@/domains/hub/store/useHubTransferStore'
@@ -38,8 +38,8 @@ type RemoteTrainingTask = {
 
 export default function TrainingCenterPage() {
   const location = useLocation()
-  const datasets = useDatasetsStore((state) => state.datasets)
-  const loadDatasets = useDatasetsStore((state) => state.loadDatasets)
+  const datasets = useDataLibraryStore((state) => state.datasets)
+  const loadDataLibrary = useDataLibraryStore((state) => state.load)
   const session = useSessionStore((state) => state.session)
   const policies = useTrainingStore((state) => state.policies)
   const loadPolicies = useTrainingStore((state) => state.loadPolicies)
@@ -56,7 +56,7 @@ export default function TrainingCenterPage() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn)
   const user = useAuthStore((state) => state.user)
   const { t } = useI18n()
-  const runtimeDatasets = datasets.filter((dataset) => dataset.capabilities.can_train && dataset.runtime)
+  const runtimeDatasets = datasets.filter((dataset) => dataset.id.startsWith('local/'))
 
   const [trainDataset, setTrainDataset] = useState('')
   const [policyType, setPolicyType] = useState('act')
@@ -84,10 +84,10 @@ export default function TrainingCenterPage() {
   const remoteTaskCount = Object.keys(remoteTasks).length
 
   useEffect(() => {
-    void loadDatasets()
+    void loadDataLibrary()
     void loadPolicies()
     void restoreCurrentTrainJob()
-  }, [loadDatasets, loadPolicies, restoreCurrentTrainJob])
+  }, [loadDataLibrary, loadPolicies, restoreCurrentTrainJob])
 
   const promptPushPolicy = (value: string) => {
     const repoId = prompt(t('enterRepoId'))
@@ -434,7 +434,7 @@ export default function TrainingCenterPage() {
           >
             <option value="">{t('selectDataset')}</option>
             {runtimeDatasets.map(d => (
-              <option key={d.id} value={d.runtime!.name}>{d.label}</option>
+              <option key={d.id} value={d.id.slice('local/'.length)}>{d.label}</option>
             ))}
           </select>
           <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(86px,96px)] gap-3 max-[700px]:grid-cols-1">

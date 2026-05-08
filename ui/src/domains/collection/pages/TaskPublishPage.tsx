@@ -26,6 +26,7 @@ import {
 import { cn } from '@/shared/lib/cn'
 import { isValidPhone, maskPhone } from '@/shared/lib/phone'
 import { ActionButton } from '@/shared/ui'
+import { useI18n } from '@/i18n'
 
 function secondsToHourValue(seconds: number) {
   return (seconds / 3600).toFixed(1)
@@ -107,6 +108,7 @@ async function loadPublishData(progressDate: string | undefined) {
 }
 
 export default function TaskPublishPage() {
+  const { t } = useI18n()
   const { user, isLoggedIn, isChecking } = useAuthStore()
   const membershipRole = currentMembershipRole(user)
   const currentOrganizationId = user?.current_membership?.organization.id ?? ''
@@ -265,13 +267,13 @@ export default function TaskPublishPage() {
     try {
       const { phones, unresolved } = memberInputResolver.resolveRows(phoneRows)
       if (phones.length === 0) {
-        throw new Error('请输入手机号或昵称')
+        throw new Error(t('collectionPhoneRequired'))
       }
       if (unresolved.length > 0) {
-        throw new Error(`成员不在当前组织或未选择：${unresolved.join(', ')}`)
+        throw new Error(t('collectionMembersUnresolved', { members: unresolved.join(', ') }))
       }
       if (taskDialog.mode !== 'publish') {
-        throw new Error('请选择任务')
+        throw new Error(t('collectionTaskRequired'))
       }
       await Promise.all(
         phones.map((phone) => collectionApi.upsertAssignment({
@@ -299,7 +301,7 @@ export default function TaskPublishPage() {
     setError('')
     try {
       if (!isValidPhone(assignmentEditor.phone)) {
-        throw new Error('手机号格式不正确')
+        throw new Error(t('collectionInvalidPhone'))
       }
       await collectionApi.upsertAssignment({
         phone: assignmentEditor.phone.trim(),
@@ -360,12 +362,12 @@ export default function TaskPublishPage() {
     try {
       const phone = memberInputResolver.resolveInput(memberPhone)
       if (!phone) {
-        throw new Error('请输入有效手机号，或从当前组织成员里选择昵称')
+        throw new Error(t('collectionPhoneRequired'))
       }
       await evoApi.upsertOrganizationMember(phone, effectiveInviteRole)
       setMemberPhone('')
       setMemberRole('member')
-      setMemberNotice('邀请已发送')
+      setMemberNotice(t('collectionInviteSent'))
       await refreshOrganization()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -380,7 +382,7 @@ export default function TaskPublishPage() {
     setMemberNotice('')
     try {
       await evoApi.updateOrganizationMember(member.id, { status: 'disabled' })
-      setMemberNotice(member.status === 'invited' ? '邀请已取消' : '成员已移除')
+      setMemberNotice(member.status === 'invited' ? t('collectionInviteCancelled') : t('collectionMemberRemoved'))
       await refreshOrganization()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -507,7 +509,7 @@ export default function TaskPublishPage() {
     return (
       <>
         <label>
-          <span>任务描述</span>
+          <span>{t('collectionTaskDescription')}</span>
           <textarea
             className="collection-input collection-textarea"
             value={value.task_prompt}
@@ -525,11 +527,11 @@ export default function TaskPublishPage() {
             <input className="collection-input" type="number" min={1} value={value.fps} onChange={(event) => update({ ...value, fps: Number(event.target.value) })} />
           </label>
           <label>
-            <span>录制秒</span>
+            <span>{t('collectionRecordSeconds')}</span>
             <input className="collection-input" type="number" min={1} value={value.episode_time_s} onChange={(event) => update({ ...value, episode_time_s: Number(event.target.value) })} />
           </label>
           <label>
-            <span>Reset 秒</span>
+            <span>{t('collectionResetSeconds')}</span>
             <input className="collection-input" type="number" min={0} value={value.reset_time_s} onChange={(event) => update({ ...value, reset_time_s: Number(event.target.value) })} />
           </label>
           <label>
@@ -542,7 +544,7 @@ export default function TaskPublishPage() {
               checked={value.use_cameras ?? true}
               onChange={(event) => update({ ...value, use_cameras: event.target.checked })}
             />
-            <span>使用相机</span>
+            <span>{t('collectionUseCameras')}</span>
           </label>
         </div>
       </>
@@ -552,7 +554,7 @@ export default function TaskPublishPage() {
   function renderPhoneInputs() {
     return (
       <div className="collection-field">
-        <span>成员</span>
+        <span>{t('collectionMember')}</span>
         <div className="collection-phone-list">
           {phoneRows.map((phone, index) => (
             <div className="collection-phone-row" key={index}>
@@ -560,14 +562,14 @@ export default function TaskPublishPage() {
                 value={phone}
                 resolver={memberInputResolver}
                 onChange={(value) => updatePhoneRow(index, value)}
-                placeholder="输入手机号或昵称"
+                placeholder={t('collectionPhoneOrNicknamePlaceholder')}
                 required={index === 0}
               />
               <button
                 className="collection-icon-button"
                 type="button"
                 onClick={addPhoneRow}
-                aria-label="添加手机号"
+                aria-label={t('collectionAddPhone')}
               >
                 +
               </button>
@@ -576,7 +578,7 @@ export default function TaskPublishPage() {
                 type="button"
                 onClick={() => removePhoneRow(index)}
                 disabled={phoneRows.length === 1 && !phone}
-                aria-label="删除手机号"
+                aria-label={t('collectionRemovePhone')}
               >
                 -
               </button>
@@ -599,27 +601,27 @@ export default function TaskPublishPage() {
     <div className="collection-page">
       <div className="collection-toolbar collection-toolbar--actions-only">
         <div className="collection-toolbar__actions">
-          <div className="collection-mode-tabs" role="tablist" aria-label="采集管理视图">
+          <div className="collection-mode-tabs" role="tablist" aria-label={t('collectionManageViewLabel')}>
             <button
               type="button"
               className={view === 'publish' ? 'collection-mode-tab collection-mode-tab--active' : 'collection-mode-tab'}
               onClick={() => setView('publish')}
             >
-              任务发布
+              {t('collectionPublishView')}
             </button>
             <button
               type="button"
               className={view === 'progress' ? 'collection-mode-tab collection-mode-tab--active' : 'collection-mode-tab'}
               onClick={() => setView('progress')}
             >
-              任务进度
+              {t('collectionProgressView')}
             </button>
             <button
               type="button"
               className={view === 'members' ? 'collection-mode-tab collection-mode-tab--active' : 'collection-mode-tab'}
               onClick={() => setView('members')}
             >
-              成员管理
+              {t('collectionMembersView')}
             </button>
           </div>
         </div>
@@ -633,15 +635,15 @@ export default function TaskPublishPage() {
           <section className="collection-task-pool">
             <div className="collection-pool-head">
               <div>
-                <h3>任务池</h3>
-                <span>{activeTasks.length} 个任务</span>
+                <h3>{t('collectionTaskPool')}</h3>
+                <span>{t('collectionTaskCount', { count: activeTasks.length })}</span>
               </div>
               <button type="button" className="collection-link-button collection-link-button--primary" onClick={openCreateDialog}>
-                新建任务
+                {t('collectionNewTask')}
               </button>
             </div>
 
-            <div className="collection-task-bubbles" aria-label="任务池">
+            <div className="collection-task-bubbles" aria-label={t('collectionTaskPool')}>
               {activeTasks.map((task) => (
                 <button
                   key={task.id}
@@ -659,7 +661,7 @@ export default function TaskPublishPage() {
                 >
                   <div className="collection-task-bubble__top">
                     <strong>{task.task_prompt}</strong>
-                    <span>{taskPublishCount(task.id)} 次发布</span>
+                    <span>{t('collectionPublishCount', { count: taskPublishCount(task.id) })}</span>
                   </div>
                   <div className="collection-task-bubble__metrics">
                     <span>{task.num_episodes} eps · {task.fps} fps</span>
@@ -668,7 +670,7 @@ export default function TaskPublishPage() {
                 </button>
               ))}
               {activeTasks.length === 0 && (
-                <div className="collection-empty collection-empty--compact">先创建一个任务</div>
+                <div className="collection-empty collection-empty--compact">{t('collectionTaskPoolEmpty')}</div>
               )}
             </div>
           </section>
@@ -694,8 +696,8 @@ export default function TaskPublishPage() {
           onDragLeave={leaveTrashDrop}
           onDrop={dropTaskForDelete}
         >
-          <strong>{trashReady ? '松开删除' : '删除任务'}</strong>
-          <span>{trashReady ? '会先让你确认' : '拖到这里停留片刻'}</span>
+          <strong>{trashReady ? t('collectionDragDeleteReady') : t('collectionDeleteTask')}</strong>
+          <span>{trashReady ? t('collectionDragDeleteReadyHint') : t('collectionDragDeleteIdleHint')}</span>
         </section>
       )}
 
@@ -703,8 +705,8 @@ export default function TaskPublishPage() {
         <section className="collection-panel collection-panel--wide">
         <div className="collection-panel__head collection-panel__head--progress">
           <div>
-            <h3>{allDates ? '全部进度' : `${targetDate} 进度`}</h3>
-            <span>{progress.length} 个分配 · {formatHours(totalCompletedSeconds)} / {formatHours(totalTargetSeconds)}</span>
+            <h3>{allDates ? t('collectionAllProgress') : t('collectionDateProgress', { date: targetDate })}</h3>
+            <span>{t('collectionAssignmentCount', { count: progress.length })} · {formatHours(totalCompletedSeconds)} / {formatHours(totalTargetSeconds)}</span>
           </div>
           <div className="collection-progress-filters">
             <button
@@ -712,7 +714,7 @@ export default function TaskPublishPage() {
               className={allDates ? 'collection-link-button collection-link-button--primary' : 'collection-link-button'}
               onClick={() => setAllDates((value) => !value)}
             >
-              全部日期
+              {t('collectionAllDates')}
             </button>
             <input
               className="collection-input collection-input--date"
@@ -747,7 +749,7 @@ export default function TaskPublishPage() {
                       onClick={() => toggleAssignmentActive(item, !item.is_active)}
                     >
                       <span><i /></span>
-                      <strong>{item.is_active ? '分配' : '停止'}</strong>
+                      <strong>{item.is_active ? t('collectionAssigned') : t('collectionStopped')}</strong>
                     </button>
                     <div className="collection-progress-row__value">
                       {formatHours(item.completed_seconds)} / {formatHours(item.target_seconds)}
@@ -757,7 +759,7 @@ export default function TaskPublishPage() {
                       className="collection-link-button"
                       onClick={() => setAssignmentEditor(editing ? null : assignmentToEditState(item))}
                     >
-                      {editing ? '收起' : '编辑'}
+                      {editing ? t('collectionCollapse') : t('collectionEdit')}
                     </button>
                   </div>
                 </div>
@@ -765,7 +767,7 @@ export default function TaskPublishPage() {
                 {editing && assignmentEditor && (
                   <form className="collection-progress-edit" onSubmit={updateAssignment}>
                     <label>
-                      <span>任务</span>
+                      <span>{t('collectionTask')}</span>
                       <select
                         className="collection-input"
                         value={assignmentEditor.task_id}
@@ -779,11 +781,11 @@ export default function TaskPublishPage() {
                     </label>
                     <div className="collection-progress-edit__grid collection-progress-edit__grid--assignment">
                       <label>
-                        <span>日期</span>
+                        <span>{t('collectionDate')}</span>
                         <input className="collection-input" type="date" value={assignmentEditor.target_date} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, target_date: event.target.value })} required />
                       </label>
                       <label>
-                        <span>目标小时</span>
+                        <span>{t('collectionTargetHours')}</span>
                         <input className="collection-input" type="number" min={0.1} step={0.1} value={assignmentEditor.target_hours} onChange={(event) => setAssignmentEditor({ ...assignmentEditor, target_hours: event.target.value })} required />
                       </label>
                     </div>
@@ -793,16 +795,16 @@ export default function TaskPublishPage() {
                         className="collection-link-button"
                         onClick={() => setAssignmentEditor(null)}
                       >
-                        取消
+                        {t('cancel')}
                       </button>
-                      <ActionButton type="submit" disabled={loading || !assignmentEditor.task_id}>确定</ActionButton>
+                      <ActionButton type="submit" disabled={loading || !assignmentEditor.task_id}>{t('collectionConfirm')}</ActionButton>
                     </div>
                   </form>
                 )}
               </div>
             )
           })}
-          {progress.length === 0 && <div className="collection-empty collection-empty--compact">暂无分配</div>}
+          {progress.length === 0 && <div className="collection-empty collection-empty--compact">{t('collectionNoAssignments')}</div>}
         </div>
         </section>
       )}
@@ -811,28 +813,28 @@ export default function TaskPublishPage() {
         <section className="collection-panel collection-panel--wide collection-members-panel">
           <div className="collection-members-hero">
             <div>
-              <span className="collection-members-hero__eyebrow">组织成员</span>
-              <h3>{organization?.name || '当前组织'}</h3>
-              <p>{visibleOrganizationMembers.length} 个成员</p>
+              <span className="collection-members-hero__eyebrow">{t('collectionOrgMembers')}</span>
+              <h3>{organization?.name || t('collectionCurrentOrg')}</h3>
+              <p>{t('collectionMemberCount', { count: visibleOrganizationMembers.length })}</p>
             </div>
             <span className={cn('collection-role-pill', `collection-role-pill--${membershipRole || 'member'}`)}>
-              当前角色 {membershipRoleLabel(membershipRole || 'member')}
+              {t('collectionCurrentRole', { role: membershipRoleLabel(membershipRole || 'member') })}
             </span>
           </div>
 
           <form className="collection-member-invite" onSubmit={inviteMember}>
             <div className="collection-field">
-              <span>成员</span>
+              <span>{t('collectionMember')}</span>
               <OrganizationMemberPicker
                 value={memberPhone}
                 resolver={memberInputResolver}
                 onChange={setMemberPhone}
-                placeholder="输入手机号或昵称"
+                placeholder={t('collectionPhoneOrNicknamePlaceholder')}
                 required
               />
             </div>
             <div className="collection-field">
-              <span>角色</span>
+              <span>{t('collectionRole')}</span>
               {canChooseInviteRole ? (
                 <select
                   className="collection-input"
@@ -856,7 +858,7 @@ export default function TaskPublishPage() {
               type="submit"
               disabled={loading || !canInviteMember}
             >
-              邀请成员
+              {t('collectionInviteMember')}
             </ActionButton>
           </form>
 
@@ -870,7 +872,7 @@ export default function TaskPublishPage() {
                       {(member.nickname || member.phone).slice(0, 1)}
                     </span>
                     <div>
-                      <strong>{member.nickname || '未设置昵称'}</strong>
+                      <strong>{member.nickname || t('collectionNicknameUnset')}</strong>
                       <span>{maskPhone(member.phone)}</span>
                     </div>
                   </div>
@@ -880,8 +882,8 @@ export default function TaskPublishPage() {
                         type="button"
                         className="collection-member-card__remove"
                         disabled={loading}
-                        title={member.status === 'invited' ? '取消邀请' : '移除成员'}
-                        aria-label={member.status === 'invited' ? '取消邀请' : '移除成员'}
+                        title={member.status === 'invited' ? t('collectionCancelInvite') : t('collectionRemoveMember')}
+                        aria-label={member.status === 'invited' ? t('collectionCancelInvite') : t('collectionRemoveMember')}
                         onClick={() => void removeMember(member)}
                       >
                         ×
@@ -897,8 +899,8 @@ export default function TaskPublishPage() {
                 </article>
               )
             })}
-            {!organization && <div className="collection-empty collection-empty--compact">正在读取组织成员</div>}
-            {organization && visibleOrganizationMembers.length === 0 && <div className="collection-empty collection-empty--compact">暂无成员</div>}
+            {!organization && <div className="collection-empty collection-empty--compact">{t('collectionMembersLoading')}</div>}
+            {organization && visibleOrganizationMembers.length === 0 && <div className="collection-empty collection-empty--compact">{t('collectionNoMembers')}</div>}
           </div>
         </section>
       )}
@@ -915,18 +917,18 @@ export default function TaskPublishPage() {
             <div className="collection-modal__head">
               <div>
                 <h3 id="collection-task-dialog-title">
-                  {taskDialog.mode === 'create' ? '创建新任务' : taskDialog.mode === 'edit' ? '编辑任务' : taskDialog.mode === 'publish' ? '发布任务' : '任务详情'}
+                  {taskDialog.mode === 'create' ? t('collectionCreateTask') : taskDialog.mode === 'edit' ? t('collectionEditTask') : taskDialog.mode === 'publish' ? t('collectionPublishTask') : t('collectionTaskDetails')}
                 </h3>
-                <span>{taskDialog.mode === 'create' ? '创建后自动进入任务池' : '任务池里的任务可以编辑参数，也可以直接发布'}</span>
+                <span>{taskDialog.mode === 'create' ? t('collectionCreateTaskHint') : t('collectionTaskHint')}</span>
               </div>
-              <button type="button" className="collection-link-button" onClick={closeTaskDialog}>关闭</button>
+              <button type="button" className="collection-link-button" onClick={closeTaskDialog}>{t('collectionClose')}</button>
             </div>
 
             {taskDialog.mode === 'create' && (
               <form className="collection-modal-form" onSubmit={createTask}>
                 {renderTaskFields(taskDialog.draft, (draft) => setTaskDialog({ ...taskDialog, draft }))}
                 <div className="collection-modal__actions">
-                  <ActionButton type="submit" disabled={loading}>创建</ActionButton>
+                  <ActionButton type="submit" disabled={loading}>{t('collectionCreate')}</ActionButton>
                 </div>
               </form>
             )}
@@ -936,12 +938,12 @@ export default function TaskPublishPage() {
                 <div className="collection-task-dialog-card">
                   <strong>{dialogTask.task_prompt}</strong>
                   <span>{dialogTask.num_episodes} eps · {dialogTask.fps} fps · {dialogTask.episode_time_s}s record · {dialogTask.reset_time_s}s reset</span>
-                  <span>{taskPublishCount(dialogTask.id)} 次发布</span>
+                  <span>{t('collectionPublishCount', { count: taskPublishCount(dialogTask.id) })}</span>
                   <small>Dataset prefix: {dialogTask.dataset_prefix}</small>
                 </div>
                 <div className="collection-modal__actions">
-                  <button type="button" className="collection-link-button" onClick={editDialogTask}>编辑</button>
-                  <ActionButton type="button" onClick={publishDialogTask}>发布</ActionButton>
+                  <button type="button" className="collection-link-button" onClick={editDialogTask}>{t('collectionEdit')}</button>
+                  <ActionButton type="button" onClick={publishDialogTask}>{t('collectionPublishTask')}</ActionButton>
                 </div>
               </div>
             )}
@@ -950,7 +952,7 @@ export default function TaskPublishPage() {
               <form className="collection-modal-form" onSubmit={updateTask}>
                 {renderTaskFields(taskDialog.draft, (draft) => setTaskDialog({ ...taskDialog, draft }))}
                 <div className="collection-modal__actions">
-                  <ActionButton type="submit" disabled={loading}>确定</ActionButton>
+                  <ActionButton type="submit" disabled={loading}>{t('collectionConfirm')}</ActionButton>
                 </div>
               </form>
             )}
@@ -960,22 +962,22 @@ export default function TaskPublishPage() {
                 <div className="collection-drop-target">
                   <strong>{dialogTask.task_prompt}</strong>
                   <span>{dialogTask.num_episodes} eps · {dialogTask.fps} fps · {dialogTask.episode_time_s}s</span>
-                  <span>{taskPublishCount(dialogTask.id)} 次发布</span>
+                  <span>{t('collectionPublishCount', { count: taskPublishCount(dialogTask.id) })}</span>
                 </div>
                 {renderPhoneInputs()}
                 <div className="collection-form-grid">
                   <label>
-                    <span>指定日期</span>
+                    <span>{t('collectionDate')}</span>
                     <input className="collection-input" type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} />
                   </label>
                   <label>
-                    <span>目标小时</span>
+                    <span>{t('collectionTargetHours')}</span>
                     <input className="collection-input" type="number" min={0.1} step={0.1} value={targetHours} onChange={(event) => setTargetHours(event.target.value)} />
                   </label>
                 </div>
                 <div className="collection-modal__actions">
-                  <button type="button" className="collection-link-button" onClick={() => setTaskDialog({ mode: 'details', taskId: taskDialog.taskId })}>返回</button>
-                  <ActionButton type="submit" disabled={loading || !canPublishToMembers}>发布</ActionButton>
+                  <button type="button" className="collection-link-button" onClick={() => setTaskDialog({ mode: 'details', taskId: taskDialog.taskId })}>{t('collectionBack')}</button>
+                  <ActionButton type="submit" disabled={loading || !canPublishToMembers}>{t('collectionPublishTask')}</ActionButton>
                 </div>
               </form>
             )}
@@ -994,17 +996,17 @@ export default function TaskPublishPage() {
           <section className="collection-modal collection-modal--narrow" role="dialog" aria-modal="true" aria-labelledby="collection-delete-dialog-title">
             <div className="collection-modal__head">
               <div>
-                <h3 id="collection-delete-dialog-title">删除任务</h3>
-                <span>确认后这个任务会从任务池删除</span>
+                <h3 id="collection-delete-dialog-title">{t('collectionDeleteTask')}</h3>
+                <span>{t('collectionDeleteTaskHint')}</span>
               </div>
-              <button type="button" className="collection-link-button" onClick={closeTaskDialog}>关闭</button>
+              <button type="button" className="collection-link-button" onClick={closeTaskDialog}>{t('collectionClose')}</button>
             </div>
             <div className="collection-task-dialog-card">
               <strong>{dialogTask.task_prompt}</strong>
               <span>{dialogTask.num_episodes} eps · {dialogTask.fps} fps · {dialogTask.episode_time_s}s</span>
             </div>
             <div className="collection-modal__actions">
-              <ActionButton type="button" variant="danger" disabled={loading} onClick={deleteTask}>确认删除</ActionButton>
+              <ActionButton type="button" variant="danger" disabled={loading} onClick={deleteTask}>{t('collectionConfirmDelete')}</ActionButton>
             </div>
           </section>
         </div>
