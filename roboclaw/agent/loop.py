@@ -19,9 +19,9 @@ from roboclaw.agent.skills import BUILTIN_SKILLS_DIR
 from roboclaw.agent.subagent import SubagentManager
 from roboclaw.agent.tools.app import AppTool
 from roboclaw.agent.tools.cron import CronTool
+from roboclaw.agent.tools.data import DataTool
 from roboclaw.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from roboclaw.agent.tools.message import MessageTool
-from roboclaw.agent.tools.pipeline import PipelineTool
 from roboclaw.agent.tools.registry import ToolRegistry
 from roboclaw.agent.tools.shell import ExecTool
 from roboclaw.agent.tools.spawn import SpawnTool
@@ -137,7 +137,12 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(AppTool(send_callback=self.bus.publish_outbound))
-        self.tools.register(PipelineTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(
+            DataTool(
+                send_callback=self.bus.publish_outbound,
+                data_service=getattr(self.embodied_service, "data", None),
+            )
+        )
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         if not self.restrict_to_workspace:
@@ -176,12 +181,12 @@ class AgentLoop:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron", "app", "pipeline"):
+        for name in ("message", "spawn", "cron", "app", "data"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "message":
                         tool.set_context(channel, chat_id, message_id)
-                    elif name in ("app", "pipeline"):
+                    elif name in ("app", "data"):
                         tool.set_context(channel, chat_id, message_id, metadata or {})
                     else:
                         tool.set_context(channel, chat_id)

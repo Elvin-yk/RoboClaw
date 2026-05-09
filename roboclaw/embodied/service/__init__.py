@@ -6,6 +6,7 @@ import json
 import threading
 from typing import Any
 
+from roboclaw.data.application import DataService
 from roboclaw.data.datasets import DatasetCatalog, datasets_root_from_manifest
 from roboclaw.embodied.board import Board
 from roboclaw.embodied.board.board import IDLE_STATE
@@ -59,6 +60,7 @@ class EmbodiedService:
         self.manifest = manifest or Manifest(board=self.board)
         self.manifest.ensure()
         self.datasets = DatasetCatalog(root_resolver=lambda: datasets_root_from_manifest(self.manifest))
+        self.data = DataService(root_resolver=lambda: datasets_root_from_manifest(self.manifest))
         self._lock = threading.Lock()
         self._file_lock = EmbodimentFileLock()
         self._embodiment_owner: str = ""

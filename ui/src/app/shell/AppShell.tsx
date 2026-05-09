@@ -2,7 +2,6 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useChatSocket } from '@/domains/chat/store/useChatSocket'
 import { useHardwareStore } from '@/domains/hardware/store/useHardwareStore'
-import { useRecoveryStore } from '@/domains/recovery/store/useRecoveryStore'
 import { useI18n } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 import ChatPanel from '@/domains/chat/components/ChatPanel'
@@ -43,31 +42,41 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M17 6h3v3" />
     </svg>
   ),
-  '/collection/recovery': (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-      <path d="M21 3v6h-6" />
-      <path d="M12 7v5l3 3" />
-    </svg>
-  ),
-  '/curation': (
+  '/data': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 11l3 3L22 4" />
       <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
     </svg>
   ),
-  '/curation/text-alignment': (
+  '/data/qc': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M8 6v12" />
+      <path d="M16 6v12" />
+      <path d="M5 18h14" />
+    </svg>
+  ),
+  '/data/analysis': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19V5" />
+      <path d="M4 19h16" />
+      <path d="M7 15l3-3 3 2 4-6" />
+      <circle cx="17" cy="8" r="1.5" />
+    </svg>
+  ),
+  '/data/annotation': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 6h16" />
       <path d="M4 12h10" />
       <path d="M4 18h14" />
     </svg>
   ),
-  '/curation/data-overview': (
+  '/data/manage': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 3h18v18H3z" />
-      <path d="M7 15l3-3 2 2 5-5" />
-      <path d="M7 7h.01" />
+      <path d="M12 3v18" />
+      <path d="M5 8h14" />
+      <path d="M5 16h14" />
+      <path d="M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
     </svg>
   ),
   '/settings': (
@@ -90,12 +99,12 @@ interface NavItem {
   badge?: number
 }
 
-type NavGroupId = 'collection' | 'training' | 'pipeline' | 'settings'
+type NavGroupId = 'collection' | 'training' | 'data' | 'settings'
 
 const NAV_GROUP_ROOTS: Record<NavGroupId, string> = {
   collection: '/collection',
   training: '/training',
-  pipeline: '/curation',
+  data: '/data',
   settings: '/settings',
 }
 
@@ -103,7 +112,7 @@ function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
   return {
     collection: pathname.startsWith(NAV_GROUP_ROOTS.collection),
     training: pathname.startsWith(NAV_GROUP_ROOTS.training),
-    pipeline: pathname.startsWith(NAV_GROUP_ROOTS.pipeline),
+    data: pathname.startsWith(NAV_GROUP_ROOTS.data),
     settings: pathname.startsWith(NAV_GROUP_ROOTS.settings),
   }
 }
@@ -111,6 +120,10 @@ function createExpandedGroups(pathname: string): Record<NavGroupId, boolean> {
 function activeNavGroupId(pathname: string): NavGroupId | null {
   return (Object.entries(NAV_GROUP_ROOTS) as Array<[NavGroupId, string]>)
     .find(([, rootPath]) => pathname.startsWith(rootPath))?.[0] ?? null
+}
+
+function isLeafNavActive(pathname: string, itemPath: string): boolean {
+  return pathname === itemPath
 }
 
 interface NavGroup {
@@ -126,7 +139,6 @@ export default function AppShell() {
   const location = useLocation()
   const { connect, disconnect, connected, messages } = useChatSocket()
   const fetchHardwareStatus = useHardwareStore((state) => state.fetchHardwareStatus)
-  const recoveryFaults = useRecoveryStore((state) => state.faults)
   const { t } = useI18n()
   const user = useAuthStore((state) => state.user)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -172,29 +184,27 @@ export default function AppShell() {
     ))
   }, [compactNav, location.pathname])
 
-  const navItemsBeforePipeline: NavItem[] = []
+  const navItemsBeforeData: NavItem[] = []
   const navItemsBeforeSettings: NavItem[] = []
   const navItemsAfterSettings: NavItem[] = [
     { path: '/logs', label: t('logs') },
   ]
   const canPublishTasks = canManageCollection(user)
   const collectionChildren = [
-    ...(canPublishTasks ? [{ path: '/collection/publish', label: '管理平台' }] : []),
-    { path: '/collection/control', label: '控制平台' },
-    { path: '/collection/recovery', label: '修复平台', badge: recoveryFaults.length || undefined },
+    ...(canPublishTasks ? [{ path: '/collection/publish', label: t('collectionManageNav') }] : []),
+    { path: '/collection/control', label: t('collectionControlNav') },
   ]
   const trainingChildren = [
     { path: '/training/local', label: t('localTraining') },
     { path: '/training/remote', label: t('remoteTraining') },
     { path: '/training/remote/terminal', label: '远程终端' },
   ]
-  const pipelineChildren = [
-    { path: '/curation/workshop', label: t('dataWorkshop') },
-    { path: '/curation/datasets', label: t('datasetReader') },
-    { path: '/curation/dataset-clean', label: t('datasetRepair') },
-    { path: '/curation/quality', label: t('qualityWorkbench') },
-    { path: '/curation/text-alignment', label: t('textAlignment') },
-    { path: '/curation/data-overview', label: t('dataOverview') },
+  const dataChildren = [
+    { path: '/data', label: t('dataOverviewNav') },
+    { path: '/data/qc', label: t('dataQcNav') },
+    { path: '/data/analysis', label: t('dataAnalysisNav') },
+    { path: '/data/annotation', label: t('dataAnnotationNav') },
+    { path: '/data/manage', label: t('dataManageNav') },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },
@@ -208,7 +218,7 @@ export default function AppShell() {
       rootPath: '/collection',
       collapsedPath: '/collection/control',
       iconPath: '/collection',
-      label: '采集中心',
+      label: t('collectionCenterNav'),
       children: collectionChildren,
     },
     training: {
@@ -219,13 +229,13 @@ export default function AppShell() {
       label: t('trainingCenter'),
       children: trainingChildren,
     },
-    pipeline: {
-      id: 'pipeline',
-      rootPath: '/curation',
-      collapsedPath: '/curation',
-      iconPath: '/curation',
-      label: t('pipelineNav'),
-      children: pipelineChildren,
+    data: {
+      id: 'data',
+      rootPath: '/data',
+      collapsedPath: '/data',
+      iconPath: '/data',
+      label: t('dataCenter'),
+      children: dataChildren,
     },
     settings: {
       id: 'settings',
@@ -290,9 +300,7 @@ export default function AppShell() {
   )
 
   const renderNavItem = (item: NavItem) => {
-    const active =
-      location.pathname === item.path
-      || location.pathname.startsWith(`${item.path}/`)
+    const active = isLeafNavActive(location.pathname, item.path)
     return (
       <Link
         key={item.path}
@@ -378,10 +386,7 @@ export default function AppShell() {
         {expanded && (
           <div className="app-sidebar__children">
             {group.children.map((child) => {
-              const activeChild = group.children
-                .filter((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`))
-                .sort((a, b) => b.path.length - a.path.length)[0]
-              const childActive = activeChild?.path === child.path
+              const childActive = isLeafNavActive(location.pathname, child.path)
               return (
                 <Link
                   key={child.path}
@@ -435,11 +440,11 @@ export default function AppShell() {
         <nav className="app-sidebar__nav">
           {renderNavGroup(navGroups.collection)}
 
-          {navItemsBeforePipeline.map(renderNavItem)}
+          {navItemsBeforeData.map(renderNavItem)}
+
+          {renderNavGroup(navGroups.data)}
 
           {renderNavGroup(navGroups.training)}
-
-          {renderNavGroup(navGroups.pipeline)}
 
           {navItemsBeforeSettings.map(renderNavItem)}
 
@@ -455,7 +460,7 @@ export default function AppShell() {
           <Outlet />
         </main>
 
-        <div className="chat-widget">
+        <div className={cn('chat-widget', chatWidgetVisible && 'chat-widget--open')}>
           {chatWidgetVisible ? (
             <ChatPanel variant="widget" onClose={() => setChatWidgetVisible(false)} />
           ) : (

@@ -3,15 +3,13 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
-import RecoveryCenterPage from '@/domains/recovery/pages/RecoveryCenterPage'
-import DatasetExplorerPage from '@/domains/datasets/explorer/pages/DatasetExplorerPage'
-import DatasetRepairPage from '@/domains/datasets/repair/pages/DatasetRepairPage'
-import DataWorkshopPage from '@/domains/data-workshop/pages/DataWorkshopPage'
+import DataQcPage from '@/domains/data/pages/DataQcPage'
+import DataAnalysisPage from '@/domains/data/pages/DataAnalysisPage'
+import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
+import DataOverviewPage from '@/domains/data/pages/DataOverviewPage'
+import DataManagePage from '@/domains/data/pages/DataManagePage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import WebTerminalPage from '@/domains/training/pages/WebTerminalPage'
-import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
-import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
-import DataOverviewPage from '@/domains/curation/data-overview/pages/DataOverviewPage'
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
 import HubSettingsPage from '@/domains/settings/pages/HubSettingsPage'
@@ -58,21 +56,15 @@ function App() {
                         <Route path="collection" element={<Navigate to="/collection/control" replace />} />
                         <Route path="collection/control" element={<ControlPage />} />
                         <Route path="collection/publish" element={<TaskPublishPage />} />
-                        <Route path="collection/recovery" element={<RecoveryCenterPage />} />
-                        <Route path="datasets" element={<Navigate to="/curation/datasets" replace />} />
-                        <Route path="datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
                         <Route path="training" element={<Navigate to="/training/local" replace />} />
                         <Route path="training/local" element={<TrainingCenterPage />} />
                         <Route path="training/remote" element={<TrainingCenterPage />} />
                         <Route path="training/remote/terminal" element={<WebTerminalPage />} />
-                        <Route path="curation" element={<Navigate to="/curation/workshop" replace />} />
-                        <Route path="curation/workshop" element={<DataWorkshopPage />} />
-                        <Route path="curation/datasets" element={<DatasetExplorerPage />} />
-                        <Route path="curation/datasets/explorer" element={<Navigate to="/curation/datasets" replace />} />
-                        <Route path="curation/dataset-clean" element={<DatasetRepairPage />} />
-                        <Route path="curation/quality" element={<QualityValidationPage />} />
-                        <Route path="curation/text-alignment" element={<TextAlignmentPage />} />
-                        <Route path="curation/data-overview" element={<DataOverviewPage />} />
+                        <Route path="data" element={<DataOverviewPage />} />
+                        <Route path="data/qc" element={<DataQcPage />} />
+                        <Route path="data/analysis" element={<DataAnalysisPage />} />
+                        <Route path="data/annotation" element={<DataAnnotationPage />} />
+                        <Route path="data/manage" element={<DataManagePage />} />
                         <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
                         <Route path="settings/hardware" element={<HardwareSettingsPage />} />
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />

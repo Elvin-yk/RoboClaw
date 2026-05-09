@@ -91,8 +91,157 @@
   width: 100%;
 }
 
+.control-device-check {
+  display: grid;
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid rgba(47, 111, 228, 0.10);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 24px 64px rgba(47, 111, 228, 0.10);
+  padding: 22px;
+}
+
+.control-device-check__idle {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
+.control-device-check__primary,
+.control-device-check__secondary {
+  min-height: 48px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ac);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 850;
+  padding: 0 24px;
+  box-shadow: 0 18px 34px rgba(47, 111, 228, 0.22);
+}
+
+.control-device-check__secondary {
+  min-height: 40px;
+  box-shadow: none;
+}
+
+.control-device-check__primary:disabled,
+.control-device-check__secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.control-device-check__empty,
+.control-device-check__healthy {
+  margin: 0;
+  color: rgba(96, 111, 130, 0.78);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.control-device-check__checked {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.control-device-check__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.control-device-check__summary {
+  color: var(--tx);
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.control-device-check__content {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(360px, 1.1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.control-device-faults {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.control-device-fault {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(47, 111, 228, 0.12);
+  border-radius: 18px;
+  background: rgba(247, 249, 252, 0.78);
+  padding: 16px;
+}
+
+.control-device-fault__meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-device-fault__meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tx);
+  font-size: 15px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-device-fault__meta span {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(47, 111, 228, 0.08);
+  color: var(--tx2);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-device-fault__title {
+  color: #be123c;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.control-device-fault p {
+  margin: 0;
+  color: rgba(75, 93, 112, 0.92);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.control-device-check__camera {
+  min-width: 0;
+}
+
 @media (max-width: 620px) {
   .control-hardware-summary {
+    flex-direction: column;
+  }
+
+  .control-device-check__content {
+    grid-template-columns: 1fr;
+  }
+
+  .control-device-check__toolbar {
+    align-items: stretch;
     flex-direction: column;
   }
 

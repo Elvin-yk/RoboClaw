@@ -139,7 +139,7 @@ def serialize_workspace_video(
     clip_start, clip_end = video_clip_bounds(episode_meta, video_key, duration_s)
     return {
         "path": relative_path,
-        "url": f"/api/curation/video/{quote(relative_path, safe='/')}?dataset={quote(dataset, safe='')}",
+        "url": f"/api/data/inspect/video/{quote(relative_path, safe='/')}?source=local&dataset={quote(dataset, safe='')}",
         "stream": stream_name_from_video_key(video_key, relative_path),
         "from_timestamp": clip_start,
         "to_timestamp": clip_end,

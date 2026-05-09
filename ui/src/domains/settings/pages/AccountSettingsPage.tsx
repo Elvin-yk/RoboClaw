@@ -43,6 +43,16 @@ function OrganizationExitIcon() {
     )
 }
 
+function LogoutIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+        </svg>
+    )
+}
+
 function ChevronDownIcon() {
     return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -650,6 +660,11 @@ export default function AccountSettingsPage() {
         }
     }
 
+    const handleLogout = () => {
+        logout()
+        navigate('/login', { replace: true })
+    }
+
     return (
         <SettingsPageFrame>
             <div className="max-w-xl mx-auto space-y-6">
@@ -783,6 +798,18 @@ export default function AccountSettingsPage() {
                             </button>
                         </div>
                     )}
+                    <div className="border-t border-[color:var(--bd)]/50">
+                        <button
+                            type="button"
+                            className="w-full flex items-center justify-between px-5 py-4 text-left transition hover:bg-[rgba(220,53,69,0.06)]"
+                            onClick={handleLogout}
+                        >
+                            <div className="flex items-center gap-3 text-[#dc3545]">
+                                <LogoutIcon />
+                                <span className="text-sm font-medium">{t('authLogout')}</span>
+                            </div>
+                        </button>
+                    </div>
                 </div>
             </div>
         </SettingsPageFrame>

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from roboclaw.http.runtime import WebRuntime
 
 import httpx
-from fastapi import Body, FastAPI
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
@@ -333,10 +333,23 @@ def create_app(
         from starlette.staticfiles import StaticFiles
         from starlette.responses import FileResponse
 
-        app.mount("/assets", StaticFiles(directory=str(ui_dist / "assets")), name="ui-assets")
+        assets_dir = ui_dist / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="ui-assets")
 
         @app.get("/{full_path:path}")
         async def _spa_fallback(full_path: str):
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="API route not found")
+            removed_routes = {
+                "curation",
+                "datasets",
+                "data/inspect",
+                "data/quality",
+                "data/overview",
+            }
+            if full_path in removed_routes or full_path.startswith("curation/"):
+                raise HTTPException(status_code=404, detail="Frontend route not found")
             file_path = ui_dist / full_path
             if file_path.is_file():
                 return FileResponse(str(file_path))

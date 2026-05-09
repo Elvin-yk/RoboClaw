@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collectionApi, type Assignment, type CollectionStatus } from '@/domains/collection/api/collectionApi'
 import { assignmentProgressPct, formatHours, todayIso } from '@/domains/collection/lib/metrics'
+import { DeviceConnectionCheckPanel } from '@/domains/control/components/DeviceConnectionCheckPanel'
 import { useHardwareStore, type HardwareStatus, type OperationCapability } from '@/domains/hardware/store/useHardwareStore'
 import { useSessionStore, type SessionState, type SessionStatus } from '@/domains/session/store/useSessionStore'
 import { useI18n } from '@/i18n'
@@ -559,6 +560,8 @@ export default function ControlPage() {
           onSkipReset={() => { void runCollectionAction(doSkipReset) }}
           onRetryPending={() => { void retryPendingFinish() }}
         />
+
+        <DeviceConnectionCheckPanel />
       </div>
     </div>
   )

@@ -38,21 +38,12 @@ APP_PAGES: list[dict[str, Any]] = [
         "state_sources": ["/api/hardware/status", "/api/session/status"],
         "actions": [
             _action("hardware.get_status", "读取硬件状态", "app", "describe_page"),
+            _action("hardware.check_connections", "检查设备连接状态", "doctor", "check"),
+            _action("dashboard.restart", "重启 Dashboard", "app", "describe_page"),
             _action("teleop.teleoperate", "启动遥操作", "teleop", "teleoperate"),
             _action("record.record", "采集数据集", "record", "record"),
             _action("replay.replay", "回放数据集 episode", "replay", "replay"),
             _action("infer.run_policy", "运行策略推理", "infer", "run_policy"),
-        ],
-    },
-    {
-        "id": "recovery",
-        "route": "/recovery",
-        "name": "恢复中心",
-        "description": "Hardware fault recovery, recheck guidance, and dashboard restart controls.",
-        "state_sources": ["/api/recovery/faults", "/api/recovery/guides"],
-        "actions": [
-            _action("recovery.recheck", "重新检测硬件", "app", "describe_page"),
-            _action("doctor.check", "检查 embodied 环境", "doctor", "check"),
         ],
     },
     {
@@ -69,93 +60,83 @@ APP_PAGES: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "curation_workshop",
-        "route": "/curation/workshop",
-        "name": "数据车间",
-        "description": "Dataset workshop control page for dirty, clean, and complete dataset package workflow state.",
-        "state_sources": ["/api/data-workshop/datasets", "/api/data-workshop/assemblies"],
-        "actions": [
-            _action("app.describe_page", "解释数据车间页面", "app", "describe_page"),
-        ],
-    },
-    {
-        "id": "curation_datasets",
-        "route": "/curation/datasets",
-        "name": "数据集读取",
-        "description": "Dataset discovery/import/preparation and episode preview for curation workflows.",
-        "state_sources": ["/api/curation/datasets", "/api/explorer/summary"],
-        "actions": [
-            _action("pipeline.get_current_page_data", "读取当前数据集读取页面数据", "pipeline", "get_current_page_data"),
-            _action("pipeline.list_datasets", "列出 Pipeline 数据集", "pipeline", "list_datasets"),
-            _action("pipeline.get_explorer_summary", "读取当前数据集摘要", "pipeline", "get_explorer_summary", ["dataset"]),
-            _action("pipeline.get_explorer_details", "读取当前数据集结构详情", "pipeline", "get_explorer_details", ["dataset"]),
-            _action("pipeline.get_explorer_episodes", "读取 episode 列表页", "pipeline", "get_explorer_episodes", ["dataset"]),
-            _action("pipeline.prepare_remote_dataset", "准备远程数据集到 Pipeline", "pipeline", "prepare_remote_dataset", ["dataset"]),
-            _action("pipeline.load_remote_dataset", "加载远程数据集并同步前端", "pipeline", "load_remote_dataset", ["dataset"]),
-            _action("pipeline.get_state", "读取当前数据集 Pipeline 状态", "pipeline", "get_state", ["dataset"]),
-        ],
-    },
-    {
-        "id": "curation_quality",
-        "route": "/curation/quality",
-        "name": "质量验证",
-        "description": "Dataset-aware quality validation with metadata, timing, action, visual, depth, and trajectory checks.",
-        "state_sources": [
-            "/api/curation/quality-defaults",
-            "/api/curation/quality-results",
-            "/api/curation/state",
-        ],
-        "actions": [
-            _action("pipeline.get_current_page_data", "读取当前质量验证页面数据", "pipeline", "get_current_page_data"),
-            _action("pipeline.get_quality_defaults", "读取数据集默认质量验证参数", "pipeline", "get_quality_defaults", ["dataset"]),
-            _action("pipeline.get_quality_results", "读取质量验证结果", "pipeline", "get_quality_results", ["dataset"]),
-            _action("pipeline.run_quality", "运行质量验证", "pipeline", "run_quality", ["dataset"]),
-            _action("pipeline.pause_quality", "暂停质量验证", "pipeline", "pause_quality", ["dataset"]),
-            _action("pipeline.resume_quality", "恢复质量验证", "pipeline", "resume_quality", ["dataset"]),
-        ],
-    },
-    {
-        "id": "curation_text_alignment",
-        "route": "/curation/text-alignment",
-        "name": "文本对齐",
-        "description": "Prototype discovery, annotation workspace, and semantic propagation for episode text alignment.",
-        "state_sources": [
-            "/api/curation/prototype-results",
-            "/api/curation/annotation-workspace",
-            "/api/curation/propagation-results",
-        ],
-        "actions": [
-            _action("pipeline.get_current_page_data", "读取当前文本对齐页面数据", "pipeline", "get_current_page_data"),
-            _action("pipeline.get_state", "读取 Pipeline 状态", "pipeline", "get_state", ["dataset"]),
-            _action("pipeline.get_alignment_overview", "读取对齐总览与 DTW 结果", "pipeline", "get_alignment_overview", ["dataset"]),
-            _action("pipeline.get_prototype_results", "读取原型发现结果", "pipeline", "get_prototype_results", ["dataset"]),
-            _action("pipeline.get_propagation_results", "读取标注传播结果", "pipeline", "get_propagation_results", ["dataset"]),
-            _action("pipeline.get_episode_workspace", "读取标注工作台 episode 数据", "pipeline", "get_episode_workspace", ["dataset", "episode_index"]),
-            _action("pipeline.run_prototype", "发现原型片段", "pipeline", "run_prototype", ["dataset"]),
-            _action("pipeline.run_propagation", "语义传播标注", "pipeline", "run_propagation", ["dataset", "source_episode_index"]),
-        ],
-    },
-    {
-        "id": "curation_data_overview",
-        "route": "/curation/data-overview",
+        "id": "data_overview",
+        "route": "/data",
         "name": "数据总览",
-        "description": "Quality, DTW, semantic alignment, episode video, and joint-angle overview for checked episodes.",
+        "description": "Dataset and DatasetPackage lifecycle counts, gates, recent objects, and evaluation summary.",
+        "state_sources": ["/api/data/overview"],
+        "actions": [
+            _action("data.get_current_page_data", "读取当前数据总览页面数据", "data", "get_current_page_data"),
+            _action("data.get_overview", "读取数据总览完整状态", "data", "get_overview"),
+        ],
+    },
+    {
+        "id": "data_qc",
+        "route": "/data/qc",
+        "name": "数据质检",
+        "description": "Dataset raw-to-clean lifecycle operations with inspect, diagnose, clean, and review gates.",
+        "state_sources": ["/api/data/library/datasets", "/api/data/jobs/{job_id}"],
+        "actions": [
+            _action("data.get_current_page_data", "读取当前数据质检页面数据", "data", "get_current_page_data"),
+            _action("data.run_diagnosis", "运行 Dataset 诊断", "data", "run_diagnosis", ["dataset_ids"]),
+            _action("data.run_clean", "运行 Dataset 质检", "data", "run_clean", ["dataset_ids"]),
+            _action("data.job_status", "读取 DataJob 状态", "data", "job_status", ["job_id"]),
+            _action("data.cancel_job", "取消 DataJob", "data", "cancel_job", ["job_id"]),
+        ],
+    },
+    {
+        "id": "data_analysis",
+        "route": "/data/analysis",
+        "name": "数据分析",
+        "description": "Direct local/path/remote inspect, episode visualization, and package-level data evaluation.",
         "state_sources": [
-            "/api/curation/alignment-overview",
-            "/api/curation/quality-results",
-            "/api/curation/annotation-workspace",
-            "/api/curation/propagation-results",
-            "/api/curation/prototype-results",
+            "/api/data/inspect/summary",
+            "/api/data/inspect/details",
+            "/api/data/inspect/episodes",
+            "/api/data/evaluation/defaults",
+            "/api/data/evaluation/results",
+            "/api/data/jobs/{job_id}",
         ],
         "actions": [
-            _action("pipeline.get_current_page_data", "读取当前数据总览页面数据", "pipeline", "get_current_page_data"),
-            _action("pipeline.get_data_overview", "读取数据总览完整状态", "pipeline", "get_data_overview", ["dataset"]),
-            _action("pipeline.get_alignment_overview", "读取数据总览结果", "pipeline", "get_alignment_overview", ["dataset"]),
-            _action("pipeline.get_prototype_results", "读取原型发现结果", "pipeline", "get_prototype_results", ["dataset"]),
-            _action("pipeline.get_propagation_results", "读取标注传播结果", "pipeline", "get_propagation_results", ["dataset"]),
-            _action("pipeline.get_quality_results", "读取质量结果", "pipeline", "get_quality_results", ["dataset"]),
-            _action("pipeline.get_episode_workspace", "读取 episode 视频与关节角度", "pipeline", "get_episode_workspace", ["dataset", "episode_index"]),
-            _action("pipeline.get_state", "读取 Pipeline 状态", "pipeline", "get_state", ["dataset"]),
+            _action("data.get_current_page_data", "读取当前数据分析页面数据", "data", "get_current_page_data"),
+            _action("data.get_inspect_summary", "读取数据摘要", "data", "get_inspect_summary", ["dataset"]),
+            _action("data.get_inspect_details", "读取数据结构详情", "data", "get_inspect_details", ["dataset"]),
+            _action("data.get_inspect_episodes", "读取 episode 列表页", "data", "get_inspect_episodes", ["dataset"]),
+            _action("data.get_evaluation_defaults", "读取 Package 默认评估参数", "data", "get_evaluation_defaults", ["package_id"]),
+            _action("data.get_evaluation_results", "读取 Package 评估结果", "data", "get_evaluation_results", ["package_id"]),
+            _action("data.run_evaluation", "运行 Package 数据评估", "data", "run_evaluation", ["package_id"]),
+        ],
+    },
+    {
+        "id": "data_annotation",
+        "route": "/data/annotation",
+        "name": "数据标注",
+        "description": "Package-level semantic annotation workspace, prototype discovery, and propagation.",
+        "state_sources": [
+            "/api/data/annotation/workspace",
+            "/api/data/jobs/{job_id}",
+        ],
+        "actions": [
+            _action("data.get_current_page_data", "读取当前数据标注页面数据", "data", "get_current_page_data"),
+            _action("data.get_annotation_workspace", "读取标注工作台 episode 数据", "data", "get_annotation_workspace", ["package_id", "episode_index"]),
+            _action("data.save_annotations", "保存语义标注", "data", "save_annotations", ["package_id", "episode_index"]),
+            _action("data.run_prototype", "发现原型片段", "data", "run_prototype", ["package_id"]),
+            _action("data.run_propagation", "语义传播标注", "data", "run_propagation", ["package_id", "source_episode_index"]),
+        ],
+    },
+    {
+        "id": "data_manage",
+        "route": "/data/manage",
+        "name": "数据管理",
+        "description": "Dataset import/delete, DatasetPackage materialization/delete, and real HuggingFace package upload.",
+        "state_sources": ["/api/data/library/datasets", "/api/data/packages", "/api/data/jobs/{job_id}"],
+        "actions": [
+            _action("data.get_current_page_data", "读取当前数据管理页面数据", "data", "get_current_page_data"),
+            _action("data.import_dataset", "导入远程 Dataset", "data", "import_dataset", ["dataset"]),
+            _action("data.list_datasets", "列出 Dataset", "data", "list_datasets"),
+            _action("data.list_packages", "列出 DatasetPackage", "data", "list_packages"),
+            _action("data.create_package", "创建 DatasetPackage", "data", "create_package", ["package_id", "dataset_ids"]),
+            _action("data.upload_package", "上传 DatasetPackage 到 HF", "data", "upload_package", ["package_id", "repo_id"]),
         ],
     },
     {
@@ -266,7 +247,7 @@ class AppTool(Tool):
                 },
                 "route": {
                     "type": "string",
-                    "description": "Route to resolve or navigate to, such as /curation/quality.",
+                    "description": "Route to resolve or navigate to, such as /data/analysis.",
                 },
             },
             "required": ["action"],
@@ -287,56 +268,53 @@ class AppTool(Tool):
             self._context_by_session[self._session_key(channel, chat_id)] = app_context
 
     async def execute(self, action: str, page: str = "", route: str = "") -> str:
-        try:
-            if action == "list_pages":
-                return _json({"pages": [_page_summary(item) for item in APP_PAGES]})
+        if action == "list_pages":
+            return _json({"pages": [_page_summary(item) for item in APP_PAGES]})
 
-            if action == "get_current_context":
-                context = self._current_context()
-                resolved = _resolve_page(page or route or str(context.get("route") or ""))
-                return _json({
-                    "context": context,
-                    "page": _page_payload(resolved) if resolved else None,
-                    "context_available": bool(context),
-                })
+        if action == "get_current_context":
+            context = self._current_context()
+            resolved = _resolve_page(page or route or str(context.get("route") or ""))
+            return _json({
+                "context": context,
+                "page": _page_payload(resolved) if resolved else None,
+                "context_available": bool(context),
+            })
 
-            if action == "describe_page":
-                resolved = self._resolve_requested_page(page, route)
-                if not resolved:
-                    return _json({"error": "page or route is required"})
-                return _json({"page": _page_payload(resolved)})
+        if action == "describe_page":
+            resolved = self._resolve_requested_page(page, route)
+            if not resolved:
+                return _json({"error": "page or route is required"})
+            return _json({"page": _page_payload(resolved)})
 
-            if action == "list_page_actions":
-                resolved = self._resolve_requested_page(page, route)
-                if not resolved:
-                    return _json({"error": "page or route is required"})
-                return _json({
-                    "page": _page_summary(resolved),
-                    "actions": deepcopy(resolved.get("actions", [])),
-                })
+        if action == "list_page_actions":
+            resolved = self._resolve_requested_page(page, route)
+            if not resolved:
+                return _json({"error": "page or route is required"})
+            return _json({
+                "page": _page_summary(resolved),
+                "actions": deepcopy(resolved.get("actions", [])),
+            })
 
-            if action == "resolve_route":
-                resolved = self._resolve_requested_page(page, route)
-                if not resolved:
-                    return _json({"error": "No matching page found"})
-                return _json({"page": _page_payload(resolved)})
+        if action == "resolve_route":
+            resolved = self._resolve_requested_page(page, route)
+            if not resolved:
+                return _json({"error": "No matching page found"})
+            return _json({"page": _page_payload(resolved)})
 
-            if action == "navigate":
-                resolved = self._resolve_requested_page(page, route)
-                target_route = str((resolved or {}).get("route") or route)
-                if not _is_safe_route(target_route):
-                    return _json({"error": f"Unsafe or unknown route: {target_route}"})
-                event_sent = await self._send_navigation_event(target_route, resolved)
-                return _json({
-                    "status": "navigation_requested" if event_sent else "navigation_resolved",
-                    "route": target_route,
-                    "page": _page_summary(resolved) if resolved else None,
-                    "event_sent": event_sent,
-                })
+        if action == "navigate":
+            resolved = self._resolve_requested_page(page, route)
+            target_route = str((resolved or {}).get("route") or route)
+            if not _is_safe_route(target_route):
+                return _json({"error": f"Unsafe or unknown route: {target_route}"})
+            event_sent = await self._send_navigation_event(target_route, resolved)
+            return _json({
+                "status": "navigation_requested" if event_sent else "navigation_resolved",
+                "route": target_route,
+                "page": _page_summary(resolved) if resolved else None,
+                "event_sent": event_sent,
+            })
 
-            return _json({"error": f"Unknown app action: {action}"})
-        except Exception as exc:
-            return _json({"error": str(exc)})
+        return _json({"error": f"Unknown app action: {action}"})
 
     def _current_context(self) -> dict[str, Any]:
         return deepcopy(self._context_by_session.get(self._session_key(self._channel, self._chat_id), {}))
@@ -405,13 +383,10 @@ def _normalize_route(value: str) -> str:
     if not clean:
         return ""
     if "://" in clean:
-        try:
-            from urllib.parse import urlparse
+        from urllib.parse import urlparse
 
-            parsed = urlparse(clean)
-            clean = parsed.path or "/"
-        except Exception:
-            return ""
+        parsed = urlparse(clean)
+        clean = parsed.path or "/"
     if "?" in clean:
         clean = clean.split("?", 1)[0]
     if "#" in clean:
