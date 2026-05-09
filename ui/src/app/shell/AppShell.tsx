@@ -186,6 +186,7 @@ export default function AppShell() {
   const trainingChildren = [
     { path: '/training/local', label: t('localTraining') },
     { path: '/training/remote', label: t('remoteTraining') },
+    { path: '/training/remote/terminal', label: '远程终端' },
   ]
   const pipelineChildren = [
     { path: '/curation/workshop', label: t('dataWorkshop') },
@@ -377,8 +378,10 @@ export default function AppShell() {
         {expanded && (
           <div className="app-sidebar__children">
             {group.children.map((child) => {
-              const childActive =
-                location.pathname === child.path || location.pathname.startsWith(`${child.path}/`)
+              const activeChild = group.children
+                .filter((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`))
+                .sort((a, b) => b.path.length - a.path.length)[0]
+              const childActive = activeChild?.path === child.path
               return (
                 <Link
                   key={child.path}

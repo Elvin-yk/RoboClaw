@@ -8,6 +8,7 @@ import DatasetExplorerPage from '@/domains/datasets/explorer/pages/DatasetExplor
 import DatasetRepairPage from '@/domains/datasets/repair/pages/DatasetRepairPage'
 import DataWorkshopPage from '@/domains/data-workshop/pages/DataWorkshopPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
+import WebTerminalPage from '@/domains/training/pages/WebTerminalPage'
 import QualityValidationPage from '@/domains/curation/quality/pages/QualityValidationPage'
 import TextAlignmentPage from '@/domains/curation/text-alignment/pages/TextAlignmentPage'
 import DataOverviewPage from '@/domains/curation/data-overview/pages/DataOverviewPage'
@@ -63,6 +64,7 @@ function App() {
                         <Route path="training" element={<Navigate to="/training/local" replace />} />
                         <Route path="training/local" element={<TrainingCenterPage />} />
                         <Route path="training/remote" element={<TrainingCenterPage />} />
+                        <Route path="training/remote/terminal" element={<WebTerminalPage />} />
                         <Route path="curation" element={<Navigate to="/curation/workshop" replace />} />
                         <Route path="curation/workshop" element={<DataWorkshopPage />} />
                         <Route path="curation/datasets" element={<DatasetExplorerPage />} />
