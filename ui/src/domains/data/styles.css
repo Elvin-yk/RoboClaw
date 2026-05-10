@@ -3251,6 +3251,11 @@
   color: #475467;
 }
 
+.data-manage-quality-step em.is-skipped {
+  background: #f2f4f7;
+  color: #475467;
+}
+
 .data-manage-quality-step em.is-running {
   background: #e0f2fe;
   color: #075985;
@@ -3644,6 +3649,11 @@
   .data-manage-status-filter-group .data-manage-filter-field + .data-manage-filter-field {
     border-top: 0;
     border-left: 0;
+    padding-left: 0;
+  }
+
+  .data-manage-status-filter-group .data-manage-filter-field + .data-manage-filter-field::before {
+    display: none;
   }
 
   .data-qc-action-strip,

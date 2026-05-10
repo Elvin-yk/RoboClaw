@@ -38,6 +38,8 @@ const MANAGE_SECTION_STORAGE_KEY = 'roboclaw:data-manage:sections'
 type ManageSectionKey = 'raw' | 'clean' | 'packages'
 type QualityLane = 'auto_clean' | 'manual_review'
 type ManageQualityStatus = 'pending' | 'running' | 'passed' | 'failed'
+type QualityStepStatusClass = ManageQualityStatus | 'skipped'
+type QualityRunStepView = DataQcRun['steps'][number]
 
 type SectionOpenState = Record<ManageSectionKey, boolean>
 type QualityStatusFilter = ManageQualityStatus | 'all'
@@ -90,6 +92,13 @@ const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
   failed: 'dataQualityStatusFailed',
   needs_review: 'dataQualityStatusNeedsReview',
   skipped: 'dataQualityStatusSkipped',
+}
+const QUALITY_STEP_LABELS: Record<string, TranslationKey> = {
+  empty_dataset_check: 'dataManageQualityStepEmptyDatasetCheck',
+  damage_diagnosis: 'dataManageQualityStepDamageDiagnosis',
+  repair_if_possible: 'dataManageQualityStepRepair',
+  repair_verify: 'dataManageQualityStepVerify',
+  manual_review_decision: 'dataManageQualityStepManualReview',
 }
 const MANAGE_QUALITY_STATUSES: ManageQualityStatus[] = ['pending', 'running', 'passed', 'failed']
 const DASHBOARD_QUALITY_STATUSES: ManageQualityStatus[] = ['pending', 'running', 'passed', 'failed']
@@ -1059,6 +1068,8 @@ function DatasetDrawer({
 function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
   const { t } = useI18n()
   const quality = buildDatasetQualityView(dataset)
+  const autoCleanFallbackSteps = autoCleanStepFallbacks(quality.autoCleanStatus, quality.autoCleanMessage)
+  const manualReviewFallbackSteps = manualReviewStepFallbacks(quality.manualReviewStatus, quality.manualReviewMessage)
   const [activeLane, setActiveLane] = useState<QualityLane | null>(null)
   const [loadingLane, setLoadingLane] = useState<QualityLane | null>(null)
   const [runs, setRuns] = useState<Partial<Record<QualityLane, DataQcRun>>>({})
@@ -1108,6 +1119,7 @@ function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
           loading={loadingLane === 'auto_clean'}
           error={runErrors.auto_clean || ''}
           message={quality.autoCleanMessage}
+          fallbackSteps={autoCleanFallbackSteps}
         />
       )}
       <button
@@ -1128,6 +1140,7 @@ function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
           loading={loadingLane === 'manual_review'}
           error={runErrors.manual_review || ''}
           message={quality.manualReviewMessage}
+          fallbackSteps={manualReviewFallbackSteps}
         />
       )}
     </div>
@@ -1140,55 +1153,78 @@ function QualityRunDetails({
   loading,
   error,
   message,
+  fallbackSteps,
 }: {
   lane: QualityLane
   run?: DataQcRun
   loading: boolean
   error: string
   message: string
+  fallbackSteps: QualityRunStepView[]
 }) {
   const { t } = useI18n()
+  const steps = run?.steps.length ? run.steps : fallbackSteps
   if (loading) {
     return <div className="data-manage-quality-detail">{t('dataManageQualityLoading')}</div>
   }
-  if (!run) {
+  if (!run && !steps.length) {
     return (
       <div className="data-manage-quality-detail">
-        <p>{error || message || t('dataManageQualityNoRun')}</p>
+        <p>{message || (error ? t('dataManageQualityRunUnavailable') : t('dataManageQualityNoRun'))}</p>
       </div>
     )
   }
   return (
     <div className="data-manage-quality-detail">
-      <dl>
-        <div>
-          <dt>{t('dataManageQualityRunId')}</dt>
-          <dd>{run.run_id}</dd>
-        </div>
-        <div>
-          <dt>{t('dataManageQualityRunStatus')}</dt>
-          <dd>{run.status}</dd>
-        </div>
-      </dl>
-      <strong>{t(lane === 'auto_clean' ? 'dataManageQualityAutoCleanSteps' : 'dataManageQualityManualReviewSteps')}</strong>
-      <div className="data-manage-quality-steps">
-        {run.steps.map((step) => (
-          <div key={`${step.id}-${step.updated_at || step.message}`} className="data-manage-quality-step">
-            <div>
-              <span>{step.id}</span>
-              {step.message && <p>{step.message}</p>}
-            </div>
-            <em className={cn(`is-${qualityStatusClass(step.status)}`)}>{step.status}</em>
+      {run && (
+        <dl>
+          <div>
+            <dt>{t('dataManageQualityRunId')}</dt>
+            <dd>{run.run_id}</dd>
           </div>
-        ))}
-        {!run.steps.length && <p>{message || t('dataManageQualityNoSteps')}</p>}
-      </div>
-      {run.failure && (
+          <div>
+            <dt>{t('dataManageQualityRunStatus')}</dt>
+            <dd>{run.status}</dd>
+          </div>
+        </dl>
+      )}
+      <QualityStepList
+        title={t(lane === 'auto_clean' ? 'dataManageQualityAutoCleanSteps' : 'dataManageQualityManualReviewSteps')}
+        steps={steps}
+        emptyMessage={message || t('dataManageQualityNoSteps')}
+      />
+      {error && !run && (
+        <p className="data-manage-quality-detail__note">
+          {t('dataManageQualityRunUnavailable')}
+        </p>
+      )}
+      {run?.failure && (
         <p className="data-manage-quality-detail__note">
           {t('dataManageQualityFailure')}: {compactRecord(run.failure)}
         </p>
       )}
     </div>
+  )
+}
+
+function QualityStepList({ title, steps, emptyMessage }: { title: string; steps: QualityRunStepView[]; emptyMessage: string }) {
+  const { t } = useI18n()
+  return (
+    <>
+      <strong>{title}</strong>
+      <div className="data-manage-quality-steps">
+        {steps.map((step) => (
+          <div key={`${step.id}-${step.updated_at || step.message}`} className="data-manage-quality-step">
+            <div>
+              <span>{qualityStepLabel(step.id, t)}</span>
+              {step.message && <p>{step.message}</p>}
+            </div>
+            <em className={cn(`is-${qualityStepStatusClass(step.status)}`)}>{qualityStepStatusLabel(step.status, t)}</em>
+          </div>
+        ))}
+        {!steps.length && <p>{emptyMessage}</p>}
+      </div>
+    </>
   )
 }
 
@@ -1544,11 +1580,82 @@ function displayQualityStatusLabel(
   return qualityStatusLabel(displayQualityStatus(status, lane), t)
 }
 
-function qualityStatusClass(status: string): ManageQualityStatus {
-  if (status === 'passed' || status === 'completed') return 'passed'
-  if (status === 'running' || status === 'queued') return 'running'
-  if (status === 'failed' || status === 'rejected') return 'failed'
+function qualityStepStatusClass(status: string): QualityStepStatusClass {
+  const normalized = normalizedQualityStepStatus(status)
+  if (normalized === 'skipped') return 'skipped'
+  if (normalized === 'needs_review') return 'failed'
+  return normalized
+}
+
+function qualityStepStatusLabel(status: string, t: (key: TranslationKey) => string): string {
+  if (normalizedQualityStepStatus(status) === 'skipped') return t('dataGateStatusSkipped')
+  return qualityStatusLabel(normalizedQualityStepStatus(status), t)
+}
+
+function qualityStepLabel(stepId: string, t: (key: TranslationKey) => string): string {
+  const labelKey = QUALITY_STEP_LABELS[stepId]
+  return labelKey ? t(labelKey) : stepId
+}
+
+function normalizedQualityStepStatus(status: string): QualityStatus {
+  if (status === 'completed') return 'passed'
+  if (status === 'queued') return 'running'
+  if (status === 'rejected') return 'failed'
+  if (status === 'pending' || status === 'running' || status === 'passed' || status === 'failed') return status
+  if (status === 'needs_review' || status === 'skipped') return status
   return 'pending'
+}
+
+function autoCleanStepFallbacks(status: QualityStatus, message: string): QualityRunStepView[] {
+  const displayStatus = displayQualityStatus(status, 'auto_clean')
+  const failedStepId = displayStatus === 'failed' ? autoCleanFailureStepId(message) : ''
+  const alreadyClean = displayStatus === 'passed' && message.toLowerCase().includes('already clean')
+  return ['empty_dataset_check', 'damage_diagnosis', 'repair_if_possible', 'repair_verify'].map((stepId) => ({
+    id: stepId,
+    status: autoCleanFallbackStepStatus(stepId, displayStatus, failedStepId, alreadyClean),
+    message: autoCleanFallbackStepMessage(stepId, failedStepId, alreadyClean, message),
+    details: {},
+  }))
+}
+
+function manualReviewStepFallbacks(status: QualityStatus, message: string): QualityRunStepView[] {
+  return [{
+    id: 'manual_review_decision',
+    status: status === 'skipped' ? 'skipped' : displayQualityStatus(status, 'manual_review'),
+    message,
+    details: {},
+  }]
+}
+
+function autoCleanFallbackStepStatus(
+  stepId: string,
+  status: ManageQualityStatus,
+  failedStepId: string,
+  alreadyClean: boolean,
+): string {
+  if (status === 'pending') return 'pending'
+  if (status === 'running') return stepId === 'empty_dataset_check' ? 'running' : 'pending'
+  if (status === 'failed') {
+    if (stepId === failedStepId) return 'failed'
+    return autoCleanStepIndex(stepId) < autoCleanStepIndex(failedStepId) ? 'passed' : 'pending'
+  }
+  if (alreadyClean && (stepId === 'repair_if_possible' || stepId === 'repair_verify')) return 'skipped'
+  return 'passed'
+}
+
+function autoCleanFallbackStepMessage(stepId: string, failedStepId: string, alreadyClean: boolean, message: string): string {
+  if (stepId === failedStepId) return message
+  if (alreadyClean && stepId === 'repair_if_possible') return message
+  return ''
+}
+
+function autoCleanFailureStepId(message: string): string {
+  const stepIds = ['empty_dataset_check', 'damage_diagnosis', 'repair_if_possible', 'repair_verify']
+  return stepIds.find((stepId) => message.includes(stepId)) || 'repair_if_possible'
+}
+
+function autoCleanStepIndex(stepId: string): number {
+  return ['empty_dataset_check', 'damage_diagnosis', 'repair_if_possible', 'repair_verify'].indexOf(stepId)
 }
 
 function qualityLanePayload(dataset: Dataset, lane: QualityLane): Record<string, unknown> {
