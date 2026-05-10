@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ImportRequest(BaseModel):
@@ -13,9 +13,23 @@ class ImportRequest(BaseModel):
 
 class QcRunRequest(BaseModel):
     dataset_ids: list[str]
+    chain_id: str = "default"
     task: str = ""
     vcodec: str = "libx264"
     force: bool = True
+
+
+class ManualReviewSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    chain_id: str = "default"
+
+
+class ManualReviewDecisionRequest(BaseModel):
+    decision: str
+    message: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class GateUpdateRequest(BaseModel):

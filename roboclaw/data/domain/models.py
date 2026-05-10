@@ -86,6 +86,8 @@ class Dataset:
     stage: DatasetStage = "raw"
     stats: DatasetStats = field(default_factory=DatasetStats)
     gates: dict[str, Gate] = field(default_factory=dict)
+    qc: dict[str, Any] = field(default_factory=dict)
+    active_output: dict[str, Any] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +101,8 @@ class Dataset:
             "lifecycle_stage": self.stage,
             "stats": self.stats.to_dict(),
             "gates": {key: gate.to_dict() for key, gate in self.gates.items()},
+            "qc": self.qc,
+            "active_output": self.active_output,
             "updated_at": self.updated_at,
         }
 

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DatasetStatsPanel } from '@/domains/data/components/DatasetStatsPanel'
 import { EpisodePlaybackPanel } from '@/domains/data/components/EpisodePlaybackPanel'
+import { dataApi } from '@/domains/data/api/dataApi'
 import { useDataInspectStore } from '@/domains/data/store/inspectStore'
+import { useDataJobStore } from '@/domains/data/store/jobStore'
+import { useI18n } from '@/i18n'
 import {
   asArray,
   asRecord,
@@ -13,7 +16,10 @@ import {
 type SourceMode = 'remote' | 'local'
 
 export default function DataAnalysisPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { t } = useI18n()
+  const { attach } = useDataJobStore()
   const {
     source,
     dataset,
@@ -31,6 +37,8 @@ export default function DataAnalysisPage() {
   const [episodeIndex, setEpisodeIndex] = useState(0)
   const loadedDatasetFromQuery = useRef('')
   const datasetFromQuery = searchParams.get('dataset') || ''
+  const returnTo = searchParams.get('returnTo') || ''
+  const manageDataset = searchParams.get('manageDataset') || datasetFromQuery
 
   useEffect(() => {
     if (!datasetFromQuery || loadedDatasetFromQuery.current === datasetFromQuery) return
@@ -62,10 +70,27 @@ export default function DataAnalysisPage() {
     await loadEpisode(nextEpisodeIndex)
   }
 
+  async function runAutoClean() {
+    if (source !== 'local' || !dataset.trim()) return
+    const job = await dataApi.startAutoCleanRun({ dataset_ids: [dataset.trim()], chain_id: 'default', force: true })
+    attach(job)
+  }
+
+  function returnToManage() {
+    const targetDataset = manageDataset || dataset.trim()
+    const query = targetDataset ? `?dataset=${encodeURIComponent(targetDataset)}` : ''
+    navigate(`/data/manage${query}`)
+  }
+
   return (
     <section className="data-page data-analysis-page">
       <section className="data-panel">
         <div className="data-analysis-query">
+          {returnTo === 'data-manage' && (
+            <button type="button" className="data-analysis-return" onClick={returnToManage}>
+              {t('dataAnalysisBackToManage')}
+            </button>
+          )}
           <select value={source} onChange={(event) => setSource(event.target.value as SourceMode)}>
             <option value="local">本地数据</option>
             <option value="remote">HuggingFace 数据</option>
@@ -77,6 +102,9 @@ export default function DataAnalysisPage() {
           />
           <button type="button" onClick={() => void inspectThenLoad(0)} disabled={loading || !dataset.trim()}>
             检查
+          </button>
+          <button type="button" onClick={() => void runAutoClean()} disabled={loading || source !== 'local' || !dataset.trim()}>
+            自动清洗
           </button>
         </div>
         {error && <div className="data-alert">{error}</div>}

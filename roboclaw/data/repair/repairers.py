@@ -211,7 +211,11 @@ class DatasetRepairService:
             )
 
         if damage in IN_PLACE_DAMAGE_TYPES:
-            shutil.copytree(dataset_dir, output_dir)
+            shutil.copytree(
+                dataset_dir,
+                output_dir,
+                ignore=shutil.ignore_patterns(".status", ".data", ".workflow"),
+            )
             self._scrub_cleaned(output_dir)
 
         result = self._dispatch_repair(

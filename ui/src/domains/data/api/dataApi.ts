@@ -1,5 +1,5 @@
 import { api, deleteApi, patchJson, postJson } from '@/shared/api/client'
-import type { DataJob, DataOverview, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
+import type { DataJob, DataOverview, DataQcRun, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
 
 const DATA_API = '/api/data'
 
@@ -25,7 +25,13 @@ export const dataApi = {
   inspectEpisodes: (params: { dataset?: string; source: string; path?: string; page?: number; page_size?: number }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episodes${query(params)}`),
   inspectEpisode: (params: { dataset?: string; source: string; path?: string; episode_index?: number; preview?: boolean }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episode${query(params)}`),
   startDiagnosisRun: (body: { dataset_ids: string[] }) => postJson<DataJob>(`${DATA_API}/qc/diagnosis-runs`, body),
-  startCleanRun: (body: { dataset_ids: string[]; task?: string; vcodec?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/runs`, body),
+  startAutoCleanRun: (body: { dataset_ids: string[]; chain_id?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/auto-clean-runs`, body),
+  startManualReviewSession: (body: { dataset_id: string; chain_id?: string }) => postJson<Record<string, unknown>>(`${DATA_API}/qc/manual-review-sessions`, body),
+  qcRun: (params: { dataset_id: string; run_id: string }) => api<DataQcRun>(`${DATA_API}/qc/run-details${query(params)}`),
+  saveManualReviewDecision: (
+    sessionId: string,
+    body: { decision: 'passed' | 'rejected' | 'needs_rework'; message?: string; details?: Record<string, unknown> },
+  ) => patchJson<Record<string, unknown>>(`${DATA_API}/qc/manual-review-sessions/${encodeURIComponent(sessionId)}/decision`, body),
   updateDatasetGate: (datasetId: string, gateKey: string, body: { status: string; message?: string; details?: Record<string, unknown> }) => (
     patchJson<{ dataset: Dataset }>(`${DATA_API}/lifecycle/datasets/${encodePath(datasetId)}/gates/${gateKey}`, body)
   ),

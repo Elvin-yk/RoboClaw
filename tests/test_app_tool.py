@@ -63,14 +63,14 @@ def test_app_tool_navigation_emits_web_event() -> None:
     assert message.metadata["app_event"]["route"] == "/training"
 
 
-def test_app_tool_data_overview_exposes_episode_workspace_action() -> None:
+def test_app_tool_data_manage_exposes_lifecycle_actions() -> None:
     result = json.loads(
-        asyncio.run(AppTool().execute(action="list_page_actions", page="data_overview"))
+        asyncio.run(AppTool().execute(action="list_page_actions", page="data_manage"))
     )
 
     action_ids = {item["id"] for item in result["actions"]}
     assert "data.get_current_page_data" in action_ids
-    assert "data.get_overview" in action_ids
+    assert "data.create_package" in action_ids
 
 
 def test_app_tool_data_analysis_exposes_read_actions() -> None:

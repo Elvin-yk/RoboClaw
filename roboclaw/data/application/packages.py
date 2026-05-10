@@ -46,11 +46,11 @@ class DatasetPackageService:
             shutil.rmtree(package_path)
         if package_path.exists():
             raise FileExistsError(f"DatasetPackage '{package_id}' already exists")
-        dataset_paths = [self.repository.resolve_dataset_path(dataset_id) for dataset_id in dataset_ids]
-        for dataset_id, dataset_path in zip(dataset_ids, dataset_paths):
-            dataset = self.repository._dataset_from_path(dataset_id, dataset_path)
+        datasets = [self.repository.read_dataset(dataset_id) for dataset_id in dataset_ids]
+        for dataset in datasets:
             if dataset.stage != "clean":
-                raise ValueError(f"Dataset '{dataset_id}' must be clean before packaging")
+                raise ValueError(f"Dataset '{dataset.id}' must be clean before packaging")
+        dataset_paths = [self.repository.dataset_materialized_path(dataset_id) for dataset_id in dataset_ids]
 
         package_path.mkdir(parents=True)
         self._materialize_package(package_path, dataset_ids, dataset_paths)
@@ -153,7 +153,7 @@ class DatasetPackageService:
             repo_type="dataset",
             token=token or defaults.token,
             private=private,
-            ignore_patterns=[".data/*", "sources/*"],
+            ignore_patterns=[".status/*", ".data/*", "sources/*"],
             endpoint=defaults.endpoint,
             proxy=defaults.proxy,
         )
@@ -211,7 +211,7 @@ class DatasetPackageService:
         for dataset_id, dataset_path in zip(dataset_ids, dataset_paths):
             source_slug = self._safe_slug(dataset_id)
             source_root = package_path / "sources" / source_slug
-            shutil.copytree(dataset_path, source_root, ignore=shutil.ignore_patterns(".data", ".workflow"))
+            shutil.copytree(dataset_path, source_root, ignore=shutil.ignore_patterns(".status", ".data", ".workflow"))
             info = self._read_json(dataset_path / "meta" / "info.json")
             episodes = self._read_episode_meta(dataset_path, info)
             if not combined_info["robot_type"]:

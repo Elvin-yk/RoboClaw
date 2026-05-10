@@ -42,6 +42,8 @@ export interface Dataset {
   lifecycle_stage: DatasetStage
   stats: DatasetStats
   gates: Record<string, DataGate>
+  qc: Record<string, unknown>
+  active_output: Record<string, unknown>
   updated_at: string
 }
 
@@ -82,6 +84,27 @@ export interface DataJob {
   error: string | null
   result: Record<string, unknown> | null
   items: Array<Record<string, unknown>>
+}
+
+export interface DataQcRunStep {
+  id: string
+  status: string
+  message: string
+  details: Record<string, unknown>
+  updated_at?: string
+}
+
+export interface DataQcRun {
+  run_id: string
+  dataset_id: string
+  lane: string
+  chain_id: string
+  status: string
+  started_at: string
+  updated_at: string
+  steps: DataQcRunStep[]
+  output?: Record<string, unknown>
+  failure?: Record<string, unknown>
 }
 
 export interface DataOverview {

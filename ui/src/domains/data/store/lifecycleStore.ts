@@ -6,7 +6,7 @@ interface LifecycleState {
   running: boolean
   error: string
   startDiagnosis: (datasetIds: string[]) => Promise<void>
-  startClean: (datasetIds: string[]) => Promise<void>
+  startAutoClean: (datasetIds: string[], chainId?: string) => Promise<void>
   passReview: (datasetId: string) => Promise<void>
 }
 
@@ -17,8 +17,8 @@ export const useDataLifecycleStore = create<LifecycleState>(() => ({
     const job = await dataApi.startDiagnosisRun({ dataset_ids: datasetIds })
     useDataJobStore.getState().attach(job)
   },
-  startClean: async (datasetIds) => {
-    const job = await dataApi.startCleanRun({ dataset_ids: datasetIds, force: true })
+  startAutoClean: async (datasetIds, chainId = 'default') => {
+    const job = await dataApi.startAutoCleanRun({ dataset_ids: datasetIds, chain_id: chainId, force: true })
     useDataJobStore.getState().attach(job)
   },
   passReview: async (datasetId) => {

@@ -151,7 +151,7 @@ class DataTool(Tool):
             return _json({**job, "event_sent": event_sent})
         if action == "run_clean":
             ids = dataset_ids or ([dataset] if dataset else [])
-            job = self._data.clean.start_run(dataset_ids=ids, task="", vcodec="libx264", force=True)
+            job = self._data.clean.start_auto_clean_run(dataset_ids=ids, chain_id="default", force=True)
             event_sent = await self._send_app_event({"type": "data.job_started", "job_id": job["job_id"]})
             return _json({**job, "event_sent": event_sent})
         if action == "delete_dataset":
@@ -306,7 +306,7 @@ class DataTool(Tool):
                 "context": context,
                 "datasets": self._data.library.list_datasets(),
             }
-        if route.startswith("/data/manage"):
+        if route.startswith("/data/manage") or route == "/data":
             return {
                 "page": "data_manage",
                 "context": context,
@@ -319,8 +319,6 @@ class DataTool(Tool):
                 "context": context,
                 "workspace": self._data.annotation.workspace(package_id=package_id, episode_index=0),
             }
-        if route == "/data":
-            return {"page": "data_overview", "context": context, "overview": self._data.overview.overview()}
         return {"page": route or "data", "context": context, "overview": self._data.overview.overview()}
 
     async def _inspect_action(

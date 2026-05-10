@@ -60,17 +60,6 @@ APP_PAGES: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "data_overview",
-        "route": "/data",
-        "name": "数据总览",
-        "description": "Dataset and DatasetPackage lifecycle counts, gates, recent objects, and evaluation summary.",
-        "state_sources": ["/api/data/overview"],
-        "actions": [
-            _action("data.get_current_page_data", "读取当前数据总览页面数据", "data", "get_current_page_data"),
-            _action("data.get_overview", "读取数据总览完整状态", "data", "get_overview"),
-        ],
-    },
-    {
         "id": "data_qc",
         "route": "/data/qc",
         "name": "数据质检",

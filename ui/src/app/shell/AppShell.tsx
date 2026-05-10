@@ -199,11 +199,10 @@ export default function AppShell() {
     { path: '/training/remote', label: t('remoteTraining') },
   ]
   const dataChildren = [
-    { path: '/data', label: t('dataOverviewNav') },
+    { path: '/data/manage', label: t('dataManageNav') },
     { path: '/data/qc', label: t('dataQcNav') },
     { path: '/data/analysis', label: t('dataAnalysisNav') },
     { path: '/data/annotation', label: t('dataAnnotationNav') },
-    { path: '/data/manage', label: t('dataManageNav') },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },
@@ -231,7 +230,7 @@ export default function AppShell() {
     data: {
       id: 'data',
       rootPath: '/data',
-      collapsedPath: '/data',
+      collapsedPath: '/data/manage',
       iconPath: '/data',
       label: t('dataCenter'),
       children: dataChildren,

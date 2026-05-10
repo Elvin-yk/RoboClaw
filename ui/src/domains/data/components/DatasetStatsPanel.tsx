@@ -8,6 +8,7 @@ import {
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
+import { useI18n } from '@/i18n'
 
 interface CameraResolution {
   name: string
@@ -38,6 +39,7 @@ export function DatasetStatsPanel({
   details: AnyRecord
   episodeRows: AnyRecord[]
 }) {
+  const { t } = useI18n()
   const fps = numberValue(summary.fps) ?? 0
   const totalFrames = numberValue(summary.total_frames) ?? 0
   const totalEpisodes = numberValue(summary.total_episodes) ?? 0
@@ -48,17 +50,17 @@ export function DatasetStatsPanel({
   return (
     <>
       <div className="data-grid data-grid--four">
-        <Metric title="TOTAL FRAMES" value={formatCount(summary.total_frames)} />
-        <Metric title="TOTAL EPISODES" value={formatCount(summary.total_episodes)} />
+        <Metric title={t('dataAnalysisTotalFrames')} value={formatCount(summary.total_frames)} />
+        <Metric title={t('dataAnalysisTotalEpisodes')} value={formatCount(summary.total_episodes)} />
         <Metric title="FPS" value={formatCount(summary.fps)} />
-        <Metric title="TOTAL RECORDING TIME" value={formatDuration(recordingSeconds)} />
+        <Metric title={t('dataAnalysisTotalRecordingTime')} value={formatDuration(recordingSeconds)} />
       </div>
 
       <section className="data-panel data-analysis-stats">
         <div className="data-analysis-stats__section data-analysis-stats__section--cameras">
           <div className="data-analysis-stats__header">
-            <h2>Camera Resolutions</h2>
-            <span>{formatCount(cameraResolutions.length)} streams</span>
+            <h2>{t('dataAnalysisCameraResolutions')}</h2>
+            <span>{t('dataAnalysisStreams', { count: formatCount(cameraResolutions.length) })}</span>
           </div>
           <div className="data-analysis-camera-list">
             {cameraResolutions.map((camera) => (
@@ -73,17 +75,17 @@ export function DatasetStatsPanel({
 
         <div className="data-analysis-stats__section data-analysis-stats__section--lengths">
           <div className="data-analysis-stats__header">
-            <h2>Episode Lengths</h2>
-            <span>{formatCount(lengthStats?.durations.length ?? 0)} episodes</span>
+            <h2>{t('dataAnalysisEpisodeLengths')}</h2>
+            <span>{t('dataAnalysisEpisodes', { count: formatCount(lengthStats?.durations.length ?? 0) })}</span>
           </div>
           {lengthStats ? (
             <>
               <div className="data-analysis-length-summary">
-                <LengthCell label="SHORTEST" value={formatSeconds(lengthStats.shortest)} />
-                <LengthCell label="LONGEST" value={formatSeconds(lengthStats.longest)} />
-                <LengthCell label="MEAN" value={formatSeconds(lengthStats.mean)} />
-                <LengthCell label="MEDIAN" value={formatSeconds(lengthStats.median)} />
-                <LengthCell label="STD DEV" value={formatSeconds(lengthStats.stdDev)} />
+                <LengthCell label={t('dataAnalysisShortest')} value={formatSeconds(lengthStats.shortest)} />
+                <LengthCell label={t('dataAnalysisLongest')} value={formatSeconds(lengthStats.longest)} />
+                <LengthCell label={t('dataAnalysisMean')} value={formatSeconds(lengthStats.mean)} />
+                <LengthCell label={t('dataAnalysisMedian')} value={formatSeconds(lengthStats.median)} />
+                <LengthCell label={t('dataAnalysisStdDev')} value={formatSeconds(lengthStats.stdDev)} />
               </div>
               <EpisodeLengthHistogram durations={lengthStats.durations} />
             </>
@@ -115,12 +117,13 @@ function LengthCell({ label, value }: { label: string; value: string }) {
 }
 
 function EpisodeLengthHistogram({ durations }: { durations: number[] }) {
+  const { t } = useI18n()
   const bins = buildDurationBins(durations)
   const maxCount = Math.max(...bins.map((bin) => bin.count), 1)
 
   return (
     <div className="data-analysis-length-histogram">
-      <div className="data-analysis-length-histogram__plot" role="img" aria-label="Episode length histogram">
+      <div className="data-analysis-length-histogram__plot" role="img" aria-label={t('dataAnalysisEpisodeLengthHistogram')}>
         {bins.map((bin) => (
           <div
             key={bin.label}
@@ -220,25 +223,32 @@ function computeEpisodeLengthStats(
 }
 
 function buildDurationBins(durations: number[]): EpisodeLengthBin[] {
-  const finiteDurations = durations.filter((value) => Number.isFinite(value) && value >= 0)
+  const finiteDurations = durations
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b)
   if (!finiteDurations.length) return []
 
-  const minValue = Math.min(...finiteDurations)
-  const maxValue = Math.max(...finiteDurations)
+  const minValue = finiteDurations[0]
+  const maxValue = finiteDurations[finiteDurations.length - 1]
   if (minValue === maxValue) {
     return [{ label: compactSeconds(minValue), count: finiteDurations.length }]
   }
 
-  const binCount = Math.min(12, Math.max(4, Math.ceil(Math.sqrt(finiteDurations.length))))
-  const binSize = (maxValue - minValue) / binCount
+  const percentileStart = percentile(finiteDurations, 0.01)
+  const percentileEnd = percentile(finiteDurations, 0.99)
+  const targetBins = Math.max(10, Math.min(50, Math.ceil(Math.log2(finiteDurations.length) + 1)))
+  const binSize = niceBinSize(Math.max((percentileEnd - percentileStart) / targetBins, Number.EPSILON))
+  const firstBinStart = Math.floor(percentileStart / binSize) * binSize
+  const lastBinEnd = Math.ceil(percentileEnd / binSize) * binSize
+  const binCount = Math.max(1, Math.round((lastBinEnd - firstBinStart) / binSize))
   const bins = Array.from({ length: binCount }, (_, index) => {
-    const start = minValue + binSize * index
-    const end = index === binCount - 1 ? maxValue : start + binSize
+    const start = firstBinStart + binSize * index
+    const end = index === binCount - 1 ? lastBinEnd : start + binSize
     return { start, end, count: 0 }
   })
 
   for (const duration of finiteDurations) {
-    const index = Math.min(Math.floor((duration - minValue) / binSize), binCount - 1)
+    const index = Math.min(Math.max(Math.floor((duration - firstBinStart) / binSize), 0), binCount - 1)
     bins[index].count += 1
   }
 
@@ -246,6 +256,17 @@ function buildDurationBins(durations: number[]): EpisodeLengthBin[] {
     label: `${compactSeconds(bin.start)}-${compactSeconds(bin.end)}`,
     count: bin.count,
   }))
+}
+
+function percentile(values: number[], ratio: number): number {
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * ratio)))
+  return values[index]
+}
+
+function niceBinSize(rawSize: number): number {
+  const magnitude = 10 ** Math.floor(Math.log10(rawSize))
+  const step = [1, 2, 2.5, 5, 10].find((candidate) => candidate * magnitude >= rawSize) ?? 10
+  return step * magnitude
 }
 
 function compactSeconds(value: number): string {
