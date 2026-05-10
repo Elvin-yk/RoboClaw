@@ -107,6 +107,31 @@ export interface DataQcRun {
   failure?: Record<string, unknown>
 }
 
+export type DataReviewStatus = 'pending' | 'in_progress' | 'ready_for_batch' | 'applied'
+export type DataReviewDecision = 'passed' | 'failed'
+
+export interface DataReviewEpisodeDecision {
+  decision: DataReviewDecision
+  reason: string
+  note: string
+  reviewer_id: string
+  reviewed_at: string
+}
+
+export interface DataReviewState {
+  status: DataReviewStatus
+  episodes: Record<string, DataReviewEpisodeDecision>
+  draft_edits: Record<string, unknown>
+  updated_at: string
+}
+
+export interface DataReviewWorkspace {
+  dataset: Dataset
+  review: DataReviewState
+  episode_indices: number[]
+  total_episodes: number
+}
+
 export interface DataOverview {
   datasets: Dataset[]
   packages: DatasetPackage[]

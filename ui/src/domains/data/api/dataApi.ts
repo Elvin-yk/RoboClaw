@@ -1,5 +1,5 @@
 import { api, deleteApi, patchJson, postJson } from '@/shared/api/client'
-import type { DataJob, DataOverview, DataQcRun, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
+import type { DataJob, DataOverview, DataQcRun, DataReviewWorkspace, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
 
 const DATA_API = '/api/data'
 
@@ -32,6 +32,17 @@ export const dataApi = {
     sessionId: string,
     body: { decision: 'passed' | 'rejected' | 'needs_rework'; message?: string; details?: Record<string, unknown> },
   ) => patchJson<Record<string, unknown>>(`${DATA_API}/qc/manual-review-sessions/${encodeURIComponent(sessionId)}/decision`, body),
+  reviewWorkspace: (params: { dataset_id: string }) => api<DataReviewWorkspace>(`${DATA_API}/review/workspace${query(params)}`),
+  saveReviewEpisode: (
+    datasetId: string,
+    episodeIndex: number,
+    body: { decision: 'passed' | 'failed'; reason?: string; note?: string; reviewer_id?: string },
+  ) => patchJson<DataReviewWorkspace>(`${DATA_API}/review/datasets/${encodePath(datasetId)}/episodes/${episodeIndex}`, body),
+  saveReviewDraft: (
+    datasetId: string,
+    body: { draft_edits: Record<string, unknown>; reviewer_id?: string },
+  ) => patchJson<DataReviewWorkspace>(`${DATA_API}/review/datasets/${encodePath(datasetId)}/draft`, body),
+  startReviewBatchRun: (body: { dataset_ids: string[]; reviewer_id?: string }) => postJson<DataJob>(`${DATA_API}/review/batch-runs`, body),
   updateDatasetGate: (datasetId: string, gateKey: string, body: { status: string; message?: string; details?: Record<string, unknown> }) => (
     patchJson<{ dataset: Dataset }>(`${DATA_API}/lifecycle/datasets/${encodePath(datasetId)}/gates/${gateKey}`, body)
   ),

@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
-import DataQcPage from '@/domains/data/pages/DataQcPage'
 import DataAnalysisPage from '@/domains/data/pages/DataAnalysisPage'
 import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
 import DataManagePage from '@/domains/data/pages/DataManagePage'
@@ -58,7 +57,6 @@ function App() {
                         <Route path="training/local" element={<TrainingCenterPage />} />
                         <Route path="training/remote" element={<TrainingCenterPage />} />
                         <Route path="data" element={<Navigate to="/data/manage" replace />} />
-                        <Route path="data/qc" element={<DataQcPage />} />
                         <Route path="data/analysis" element={<DataAnalysisPage />} />
                         <Route path="data/annotation" element={<DataAnnotationPage />} />
                         <Route path="data/manage" element={<DataManagePage />} />

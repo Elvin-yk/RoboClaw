@@ -20,6 +20,9 @@ from .schemas import (
     PropagationRunRequest,
     PrototypeRunRequest,
     QcRunRequest,
+    ReviewBatchRunRequest,
+    ReviewDraftRequest,
+    ReviewEpisodeDecisionRequest,
 )
 
 
@@ -176,6 +179,58 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
                 status_code=404 if isinstance(exc, FileNotFoundError) else 400,
                 detail=str(exc),
             ) from exc
+
+    @app.get("/api/data/review/workspace")
+    async def data_review_workspace(dataset_id: str) -> dict[str, Any]:
+        try:
+            return service.review.workspace(dataset_id=dataset_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.patch("/api/data/review/datasets/{dataset_id:path}/episodes/{episode_index}")
+    async def data_review_episode(
+        dataset_id: str,
+        episode_index: int,
+        body: ReviewEpisodeDecisionRequest,
+    ) -> dict[str, Any]:
+        try:
+            return service.review.save_episode_decision(
+                dataset_id=dataset_id,
+                episode_index=episode_index,
+                decision=body.decision,
+                reason=body.reason,
+                note=body.note,
+                reviewer_id=body.reviewer_id,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.patch("/api/data/review/datasets/{dataset_id:path}/draft")
+    async def data_review_draft(dataset_id: str, body: ReviewDraftRequest) -> dict[str, Any]:
+        try:
+            return service.review.save_draft(
+                dataset_id=dataset_id,
+                draft_edits=body.draft_edits,
+                reviewer_id=body.reviewer_id,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/data/review/batch-runs")
+    async def data_review_batch_run(body: ReviewBatchRunRequest) -> dict[str, Any]:
+        try:
+            return service.review.start_batch_run(
+                dataset_ids=body.dataset_ids,
+                reviewer_id=body.reviewer_id,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.patch("/api/data/lifecycle/datasets/{dataset_id:path}/gates/{gate_key}")
     async def data_dataset_gate(dataset_id: str, gate_key: str, body: GateUpdateRequest) -> dict[str, Any]:

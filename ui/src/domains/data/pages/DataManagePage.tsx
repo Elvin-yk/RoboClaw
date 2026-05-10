@@ -11,6 +11,7 @@ import {
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
+  qcReviewStatus,
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
 import { isTerminalDataJobPhase, type DataGate, type DataJob, type DataQcRun, type Dataset, type DatasetPackage } from '@/domains/data/model/types'
@@ -19,6 +20,7 @@ import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useI18n } from '@/i18n'
 import type { TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
+import { useAuthStore } from '@/shared/lib/authStore'
 
 type DrawerTarget =
   | { type: 'dataset'; id: string }
@@ -107,6 +109,7 @@ export default function DataManagePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { t } = useI18n()
+  const user = useAuthStore((state) => state.user)
   const {
     datasets,
     packages,
@@ -195,6 +198,9 @@ export default function DataManagePage() {
   const rawFilteredIds = useMemo(() => rawDatasets.map((dataset) => dataset.id), [rawDatasets])
   const selectedRawIds = rawFilteredIds.filter((id) => selectedDatasetIdSet.has(id))
   const allFilteredRawSelected = rawFilteredIds.length > 0 && rawFilteredIds.every((id) => selectedDatasetIdSet.has(id))
+  const selectedReviewBatchIds = selectedDatasetIds.filter((id) => datasetsById.has(id))
+  const canApplyReviewBatch = selectedReviewBatchIds.length > 0
+    && selectedReviewBatchIds.every((id) => isReviewBatchReady(datasetsById.get(id)))
   const selectedCleanIds = selectedDatasetIds.filter((id) => (
     cleanDatasets.some((dataset) => dataset.id === id)
   ))
@@ -276,6 +282,15 @@ export default function DataManagePage() {
     setAutoCleanDialogJobId(job.job_id)
   }
 
+  async function startSelectedReviewBatch() {
+    if (!canApplyReviewBatch) return
+    const job = await dataApi.startReviewBatchRun({
+      dataset_ids: selectedReviewBatchIds,
+      reviewer_id: currentReviewerId(user),
+    })
+    attach(job)
+  }
+
   function toggleRawFilteredSelection() {
     setDatasetSelection(rawFilteredIds, !allFilteredRawSelected)
   }
@@ -296,6 +311,12 @@ export default function DataManagePage() {
     setDrawerTarget(null)
     const encodedDataset = encodeURIComponent(dataset.id)
     navigate(`/data/analysis?dataset=${encodedDataset}&returnTo=data-manage&manageDataset=${encodedDataset}`)
+  }
+
+  function openDatasetReview(dataset: Dataset) {
+    setDrawerTarget(null)
+    const encodedDataset = encodeURIComponent(dataset.id)
+    navigate(`/data/analysis?mode=review&dataset=${encodedDataset}&returnTo=data-manage&manageDataset=${encodedDataset}`)
   }
 
   function openPackageGate(packageItem: DatasetPackage, gateKey: string) {
@@ -364,14 +385,24 @@ export default function DataManagePage() {
           open={sectionOpen.raw}
           onToggle={toggleSection}
           actions={(
-            <button
-              type="button"
-              className={cn('data-manage-batch-clean-button', selectedRawIds.length > 0 && 'is-armed')}
-              onClick={() => void startSelectedAutoClean()}
-              disabled={selectedRawIds.length === 0}
-            >
-              {t('dataManageBatchAutoClean')}
-            </button>
+            <div className="data-manage-section__action-group">
+              <button
+                type="button"
+                className={cn('data-manage-review-batch-button', canApplyReviewBatch && 'is-armed')}
+                onClick={() => void startSelectedReviewBatch()}
+                disabled={!canApplyReviewBatch}
+              >
+                {t('dataManageApplyReviewBatch')}
+              </button>
+              <button
+                type="button"
+                className={cn('data-manage-batch-clean-button', selectedRawIds.length > 0 && 'is-armed')}
+                onClick={() => void startSelectedAutoClean()}
+                disabled={selectedRawIds.length === 0}
+              >
+                {t('dataManageBatchAutoClean')}
+              </button>
+            </div>
           )}
           filtersOpen={filterOpen.raw}
           onToggleFilters={toggleFilters}
@@ -617,6 +648,7 @@ export default function DataManagePage() {
             onClose={() => setDrawerTarget(null)}
             onDelete={() => setDeleteTarget({ type: 'dataset', id: drawerDataset.id })}
             onAnalyze={() => openDatasetAnalysis(drawerDataset)}
+            onReview={() => openDatasetReview(drawerDataset)}
             onResizeStart={startDrawerResize}
             style={drawerStyle}
           />
@@ -1018,6 +1050,7 @@ function DatasetDrawer({
   onClose,
   onDelete,
   onAnalyze,
+  onReview,
   onResizeStart,
   style,
 }: {
@@ -1025,6 +1058,7 @@ function DatasetDrawer({
   onClose: () => void
   onDelete: () => void
   onAnalyze: () => void
+  onReview: () => void
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void
   style: CSSProperties
 }) {
@@ -1056,7 +1090,7 @@ function DatasetDrawer({
         </div>
       </DrawerSection>
       <DrawerSection title={t('dataManageQualitySection')}>
-        <DatasetQualityPanel dataset={dataset} />
+        <DatasetQualityPanel dataset={dataset} onReview={onReview} />
       </DrawerSection>
       <DrawerDangerZone>
         <button type="button" className="data-manage-danger" onClick={onDelete}>{t('del')}</button>
@@ -1065,11 +1099,10 @@ function DatasetDrawer({
   )
 }
 
-function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
+function DatasetQualityPanel({ dataset, onReview }: { dataset: Dataset; onReview: () => void }) {
   const { t } = useI18n()
   const quality = buildDatasetQualityView(dataset)
   const autoCleanFallbackSteps = autoCleanStepFallbacks(quality.autoCleanStatus, quality.autoCleanMessage)
-  const manualReviewFallbackSteps = manualReviewStepFallbacks(quality.manualReviewStatus, quality.manualReviewMessage)
   const [activeLane, setActiveLane] = useState<QualityLane | null>(null)
   const [loadingLane, setLoadingLane] = useState<QualityLane | null>(null)
   const [runs, setRuns] = useState<Partial<Record<QualityLane, DataQcRun>>>({})
@@ -1110,7 +1143,6 @@ function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
         <strong className={cn(`is-${displayQualityStatus(quality.autoCleanStatus, 'auto_clean')}`)}>
           {displayQualityStatusLabel(quality.autoCleanStatus, 'auto_clean', t)}
         </strong>
-        {quality.autoCleanMessage && <p>{quality.autoCleanMessage}</p>}
       </button>
       {activeLane === 'auto_clean' && (
         <QualityRunDetails
@@ -1124,25 +1156,14 @@ function DatasetQualityPanel({ dataset }: { dataset: Dataset }) {
       )}
       <button
         type="button"
-        className={cn('data-manage-quality-row data-manage-quality-row--button', activeLane === 'manual_review' && 'is-active')}
-        onClick={() => void openLane('manual_review')}
+        className="data-manage-quality-row data-manage-quality-row--button"
+        onClick={onReview}
       >
         <span>{t('dataManageManualReviewStatus')}</span>
         <strong className={cn(`is-${displayQualityStatus(quality.manualReviewStatus, 'manual_review')}`)}>
           {displayQualityStatusLabel(quality.manualReviewStatus, 'manual_review', t)}
         </strong>
-        {quality.manualReviewMessage && <p>{quality.manualReviewMessage}</p>}
       </button>
-      {activeLane === 'manual_review' && (
-        <QualityRunDetails
-          lane="manual_review"
-          run={runs.manual_review}
-          loading={loadingLane === 'manual_review'}
-          error={runErrors.manual_review || ''}
-          message={quality.manualReviewMessage}
-          fallbackSteps={manualReviewFallbackSteps}
-        />
-      )}
     </div>
   )
 }
@@ -1163,14 +1184,16 @@ function QualityRunDetails({
   fallbackSteps: QualityRunStepView[]
 }) {
   const { t } = useI18n()
-  const steps = run?.steps.length ? run.steps : fallbackSteps
+  const steps = lane === 'auto_clean'
+    ? autoCleanOrderedSteps(run?.steps ?? [], fallbackSteps)
+    : (run?.steps.length ? run.steps : fallbackSteps)
   if (loading) {
     return <div className="data-manage-quality-detail">{t('dataManageQualityLoading')}</div>
   }
   if (!run && !steps.length) {
     return (
       <div className="data-manage-quality-detail">
-        <p>{message || (error ? t('dataManageQualityRunUnavailable') : t('dataManageQualityNoRun'))}</p>
+        <p>{lane === 'auto_clean' ? t('dataManageQualityNoRun') : (message || (error ? t('dataManageQualityRunUnavailable') : t('dataManageQualityNoRun')))}</p>
       </div>
     )
   }
@@ -1191,13 +1214,9 @@ function QualityRunDetails({
       <QualityStepList
         title={t(lane === 'auto_clean' ? 'dataManageQualityAutoCleanSteps' : 'dataManageQualityManualReviewSteps')}
         steps={steps}
-        emptyMessage={message || t('dataManageQualityNoSteps')}
+        emptyMessage={lane === 'auto_clean' ? t('dataManageQualityNoSteps') : (message || t('dataManageQualityNoSteps'))}
+        hideMessages={lane === 'auto_clean'}
       />
-      {error && !run && (
-        <p className="data-manage-quality-detail__note">
-          {t('dataManageQualityRunUnavailable')}
-        </p>
-      )}
       {run?.failure && (
         <p className="data-manage-quality-detail__note">
           {t('dataManageQualityFailure')}: {compactRecord(run.failure)}
@@ -1207,23 +1226,38 @@ function QualityRunDetails({
   )
 }
 
-function QualityStepList({ title, steps, emptyMessage }: { title: string; steps: QualityRunStepView[]; emptyMessage: string }) {
+function QualityStepList({
+  title,
+  steps,
+  emptyMessage,
+  hideMessages,
+}: {
+  title: string
+  steps: QualityRunStepView[]
+  emptyMessage: string
+  hideMessages?: boolean
+}) {
   const { t } = useI18n()
   return (
     <>
       <strong>{title}</strong>
-      <div className="data-manage-quality-steps">
-        {steps.map((step) => (
-          <div key={`${step.id}-${step.updated_at || step.message}`} className="data-manage-quality-step">
+      <ol className="data-manage-quality-steps">
+        {steps.map((step, index) => (
+          <li key={`${step.id}-${step.updated_at || step.message}`} className="data-manage-quality-step">
+            <span className="data-manage-quality-step__index" aria-hidden="true">{index + 1}</span>
             <div>
-              <span>{qualityStepLabel(step.id, t)}</span>
-              {step.message && <p>{step.message}</p>}
+              <span className="data-manage-quality-step__title">{qualityStepLabel(step.id, t)}</span>
+              {!hideMessages && qualityDisplayMessage(step.message) && <p>{qualityDisplayMessage(step.message)}</p>}
             </div>
             <em className={cn(`is-${qualityStepStatusClass(step.status)}`)}>{qualityStepStatusLabel(step.status, t)}</em>
-          </div>
+          </li>
         ))}
-        {!steps.length && <p>{emptyMessage}</p>}
-      </div>
+        {!steps.length && (
+          <li className="data-manage-quality-step data-manage-quality-step--empty">
+            <p>{emptyMessage}</p>
+          </li>
+        )}
+      </ol>
     </>
   )
 }
@@ -1566,6 +1600,14 @@ function isPackableDataset(dataset: Dataset): boolean {
   return quality.autoCleanStatus === 'passed' && quality.manualReviewStatus === 'passed'
 }
 
+function isReviewBatchReady(dataset: Dataset | undefined): boolean {
+  return Boolean(dataset && qcReviewStatus(dataset) === 'ready_for_batch')
+}
+
+function currentReviewerId(user: { id?: string; phone?: string; nickname?: string | null } | null): string {
+  return user?.id || user?.phone || user?.nickname || ''
+}
+
 function displayQualityStatus(status: QualityStatus, lane: QualityLane): ManageQualityStatus {
   if (status === 'passed' || status === 'running' || status === 'failed' || status === 'pending') return status
   if (status === 'needs_review') return lane === 'auto_clean' ? 'failed' : 'pending'
@@ -1597,6 +1639,10 @@ function qualityStepLabel(stepId: string, t: (key: TranslationKey) => string): s
   return labelKey ? t(labelKey) : stepId
 }
 
+function qualityDisplayMessage(message: string): string {
+  return message.trim() === 'Dataset is already clean' ? '' : message
+}
+
 function normalizedQualityStepStatus(status: string): QualityStatus {
   if (status === 'completed') return 'passed'
   if (status === 'queued') return 'running'
@@ -1618,13 +1664,14 @@ function autoCleanStepFallbacks(status: QualityStatus, message: string): Quality
   }))
 }
 
-function manualReviewStepFallbacks(status: QualityStatus, message: string): QualityRunStepView[] {
-  return [{
-    id: 'manual_review_decision',
-    status: status === 'skipped' ? 'skipped' : displayQualityStatus(status, 'manual_review'),
-    message,
-    details: {},
-  }]
+function autoCleanOrderedSteps(runSteps: QualityRunStepView[], fallbackSteps: QualityRunStepView[]): QualityRunStepView[] {
+  const runStepsById = new Map(runSteps.map((step) => [step.id, step]))
+  const fallbackStepsById = new Map(fallbackSteps.map((step) => [step.id, step]))
+  return ['empty_dataset_check', 'damage_diagnosis', 'repair_if_possible', 'repair_verify'].map((stepId) => (
+    runStepsById.get(stepId)
+    ?? fallbackStepsById.get(stepId)
+    ?? { id: stepId, status: 'pending', message: '', details: {} }
+  ))
 }
 
 function autoCleanFallbackStepStatus(

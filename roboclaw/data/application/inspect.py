@@ -138,7 +138,7 @@ class DataInspectService:
         else:
             if not dataset:
                 raise HTTPException(status_code=400, detail="Local video requests require dataset")
-            root = self.repository.resolve_dataset_path(dataset)
+            root = self.repository.dataset_materialized_path(dataset)
         video_path = self._resolve_child_path(root, relative_path)
         if not video_path.is_file():
             raise HTTPException(status_code=404, detail=f"Video file '{relative_path}' not found")
@@ -163,7 +163,7 @@ class DataInspectService:
         if resolved_source == "local":
             if not dataset or not dataset.strip():
                 raise HTTPException(status_code=400, detail="Local inspect requests require dataset")
-            dataset_path = self.repository.resolve_dataset_path(dataset.strip())
+            dataset_path = self.repository.dataset_materialized_path(dataset.strip())
             return resolved_source, dataset.strip(), dataset_path
         dataset_path = self._resolve_external_path(path or "")
         dataset_name = dataset.strip() if dataset and dataset.strip() else dataset_path.name

@@ -393,6 +393,98 @@ def test_manual_review_session_accepts_one_dataset_and_saves_decision(tmp_path: 
     assert detail["qc"]["lanes"]["manual_review"]["decision"]["decision"] == "rejected"
 
 
+def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/review", episodes=3, frames=30, with_data=True, task_text="old task")
+    client = _client(tmp_path)
+
+    workspace = client.get("/api/data/review/workspace", params={"dataset_id": "local/review"})
+    assert workspace.status_code == 200
+    assert workspace.json()["episode_indices"] == [0, 1, 2]
+    assert workspace.json()["review"]["status"] == "pending"
+
+    early_batch = client.post("/api/data/review/batch-runs", json={"dataset_ids": ["local/review"]})
+    assert early_batch.status_code == 400
+
+    first = client.patch(
+        "/api/data/review/datasets/local/review/episodes/0",
+        json={"decision": "passed", "reviewer_id": "user-1"},
+    )
+    assert first.status_code == 200
+    assert first.json()["review"]["status"] == "in_progress"
+
+    missing_reason = client.patch(
+        "/api/data/review/datasets/local/review/episodes/1",
+        json={"decision": "failed"},
+    )
+    assert missing_reason.status_code == 400
+
+    failed = client.patch(
+        "/api/data/review/datasets/local/review/episodes/1",
+        json={
+            "decision": "failed",
+            "reason": "video_abnormal",
+            "note": "blurred",
+            "reviewer_id": "user-1",
+        },
+    )
+    assert failed.status_code == 200
+    second = client.patch(
+        "/api/data/review/datasets/local/review/episodes/2",
+        json={"decision": "passed", "reviewer_id": "user-1"},
+    )
+    assert second.status_code == 200
+    assert second.json()["review"]["status"] == "ready_for_batch"
+
+    draft = client.patch(
+        "/api/data/review/datasets/local/review/draft",
+        json={"draft_edits": {"task_description": "updated task"}, "reviewer_id": "user-1"},
+    )
+    assert draft.status_code == 200
+    assert draft.json()["review"]["draft_edits"]["task_description"] == "updated task"
+
+    batch = client.post(
+        "/api/data/review/batch-runs",
+        json={"dataset_ids": ["local/review"], "reviewer_id": "user-1"},
+    )
+    assert batch.status_code == 200
+    job = _wait_job(client, batch.json()["job_id"])
+    assert job["phase"] == "completed"
+    result = job["result"]["datasets"][0]
+    assert result["removed_episode_indices"] == [1]
+
+    detail = client.get("/api/data/library/datasets/local/review").json()
+    assert detail["lifecycle_stage"] == "clean"
+    assert detail["gates"]["review"]["status"] == "passed"
+    assert detail["qc"]["review"]["status"] == "applied"
+    assert detail["active_output"]["kind"] == "artifact"
+
+    artifact_path = tmp_path / "local" / "review" / detail["active_output"]["relative_path"]
+    artifact_info = json.loads((artifact_path / "meta" / "info.json").read_text(encoding="utf-8"))
+    assert artifact_info["total_episodes"] == 2
+    assert artifact_info["total_frames"] == 20
+    assert artifact_info["task_description"] == "updated task"
+    artifact_episodes = [
+        json.loads(line)
+        for line in (artifact_path / "meta" / "episodes.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [entry["episode_index"] for entry in artifact_episodes] == [0, 1]
+    assert [entry["source_episode_index"] for entry in artifact_episodes] == [0, 2]
+
+    import pyarrow.parquet as pq
+
+    artifact_rows = []
+    for data_file in sorted((artifact_path / "data").rglob("*.parquet")):
+        artifact_rows.extend(pq.read_table(data_file).to_pylist())
+    assert sorted({row["episode_index"] for row in artifact_rows}) == [0, 1]
+    assert len(artifact_rows) == 20
+
+    original_info = json.loads((tmp_path / "local" / "review" / "meta" / "info.json").read_text(encoding="utf-8"))
+    original_rows = pq.read_table(tmp_path / "local" / "review" / "data" / "chunk-000" / "file-000.parquet").to_pylist()
+    assert original_info["total_episodes"] == 3
+    assert len(original_rows) == 30
+
+
 def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/a", with_data=True)
     _create_dataset(tmp_path, "local/b", with_data=True)
