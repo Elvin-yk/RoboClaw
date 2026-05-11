@@ -107,7 +107,7 @@ export interface DataQcRun {
   failure?: Record<string, unknown>
 }
 
-export type DataReviewStatus = 'pending' | 'in_progress' | 'ready_for_batch' | 'applied'
+export type DataReviewStatus = 'pending' | 'ready_for_batch' | 'applied'
 export type DataReviewDecision = 'passed' | 'failed'
 
 export interface DataReviewEpisodeDecision {

@@ -13,7 +13,7 @@ from roboclaw.data.infrastructure.state_store import utc_now_iso
 from .jobs import DataJobCoordinator, DataJobHandle
 from .packages import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 
-REVIEW_STATUSES = {"pending", "in_progress", "ready_for_batch", "applied"}
+REVIEW_STATUSES = {"pending", "ready_for_batch", "applied"}
 REVIEW_DECISIONS = {"passed", "failed"}
 
 
@@ -414,8 +414,6 @@ class DataReviewService:
         decisions = dict(review.get("episodes") or {})
         if episode_indices and all(str(index) in decisions for index in episode_indices):
             return "ready_for_batch"
-        if decisions or dict(review.get("draft_edits") or {}):
-            return "in_progress"
         status = str(review.get("status") or "pending")
         return status if status in REVIEW_STATUSES else "pending"
 

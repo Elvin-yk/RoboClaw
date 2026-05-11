@@ -72,9 +72,8 @@ function autoCleanStatus(
 function manualReviewStatus(laneStatus: QualityStatus, gateStatus: QualityStatus, reviewStatus: string): QualityStatus {
   if (reviewStatus === 'applied') return 'passed'
   if (reviewStatus === 'ready_for_batch') return 'needs_review'
-  if (reviewStatus === 'in_progress') return 'running'
-  if (laneStatus !== 'pending') return laneStatus
-  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'needs_review' || gateStatus === 'running') {
+  if (laneStatus === 'passed' || laneStatus === 'failed' || laneStatus === 'needs_review' || laneStatus === 'skipped') return laneStatus
+  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'needs_review') {
     return gateStatus
   }
   if (gateStatus === 'skipped') return 'skipped'
@@ -85,7 +84,7 @@ export function qcReviewStatus(dataset: Dataset): string {
   const qc = recordValue(dataset.qc)
   const review = recordValue(qc.review)
   const status = textValue(review.status).toLowerCase()
-  if (status === 'pending' || status === 'in_progress' || status === 'ready_for_batch' || status === 'applied') {
+  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
     return status
   }
   return ''

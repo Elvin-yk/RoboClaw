@@ -119,85 +119,6 @@ class DataCleanService:
             state = self.repository.state_store.set_dataset_stage(path, next_stage)
         return {"dataset": self.repository.read_dataset(dataset_id).to_dict(), "state": state}
 
-    def start_manual_review_session(
-        self,
-        *,
-        dataset_id: str,
-        chain_id: str = "default",
-    ) -> dict[str, Any]:
-        dataset_path = self.repository.resolve_dataset_path(dataset_id)
-        run = self._start_qc_run(
-            dataset_path,
-            dataset_id=dataset_id,
-            lane="manual_review",
-            chain_id=chain_id,
-        )
-        return {"run_id": run["run_id"], "session": run, "dataset": self.repository.read_dataset(dataset_id).to_dict()}
-
-    def save_manual_review_decision(
-        self,
-        *,
-        session_id: str,
-        decision: str,
-        message: str,
-        details: dict[str, Any],
-    ) -> dict[str, Any]:
-        if decision not in {"passed", "rejected", "needs_rework"}:
-            raise ValueError("decision must be passed, rejected, or needs_rework")
-        dataset_id, dataset_path = self._find_dataset_run(session_id)
-        run = self.repository.state_store.load_dataset_run(dataset_path, session_id)
-        gate_status = {
-            "passed": "passed",
-            "rejected": "failed",
-            "needs_rework": "needs_review",
-        }[decision]
-        stage = {
-            "passed": "clean",
-            "rejected": "excluded",
-            "needs_rework": "needs_review",
-        }[decision]
-        decision_payload = {
-            "decision": decision,
-            "message": message,
-            "details": details,
-            "decided_at": utc_now_iso(),
-        }
-        run["status"] = "completed"
-        run["decision"] = decision_payload
-        run["updated_at"] = utc_now_iso()
-        self.repository.state_store.write_dataset_run(dataset_path, run)
-        self.repository.state_store.append_dataset_event(
-            dataset_path,
-            {"type": "manual_review_decision", "run_id": session_id, **decision_payload},
-        )
-        self.repository.state_store.set_dataset_qc_lane(
-            dataset_path,
-            lane="manual_review",
-            payload={
-                "status": gate_status,
-                "chain_id": run["chain_id"],
-                "last_run_id": session_id,
-                "decision": decision_payload,
-            },
-        )
-        self.repository.state_store.set_gate(
-            dataset_path,
-            object_type="dataset",
-            key="review",
-            status=gate_status,
-            message=message or f"Manual review {decision}",
-            details=decision_payload,
-        )
-        if decision == "passed":
-            state = self.repository.state_store.load_dataset_state(dataset_path)
-            if state.get("active_output", {}).get("kind") != "artifact":
-                self.repository.state_store.set_dataset_active_output(
-                    dataset_path,
-                    {"kind": "source", "dataset_id": dataset_id},
-                )
-        self.repository.state_store.set_dataset_stage(dataset_path, stage)
-        return {"session": run, "dataset": self.repository.read_dataset(dataset_id).to_dict()}
-
     def get_qc_run(self, *, dataset_id: str, run_id: str) -> dict[str, Any]:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
         return json_ready(self.repository.state_store.load_dataset_run(dataset_path, run_id))
@@ -596,10 +517,3 @@ class DataCleanService:
             "failure": failure,
             "diagnosis": diagnosis_payload,
         }
-
-    def _find_dataset_run(self, run_id: str) -> tuple[str, Path]:
-        for dataset in self.repository.list_datasets():
-            dataset_path = self.repository.resolve_dataset_path(dataset.id)
-            if self.repository.state_store.run_path(dataset_path, run_id).is_file():
-                return dataset.id, dataset_path
-        raise FileNotFoundError(f"Manual review session '{run_id}' not found")

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DataAnalysisWorkspace } from '@/domains/data/components/DataAnalysisWorkspace'
-import { useDataInspectStore } from '@/domains/data/store/inspectStore'
+import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
 import { useI18n } from '@/i18n'
 
 type SourceMode = 'remote' | 'local'
@@ -19,40 +19,66 @@ export default function DataAnalysisPage() {
     episode,
     loading,
     error,
+    reset,
     setSource,
     setDataset,
     inspect,
     loadEpisode,
-  } = useDataInspectStore()
+  } = useDataInspectWorkspace()
   const [episodeIndex, setEpisodeIndex] = useState(0)
   const loadedDatasetFromQuery = useRef('')
+  const loadRequestRef = useRef(0)
   const datasetFromQuery = searchParams.get('dataset') || ''
   const returnTo = searchParams.get('returnTo') || ''
   const manageDataset = searchParams.get('manageDataset') || datasetFromQuery
   const qcDataset = searchParams.get('qcDataset') || datasetFromQuery
 
   useEffect(() => {
-    if (!datasetFromQuery || loadedDatasetFromQuery.current === datasetFromQuery) return
+    if (!datasetFromQuery) {
+      if (loadedDatasetFromQuery.current) {
+        loadedDatasetFromQuery.current = ''
+        loadRequestRef.current += 1
+        reset()
+        setEpisodeIndex(0)
+      }
+      return
+    }
+    if (loadedDatasetFromQuery.current === datasetFromQuery) return
     loadedDatasetFromQuery.current = datasetFromQuery
+    const requestId = ++loadRequestRef.current
     setSource('local')
     setDataset(datasetFromQuery)
     void (async () => {
       await inspect()
+      if (requestId !== loadRequestRef.current) return
       setEpisodeIndex(0)
       await loadEpisode(0)
     })()
-  }, [datasetFromQuery, inspect, loadEpisode, setDataset, setSource])
+  }, [datasetFromQuery, inspect, loadEpisode, reset, setDataset, setSource])
 
   async function inspectThenLoad(nextEpisodeIndex = 0) {
     if (!dataset.trim()) return
+    const requestId = ++loadRequestRef.current
     await inspect()
+    if (requestId !== loadRequestRef.current) return
     setEpisodeIndex(nextEpisodeIndex)
     await loadEpisode(nextEpisodeIndex)
   }
 
   async function loadSelectedEpisode(nextEpisodeIndex = episodeIndex) {
+    loadRequestRef.current += 1
     setEpisodeIndex(nextEpisodeIndex)
     await loadEpisode(nextEpisodeIndex)
+  }
+
+  function changeSource(nextSource: SourceMode) {
+    loadRequestRef.current += 1
+    setSource(nextSource)
+  }
+
+  function changeDataset(nextDataset: string) {
+    loadRequestRef.current += 1
+    setDataset(nextDataset)
   }
 
   function returnToManage() {
@@ -83,13 +109,13 @@ export default function DataAnalysisPage() {
 
       <section className="data-panel">
         <div className="data-analysis-query">
-          <select value={source} onChange={(event) => setSource(event.target.value as SourceMode)}>
+          <select value={source} onChange={(event) => changeSource(event.target.value as SourceMode)}>
             <option value="local">本地数据</option>
             <option value="remote">HuggingFace 数据</option>
           </select>
           <input
             value={dataset}
-            onChange={(event) => setDataset(event.target.value)}
+            onChange={(event) => changeDataset(event.target.value)}
             placeholder={source === 'remote' ? 'namespace/dataset' : 'local/name'}
           />
           <button type="button" onClick={() => void inspectThenLoad(0)} disabled={loading || !dataset.trim()}>

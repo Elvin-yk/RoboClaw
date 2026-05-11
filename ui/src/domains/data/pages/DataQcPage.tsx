@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
-import { DataAnalysisWorkspace } from '@/domains/data/components/DataAnalysisWorkspace'
+import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
 import { asRecord } from '@/domains/data/lib/analysisPayload'
 import {
   buildDatasetQualityView,
@@ -10,7 +10,7 @@ import {
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
 import type { DataReviewDecision, DataReviewStatus, DataReviewWorkspace, Dataset } from '@/domains/data/model/types'
-import { useDataInspectStore } from '@/domains/data/store/inspectStore'
+import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { useI18n, type TranslationKey } from '@/i18n'
@@ -31,16 +31,6 @@ interface QcDatasetRecord {
   failedCount: number
   totalEpisodes: number
   reviewerIds: string[]
-}
-
-interface QcSummary {
-  total: number
-  remainingEpisodes: number
-  pending: number
-  inProgress: number
-  readyForBatch: number
-  applied: number
-  blocked: number
 }
 
 interface QcSequenceSummary {
@@ -76,19 +66,13 @@ export default function DataQcPage() {
   const user = useAuthStore((state) => state.user)
   const { datasets, error, load } = useDataLibraryStore()
   const {
-    source,
-    dataset,
-    summary,
-    details,
-    episodes,
     episode,
     loading,
     error: inspectError,
     setSource,
     setDataset,
-    inspect,
     loadEpisode,
-  } = useDataInspectStore()
+  } = useDataInspectWorkspace()
   const [activeDatasetId, setActiveDatasetId] = useState(searchParams.get('dataset') || '')
   const [reviewWorkspace, setReviewWorkspace] = useState<DataReviewWorkspace | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -99,9 +83,11 @@ export default function DataQcPage() {
   const [failureReason, setFailureReason] = useState('')
   const [failureNote, setFailureNote] = useState('')
   const [draftTaskDescription, setDraftTaskDescription] = useState('')
-  const [analysisOpen, setAnalysisOpen] = useState(true)
+  const [episodeInspectionOpen, setEpisodeInspectionOpen] = useState(true)
   const [reviewActionsUnlocked, setReviewActionsUnlocked] = useState(false)
-  const analysisEndRef = useRef<HTMLDivElement | null>(null)
+  const inspectionEndRef = useRef<HTMLDivElement | null>(null)
+  const reviewLoadRequestRef = useRef(0)
+  const inspectionLoadRequestRef = useRef(0)
   const reviewerId = currentReviewerId(user)
   const reviewerLabel = currentReviewerLabel(user)
 
@@ -124,7 +110,6 @@ export default function DataQcPage() {
       : records
   ), [records, scopedDatasetIdSet, scopedDatasetIds.length])
   const reviewableRecords = useMemo(() => filteredRecords.filter(isReviewableRecord), [filteredRecords])
-  const qcSummary = useMemo(() => buildQcSummary(filteredRecords), [filteredRecords])
   const sequenceSummary = useMemo(() => buildSequenceSummary(filteredRecords, activeDatasetId), [activeDatasetId, filteredRecords])
   const activeRecord = filteredRecords.find((record) => record.id === activeDatasetId)
     ?? records.find((record) => record.id === activeDatasetId)
@@ -132,7 +117,6 @@ export default function DataQcPage() {
   const activeDataset = reviewWorkspace?.dataset
     ?? datasets.find((datasetItem) => datasetItem.id === activeDatasetId)
     ?? null
-  const summaryPayload = asRecord(summary?.summary)
 
   useEffect(() => {
     if (activeDatasetId || !filteredRecords.length) return
@@ -150,10 +134,10 @@ export default function DataQcPage() {
   }, [activeDatasetId, episodeIndex])
 
   useEffect(() => {
-    const target = analysisEndRef.current
-    if (!target || !analysisOpen || reviewActionsUnlocked) return
+    const target = inspectionEndRef.current
+    if (!target || !episodeInspectionOpen || reviewActionsUnlocked) return
     let sawReviewScroll = false
-    const unlockIfAnalysisEndReached = () => {
+    const unlockIfInspectionEndReached = () => {
       sawReviewScroll = true
       const rect = target.getBoundingClientRect()
       if (rect.top <= window.innerHeight && rect.bottom >= 0) {
@@ -170,12 +154,12 @@ export default function DataQcPage() {
       { threshold: 0.75 },
     )
     observer.observe(target)
-    window.addEventListener('scroll', unlockIfAnalysisEndReached, { passive: true })
+    window.addEventListener('scroll', unlockIfInspectionEndReached, { passive: true })
     return () => {
       observer.disconnect()
-      window.removeEventListener('scroll', unlockIfAnalysisEndReached)
+      window.removeEventListener('scroll', unlockIfInspectionEndReached)
     }
-  }, [analysisOpen, reviewActionsUnlocked, activeDatasetId, episodeIndex, reviewWorkspace?.dataset.id])
+  }, [episodeInspectionOpen, reviewActionsUnlocked, activeDatasetId, episodeIndex, reviewWorkspace?.dataset.id])
 
   function openDataset(record: QcDatasetRecord) {
     setActiveDatasetId(record.id)
@@ -186,6 +170,7 @@ export default function DataQcPage() {
   }
 
   async function loadReviewWorkspace(datasetId: string) {
+    const requestId = ++reviewLoadRequestRef.current
     setReviewLoading(true)
     setReviewError('')
     setFailureOpen(false)
@@ -194,25 +179,31 @@ export default function DataQcPage() {
     setReviewActionsUnlocked(false)
     try {
       const workspace = await dataApi.reviewWorkspace({ dataset_id: datasetId })
+      if (requestId !== reviewLoadRequestRef.current) return
       const nextEpisodeIndex = firstUnreviewedEpisodeIndex(workspace) ?? workspace.episode_indices[0] ?? 0
       setReviewWorkspace(workspace)
       setDraftTaskDescription(reviewTaskDescription(workspace))
       setEpisodeIndex(nextEpisodeIndex)
-      setSource('local')
-      setDataset(datasetId)
-      if (source !== 'local' || dataset !== datasetId || !Object.keys(summaryPayload).length) {
-        await inspect()
-      }
-      await loadEpisode(nextEpisodeIndex)
+      setReviewLoading(false)
+      void loadInspectionEpisode(datasetId, nextEpisodeIndex)
     } catch (error) {
+      if (requestId !== reviewLoadRequestRef.current) return
       setReviewWorkspace(null)
       setReviewError(error instanceof Error ? error.message : String(error))
-    } finally {
       setReviewLoading(false)
     }
   }
 
+  async function loadInspectionEpisode(datasetId: string, nextEpisodeIndex: number) {
+    const requestId = ++inspectionLoadRequestRef.current
+    setSource('local')
+    setDataset(datasetId)
+    if (requestId !== inspectionLoadRequestRef.current) return
+    await loadEpisode(nextEpisodeIndex)
+  }
+
   async function loadSelectedEpisode(nextEpisodeIndex: number) {
+    inspectionLoadRequestRef.current += 1
     setEpisodeIndex(nextEpisodeIndex)
     setFailureOpen(false)
     setFailureReason('')
@@ -290,19 +281,6 @@ export default function DataQcPage() {
       {error && <div className="data-alert">{error}</div>}
       {reviewError && <div className="data-alert">{reviewError}</div>}
 
-      <section className="data-qc-hero">
-        <div>
-          <span>{t('dataQcNav')}</span>
-          <h1>{t('dataQcWorkbenchTitle')}</h1>
-        </div>
-        <div className="data-qc-hero__metrics">
-          <Metric label={t('dataQcTotalDatasets')} value={qcSummary.total} />
-          <Metric label={t('dataQcRemainingEpisodes')} value={qcSummary.remainingEpisodes} />
-          <Metric label={t('dataQcReadyForBatchCount')} value={qcSummary.readyForBatch} />
-          <Metric label={t('dataQcAppliedCount')} value={qcSummary.applied} />
-        </div>
-      </section>
-
       <div className="data-qc-review-workspace">
         <section className="data-panel data-qc-review-list-panel">
           <ReviewSequenceSummary
@@ -366,30 +344,27 @@ export default function DataQcPage() {
                 </div>
               </section>
 
-              <section className="data-panel data-qc-analysis-toggle">
+              <section className="data-panel data-qc-inspection-toggle">
                 <div>
-                  <span>{t('dataQcAnalysisTitle')}</span>
+                  <span>{t('dataQcEpisodeInspectionTitle')}</span>
                   <strong>{activeDataset.label}</strong>
                 </div>
                 <div>
                   <button type="button" className="data-analysis-secondary-button" onClick={openStandaloneAnalysis}>
-                    {t('dataQcOpenFullAnalysis')}
+                    {t('dataQcOpenDatasetAnalysis')}
                   </button>
-                  <button type="button" className="data-analysis-secondary-button" onClick={() => setAnalysisOpen((current) => !current)}>
-                    {analysisOpen ? t('dataQcHideAnalysis') : t('dataQcShowAnalysis')}
+                  <button type="button" className="data-analysis-secondary-button" onClick={() => setEpisodeInspectionOpen((current) => !current)}>
+                    {episodeInspectionOpen ? t('dataQcHideEpisodeInspection') : t('dataQcShowEpisodeInspection')}
                   </button>
                 </div>
               </section>
 
-              {analysisOpen && (
+              {episodeInspectionOpen && (
                 <>
-                  <DataAnalysisWorkspace
-                    summary={summary}
-                    details={details}
-                    episodes={episodes}
+                  <DataEpisodeInspectionWorkspace
                     episode={episode}
                     episodeIndex={episodeIndex}
-                    totalEpisodesFallback={activeDataset.stats.total_episodes}
+                    totalEpisodes={reviewWorkspace.total_episodes || activeDataset.stats.total_episodes}
                     loading={loading}
                     canLoadEpisode={Boolean(activeDatasetId)}
                     error={inspectError}
@@ -397,7 +372,7 @@ export default function DataQcPage() {
                     onEpisodeIndexChange={setEpisodeIndex}
                     onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
                   />
-                  <div ref={analysisEndRef} className="data-qc-analysis-end-marker" aria-hidden="true" />
+                  <div ref={inspectionEndRef} className="data-qc-inspection-end-marker" aria-hidden="true" />
                 </>
               )}
             </>
@@ -409,15 +384,6 @@ export default function DataQcPage() {
         </div>
       </div>
     </section>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="data-qc-hero-metric">
-      <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
-    </div>
   )
 }
 
@@ -662,24 +628,11 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
 
 function datasetReviewStatus(dataset: Dataset, autoCleanStatus: QualityStatus): ReviewWorkStatus {
   const status = qcReviewStatus(dataset)
-  if (status === 'pending' || status === 'in_progress' || status === 'ready_for_batch' || status === 'applied') {
+  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
     return status
   }
   if (autoCleanStatus === 'failed' || autoCleanStatus === 'running') return 'blocked'
   return 'pending'
-}
-
-function buildQcSummary(records: QcDatasetRecord[]): QcSummary {
-  return records.reduce<QcSummary>((summary, record) => {
-    summary.total += 1
-    summary.remainingEpisodes += isReviewableRecord(record) ? Math.max(record.totalEpisodes - record.reviewedCount, 0) : 0
-    if (record.reviewStatus === 'pending') summary.pending += 1
-    if (record.reviewStatus === 'in_progress') summary.inProgress += 1
-    if (record.reviewStatus === 'ready_for_batch') summary.readyForBatch += 1
-    if (record.reviewStatus === 'applied') summary.applied += 1
-    if (record.reviewStatus === 'blocked') summary.blocked += 1
-    return summary
-  }, { total: 0, remainingEpisodes: 0, pending: 0, inProgress: 0, readyForBatch: 0, applied: 0, blocked: 0 })
 }
 
 function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {
@@ -706,7 +659,7 @@ function isReviewableRecord(record: QcDatasetRecord): boolean {
 }
 
 function isReviewPendingRecord(record: QcDatasetRecord): boolean {
-  return record.reviewStatus === 'pending' || record.reviewStatus === 'in_progress'
+  return record.reviewStatus === 'pending'
 }
 
 function isReviewCompleteRecord(record: QcDatasetRecord): boolean {

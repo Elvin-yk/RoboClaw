@@ -44,6 +44,17 @@ export function DataAnalysisWorkspace({
     ?? totalEpisodesFallback
   const hasLoadedDataset = Boolean(textValue(summaryRoot.dataset) || Object.keys(summaryPayload).length)
 
+  if (!hasLoadedDataset) {
+    return (
+      <>
+        {error && <div className="data-alert">{error}</div>}
+        <section className="data-panel">
+          <div className="data-empty">{emptyLabel || (loading ? t('dataAnalysisLoading') : t('dataAnalysisInspectFirst'))}</div>
+        </section>
+      </>
+    )
+  }
+
   return (
     <>
       {error && <div className="data-alert">{error}</div>}

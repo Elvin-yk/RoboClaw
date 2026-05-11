@@ -104,6 +104,7 @@ const QUALITY_STEP_LABELS: Record<string, TranslationKey> = {
 }
 const MANAGE_QUALITY_STATUSES: ManageQualityStatus[] = ['pending', 'running', 'passed', 'failed']
 const DASHBOARD_QUALITY_STATUSES: ManageQualityStatus[] = ['pending', 'running', 'passed', 'failed']
+const MANUAL_REVIEW_STATUSES: ManageQualityStatus[] = ['pending', 'passed', 'failed']
 
 export default function DataManagePage() {
   const navigate = useNavigate()
@@ -465,6 +466,7 @@ export default function DataManagePage() {
                 <FilterField label={t('dataManageManualReviewStatus')}>
                   <QualityStatusFacetFilter
                     label={t('dataManageManualReviewStatus')}
+                    statuses={MANUAL_REVIEW_STATUSES}
                     value={rawManualReviewFilter}
                     onChange={(value) => {
                       setRawManualReviewFilter(value)
@@ -556,6 +558,7 @@ export default function DataManagePage() {
                 <FilterField label={t('dataManageManualReviewStatus')}>
                   <QualityStatusFacetFilter
                     label={t('dataManageManualReviewStatus')}
+                    statuses={MANUAL_REVIEW_STATUSES}
                     value={cleanManualReviewFilter}
                     onChange={(value) => {
                       setCleanManualReviewFilter(value)
@@ -735,18 +738,26 @@ function DataManageDashboard({
         <strong className="data-metric">{count}</strong>
       </div>
       <div className="data-manage-dashboard__lanes">
-        <DataManageDashboardLane title={t('dataManageAutoCleanStatus')} counts={summary.autoClean} />
-        <DataManageDashboardLane title={t('dataManageManualReviewStatus')} counts={summary.manualReview} />
+        <DataManageDashboardLane title={t('dataManageAutoCleanStatus')} counts={summary.autoClean} statuses={DASHBOARD_QUALITY_STATUSES} />
+        <DataManageDashboardLane title={t('dataManageManualReviewStatus')} counts={summary.manualReview} statuses={MANUAL_REVIEW_STATUSES} />
       </div>
     </section>
   )
 }
 
-function DataManageDashboardLane({ title, counts }: { title: string; counts: LaneStatusCounts }) {
+function DataManageDashboardLane({
+  title,
+  counts,
+  statuses,
+}: {
+  title: string
+  counts: LaneStatusCounts
+  statuses: ManageQualityStatus[]
+}) {
   return (
     <div className="data-manage-dashboard-lane">
       <span>{title}</span>
-      <StatusCountPills counts={counts} statuses={DASHBOARD_QUALITY_STATUSES} />
+      <StatusCountPills counts={counts} statuses={statuses} />
     </div>
   )
 }
@@ -946,17 +957,19 @@ function TaskMultiSelectFilter({
 
 function QualityStatusFacetFilter({
   label,
+  statuses = MANAGE_QUALITY_STATUSES,
   value,
   onChange,
 }: {
   label: string
+  statuses?: ManageQualityStatus[]
   value: QualityStatusFilter
   onChange: (value: QualityStatusFilter) => void
 }) {
   const { t } = useI18n()
   return (
     <div className="data-manage-status-filter" role="group" aria-label={label}>
-      {MANAGE_QUALITY_STATUSES.map((status) => (
+      {statuses.map((status) => (
         <button
           key={status}
           type="button"
@@ -1638,6 +1651,7 @@ function currentReviewerId(user: { id?: string; phone?: string; nickname?: strin
 }
 
 function displayQualityStatus(status: QualityStatus, lane: QualityLane): ManageQualityStatus {
+  if (lane === 'manual_review' && status === 'running') return 'pending'
   if (status === 'passed' || status === 'running' || status === 'failed' || status === 'pending') return status
   if (status === 'needs_review') return lane === 'auto_clean' ? 'failed' : 'pending'
   return 'pending'

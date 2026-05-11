@@ -364,35 +364,6 @@ def test_auto_clean_empty_dataset_fails_clean_and_requires_review(tmp_path: Path
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "failed"
 
 
-def test_manual_review_session_accepts_one_dataset_and_saves_decision(tmp_path: Path) -> None:
-    _create_dataset(tmp_path, "local/empty", episodes=0, frames=0)
-    client = _client(tmp_path)
-    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/empty"]})
-    assert started.status_code == 200
-    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
-
-    batch = client.post("/api/data/qc/manual-review-sessions", json={"dataset_ids": ["local/empty"]})
-    assert batch.status_code == 422
-    mixed = client.post(
-        "/api/data/qc/manual-review-sessions",
-        json={"dataset_id": "local/empty", "dataset_ids": ["local/empty"]},
-    )
-    assert mixed.status_code == 422
-
-    session = client.post("/api/data/qc/manual-review-sessions", json={"dataset_id": "local/empty"})
-    assert session.status_code == 200
-    run_id = session.json()["run_id"]
-    decision = client.patch(
-        f"/api/data/qc/manual-review-sessions/{run_id}/decision",
-        json={"decision": "rejected", "message": "empty data"},
-    )
-    assert decision.status_code == 200
-    detail = client.get("/api/data/library/datasets/local/empty").json()
-    assert detail["lifecycle_stage"] == "excluded"
-    assert detail["gates"]["review"]["status"] == "failed"
-    assert detail["qc"]["lanes"]["manual_review"]["decision"]["decision"] == "rejected"
-
-
 def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/review", episodes=3, frames=30, with_data=True, task_text="old task")
     client = _client(tmp_path)
@@ -410,7 +381,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
         json={"decision": "passed", "reviewer_id": "user-1"},
     )
     assert first.status_code == 200
-    assert first.json()["review"]["status"] == "in_progress"
+    assert first.json()["review"]["status"] == "pending"
 
     missing_reason = client.patch(
         "/api/data/review/datasets/local/review/episodes/1",

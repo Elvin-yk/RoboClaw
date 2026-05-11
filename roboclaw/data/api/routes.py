@@ -13,8 +13,6 @@ from .schemas import (
     EvaluationRunRequest,
     GateUpdateRequest,
     ImportRequest,
-    ManualReviewDecisionRequest,
-    ManualReviewSessionRequest,
     PackageCreateRequest,
     PackageUploadRequest,
     PropagationRunRequest,
@@ -142,38 +140,10 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @app.post("/api/data/qc/manual-review-sessions")
-    async def data_manual_review_session(body: ManualReviewSessionRequest) -> dict[str, Any]:
-        try:
-            return service.clean.start_manual_review_session(
-                dataset_id=body.dataset_id,
-                chain_id=body.chain_id,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            raise HTTPException(
-                status_code=404 if isinstance(exc, FileNotFoundError) else 400,
-                detail=str(exc),
-            ) from exc
-
     @app.get("/api/data/qc/run-details")
     async def data_qc_run(dataset_id: str, run_id: str) -> dict[str, Any]:
         try:
             return service.clean.get_qc_run(dataset_id=dataset_id, run_id=run_id)
-        except (FileNotFoundError, ValueError) as exc:
-            raise HTTPException(
-                status_code=404 if isinstance(exc, FileNotFoundError) else 400,
-                detail=str(exc),
-            ) from exc
-
-    @app.patch("/api/data/qc/manual-review-sessions/{session_id}/decision")
-    async def data_manual_review_decision(session_id: str, body: ManualReviewDecisionRequest) -> dict[str, Any]:
-        try:
-            return service.clean.save_manual_review_decision(
-                session_id=session_id,
-                decision=body.decision,
-                message=body.message,
-                details=body.details,
-            )
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=404 if isinstance(exc, FileNotFoundError) else 400,
