@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
-import { asRecord } from '@/domains/data/lib/analysisPayload'
+import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
@@ -17,6 +17,9 @@ import { useI18n, type TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 
 type ReviewWorkStatus = DataReviewStatus | 'blocked'
+type InspectionCheckValue = 'passed' | 'failed'
+type InspectionCheckScope = 'dataset' | 'episode'
+type ReviewInspectionOutcome = 'pending' | 'passed' | 'failed'
 
 interface QcDatasetRecord {
   id: string
@@ -42,12 +45,33 @@ interface QcSequenceSummary {
   nextRecord: QcDatasetRecord | null
 }
 
+interface ReviewInspectionItem {
+  id: string
+  labelKey: TranslationKey
+  scope: InspectionCheckScope
+}
+
+interface QcFrameVideo {
+  path: string
+  url: string
+  stream: string
+  from_timestamp: number | null
+  to_timestamp: number | null
+}
+
 const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }> = [
   { value: 'motion_abnormal', labelKey: 'dataReviewReasonMotionAbnormal' },
   { value: 'video_abnormal', labelKey: 'dataReviewReasonVideoAbnormal' },
   { value: 'task_mismatch', labelKey: 'dataReviewReasonTaskMismatch' },
   { value: 'robot_state_abnormal', labelKey: 'dataReviewReasonRobotStateAbnormal' },
   { value: 'other', labelKey: 'dataReviewReasonOther' },
+]
+
+const REVIEW_INSPECTION_ITEMS: ReviewInspectionItem[] = [
+  { id: 'task_description', labelKey: 'dataReviewInspectionTaskDescription', scope: 'dataset' },
+  { id: 'first_last_frame', labelKey: 'dataReviewInspectionFirstLastFrame', scope: 'episode' },
+  { id: 'action', labelKey: 'dataReviewInspectionAction', scope: 'episode' },
+  { id: 'video', labelKey: 'dataReviewInspectionVideo', scope: 'episode' },
 ]
 
 const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
@@ -60,7 +84,6 @@ const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
 }
 
 export default function DataQcPage() {
-  const navigate = useNavigate()
   const { t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((state) => state.user)
@@ -83,9 +106,9 @@ export default function DataQcPage() {
   const [failureReason, setFailureReason] = useState('')
   const [failureNote, setFailureNote] = useState('')
   const [draftTaskDescription, setDraftTaskDescription] = useState('')
-  const [episodeInspectionOpen, setEpisodeInspectionOpen] = useState(true)
-  const [reviewActionsUnlocked, setReviewActionsUnlocked] = useState(false)
-  const inspectionEndRef = useRef<HTMLDivElement | null>(null)
+  const [datasetIdCopied, setDatasetIdCopied] = useState(false)
+  const [datasetInspectionChecks, setDatasetInspectionChecks] = useState<Record<string, InspectionCheckValue>>({})
+  const [episodeInspectionChecks, setEpisodeInspectionChecks] = useState<Record<string, InspectionCheckValue>>({})
   const reviewLoadRequestRef = useRef(0)
   const inspectionLoadRequestRef = useRef(0)
   const reviewerId = currentReviewerId(user)
@@ -97,8 +120,19 @@ export default function DataQcPage() {
 
   useEffect(() => {
     const datasetId = searchParams.get('dataset') || ''
-    if (!datasetId || datasetId === activeDatasetId) return
+    if (datasetId === activeDatasetId) return
     setActiveDatasetId(datasetId)
+    if (!datasetId) {
+      reviewLoadRequestRef.current += 1
+      inspectionLoadRequestRef.current += 1
+      setReviewWorkspace(null)
+      setReviewLoading(false)
+      setReviewError('')
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+      setDraftTaskDescription('')
+    }
   }, [activeDatasetId, searchParams])
 
   const scopedDatasetIds = useMemo(() => scopedDatasetIdsFromSearch(searchParams), [searchParams])
@@ -109,8 +143,10 @@ export default function DataQcPage() {
       ? records.filter((record) => scopedDatasetIdSet.has(record.id))
       : records
   ), [records, scopedDatasetIdSet, scopedDatasetIds.length])
-  const reviewableRecords = useMemo(() => filteredRecords.filter(isReviewableRecord), [filteredRecords])
-  const sequenceSummary = useMemo(() => buildSequenceSummary(filteredRecords, activeDatasetId), [activeDatasetId, filteredRecords])
+  const hasReviewSelection = activeDatasetId.trim().length > 0
+  const summaryRecords = useMemo(() => (hasReviewSelection ? filteredRecords : []), [filteredRecords, hasReviewSelection])
+  const reviewableRecords = useMemo(() => summaryRecords.filter(isReviewableRecord), [summaryRecords])
+  const sequenceSummary = useMemo(() => buildSequenceSummary(summaryRecords, activeDatasetId), [activeDatasetId, summaryRecords])
   const activeRecord = filteredRecords.find((record) => record.id === activeDatasetId)
     ?? records.find((record) => record.id === activeDatasetId)
     ?? null
@@ -119,47 +155,28 @@ export default function DataQcPage() {
     ?? null
 
   useEffect(() => {
-    if (activeDatasetId || !filteredRecords.length) return
-    const firstRecord = reviewableRecords[0] ?? filteredRecords[0]
-    openDataset(firstRecord)
-  }, [activeDatasetId, filteredRecords, reviewableRecords])
-
-  useEffect(() => {
     if (!activeDatasetId) return
     void loadReviewWorkspace(activeDatasetId)
   }, [activeDatasetId])
 
   useEffect(() => {
-    setReviewActionsUnlocked(false)
+    setDatasetIdCopied(false)
   }, [activeDatasetId, episodeIndex])
 
+  const inspectionCheckValues = useMemo(() => (
+    currentInspectionCheckValues(activeDatasetId, episodeIndex, datasetInspectionChecks, episodeInspectionChecks)
+  ), [activeDatasetId, datasetInspectionChecks, episodeIndex, episodeInspectionChecks])
+  const reviewInspectionOutcome = useMemo(() => inspectionOutcome(inspectionCheckValues), [inspectionCheckValues])
+
   useEffect(() => {
-    const target = inspectionEndRef.current
-    if (!target || !episodeInspectionOpen || reviewActionsUnlocked) return
-    let sawReviewScroll = false
-    const unlockIfInspectionEndReached = () => {
-      sawReviewScroll = true
-      const rect = target.getBoundingClientRect()
-      if (rect.top <= window.innerHeight && rect.bottom >= 0) {
-        setReviewActionsUnlocked(true)
-      }
+    if (reviewInspectionOutcome === 'failed') {
+      setFailureOpen(true)
+      return
     }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (sawReviewScroll && entries.some((entry) => entry.isIntersecting)) {
-          setReviewActionsUnlocked(true)
-          observer.disconnect()
-        }
-      },
-      { threshold: 0.75 },
-    )
-    observer.observe(target)
-    window.addEventListener('scroll', unlockIfInspectionEndReached, { passive: true })
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('scroll', unlockIfInspectionEndReached)
-    }
-  }, [episodeInspectionOpen, reviewActionsUnlocked, activeDatasetId, episodeIndex, reviewWorkspace?.dataset.id])
+    setFailureOpen(false)
+    setFailureReason('')
+    setFailureNote('')
+  }, [activeDatasetId, episodeIndex, reviewInspectionOutcome])
 
   function openDataset(record: QcDatasetRecord) {
     setActiveDatasetId(record.id)
@@ -176,13 +193,16 @@ export default function DataQcPage() {
     setFailureOpen(false)
     setFailureReason('')
     setFailureNote('')
-    setReviewActionsUnlocked(false)
     try {
       const workspace = await dataApi.reviewWorkspace({ dataset_id: datasetId })
       if (requestId !== reviewLoadRequestRef.current) return
-      const nextEpisodeIndex = firstUnreviewedEpisodeIndex(workspace) ?? workspace.episode_indices[0] ?? 0
+      const nextEpisodeIndex = firstUnreviewedEpisodeIndex(workspace)
+        ?? lastReviewedEpisodeIndex(workspace)
+        ?? workspace.episode_indices[0]
+        ?? 0
       setReviewWorkspace(workspace)
       setDraftTaskDescription(reviewTaskDescription(workspace))
+      setFailureDraftFromWorkspace(workspace, nextEpisodeIndex, false)
       setEpisodeIndex(nextEpisodeIndex)
       setReviewLoading(false)
       void loadInspectionEpisode(datasetId, nextEpisodeIndex)
@@ -205,15 +225,18 @@ export default function DataQcPage() {
   async function loadSelectedEpisode(nextEpisodeIndex: number) {
     inspectionLoadRequestRef.current += 1
     setEpisodeIndex(nextEpisodeIndex)
-    setFailureOpen(false)
-    setFailureReason('')
-    setFailureNote('')
-    setReviewActionsUnlocked(false)
+    if (reviewWorkspace) {
+      setFailureDraftFromWorkspace(reviewWorkspace, nextEpisodeIndex, false)
+    } else {
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+    }
     await loadEpisode(nextEpisodeIndex)
   }
 
-  async function saveDraftTaskDescription() {
-    if (!activeDatasetId) return
+  async function saveDraftTaskDescription(): Promise<boolean> {
+    if (!activeDatasetId) return false
     setReviewSaving(true)
     setReviewError('')
     try {
@@ -223,16 +246,54 @@ export default function DataQcPage() {
       })
       setReviewWorkspace(workspace)
       await load()
+      return true
     } catch (error) {
       setReviewError(error instanceof Error ? error.message : String(error))
+      return false
     } finally {
       setReviewSaving(false)
     }
   }
 
+  async function copyActiveDatasetId() {
+    if (!activeDataset) return
+    await navigator.clipboard.writeText(activeDataset.label || activeDataset.id)
+    setDatasetIdCopied(true)
+  }
+
+  async function setInspectionCheck(itemId: string, value: InspectionCheckValue) {
+    if (!activeDatasetId) return
+    const item = REVIEW_INSPECTION_ITEMS.find((entry) => entry.id === itemId)
+    if (!item) return
+    if (item.scope === 'dataset') {
+      if (item.id === 'task_description' && value === 'passed') {
+        const saved = await saveDraftTaskDescription()
+        if (!saved) return
+      }
+      setDatasetInspectionChecks((current) => ({
+        ...current,
+        [datasetInspectionCheckKey(activeDatasetId, itemId)]: value,
+      }))
+      return
+    }
+    setEpisodeInspectionChecks((current) => ({
+      ...current,
+      [episodeInspectionCheckKey(activeDatasetId, episodeIndex, itemId)]: value,
+    }))
+  }
+
   async function saveReviewDecision(decision: DataReviewDecision) {
     if (!activeDatasetId || !reviewWorkspace) return
-    if (!reviewActionsUnlocked) return
+    if (reviewInspectionOutcome === 'pending') {
+      setReviewError(t('dataQcReviewChecklistLocked'))
+      return
+    }
+    if (decision !== reviewInspectionOutcome) {
+      setReviewError(reviewInspectionOutcome === 'failed'
+        ? t('dataReviewInspectionEpisodeFailOnly')
+        : t('dataReviewInspectionEpisodePassOnly'))
+      return
+    }
     if (decision === 'failed' && !failureReason) {
       setReviewError(t('dataReviewFailureReasonRequired'))
       return
@@ -262,18 +323,47 @@ export default function DataQcPage() {
       await loadSelectedEpisode(nextEpisodeIndex)
       return
     }
-    const nextDatasetId = nextReviewDatasetId(reviewableRecords, workspace.dataset.id)
-    if (nextDatasetId) {
-      openDataset(records.find((record) => record.id === nextDatasetId) ?? { ...workspaceRecordFallback(workspace.dataset), id: nextDatasetId })
-      return
-    }
-    setReviewError(t('dataReviewAllDone'))
+    advanceToNextDatasetOrClear(workspace.dataset.id, workspace.dataset)
   }
 
-  function openStandaloneAnalysis() {
-    if (!activeDatasetId) return
-    const encodedDataset = encodeURIComponent(activeDatasetId)
-    navigate(`/data/analysis?dataset=${encodedDataset}&returnTo=data-qc&qcDataset=${encodedDataset}`)
+  function advanceToNextDatasetOrClear(currentDatasetId: string, fallbackDataset: Dataset) {
+    const nextDatasetId = nextReviewDatasetId(reviewableRecords, currentDatasetId)
+    if (nextDatasetId) {
+      const nextRecord = records.find((record) => record.id === nextDatasetId)
+      openDataset(nextRecord ?? { ...workspaceRecordFallback(fallbackDataset), id: nextDatasetId })
+      return
+    }
+    clearReviewSequence()
+  }
+
+  function setFailureDraftFromWorkspace(workspace: DataReviewWorkspace, targetEpisodeIndex: number, open: boolean) {
+    const decision = workspace.review.episodes[String(targetEpisodeIndex)]
+    if (decision?.decision !== 'failed') {
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+      return
+    }
+    setFailureOpen(open)
+    setFailureReason(decision.reason)
+    setFailureNote(decision.note)
+  }
+
+  function clearReviewSequence() {
+    reviewLoadRequestRef.current += 1
+    inspectionLoadRequestRef.current += 1
+    setActiveDatasetId('')
+    setReviewWorkspace(null)
+    setReviewLoading(false)
+    setReviewError('')
+    setEpisodeIndex(0)
+    setFailureOpen(false)
+    setFailureReason('')
+    setFailureNote('')
+    setDraftTaskDescription('')
+    setDatasetInspectionChecks({})
+    setEpisodeInspectionChecks({})
+    setSearchParams(new URLSearchParams())
   }
 
   return (
@@ -288,6 +378,7 @@ export default function DataQcPage() {
             nextRecord={sequenceSummary.nextRecord}
             summary={sequenceSummary}
             scoped={scopedDatasetIds.length > 0}
+            onCancel={hasReviewSelection ? clearReviewSequence : undefined}
             t={t}
           />
         </section>
@@ -297,17 +388,27 @@ export default function DataQcPage() {
             <>
               <section className="data-panel data-qc-review-control-panel">
                 <div className="data-qc-review-control-panel__head">
-                  <div>
+                  <div className="data-qc-dataset-title">
                     <span>{t('dataQcManualReviewTitle')}</span>
-                    <strong>{activeDataset.label}</strong>
+                    <div className="data-qc-dataset-title__row">
+                      <strong>{activeDataset.label}</strong>
+                      <button
+                        type="button"
+                        className="data-qc-copy-icon-button"
+                        onClick={() => void copyActiveDatasetId()}
+                        aria-label={datasetIdCopied ? t('dataCopied') : t('dataCopy')}
+                        title={datasetIdCopied ? t('dataCopied') : t('dataCopy')}
+                      >
+                        <CopyIcon />
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <ReviewStatusCards activeRecord={activeRecord} reviewerLabel={reviewerLabel} t={t} />
                 <ReviewDecisionControls
                   workspace={reviewWorkspace}
-                  episodeIndex={episodeIndex}
                   saving={reviewSaving}
-                  unlocked={reviewActionsUnlocked}
+                  outcome={reviewInspectionOutcome}
                   failureOpen={failureOpen}
                   failureReason={failureReason}
                   failureNote={failureNote}
@@ -324,6 +425,12 @@ export default function DataQcPage() {
                   onEpisodeSelect={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
                   t={t}
                 />
+              </section>
+
+              <section className="data-panel data-qc-review-edit-panel">
+                <div className="data-panel__title">
+                  <h2>{t('dataReviewEditSectionTitle')}</h2>
+                </div>
                 <div className="data-review-draft">
                   <label>
                     <span>{t('dataReviewTaskDraft')}</span>
@@ -344,41 +451,32 @@ export default function DataQcPage() {
                 </div>
               </section>
 
-              <section className="data-panel data-qc-inspection-toggle">
-                <div>
-                  <span>{t('dataQcEpisodeInspectionTitle')}</span>
-                  <strong>{activeDataset.label}</strong>
-                </div>
-                <div>
-                  <button type="button" className="data-analysis-secondary-button" onClick={openStandaloneAnalysis}>
-                    {t('dataQcOpenDatasetAnalysis')}
-                  </button>
-                  <button type="button" className="data-analysis-secondary-button" onClick={() => setEpisodeInspectionOpen((current) => !current)}>
-                    {episodeInspectionOpen ? t('dataQcHideEpisodeInspection') : t('dataQcShowEpisodeInspection')}
-                  </button>
-                </div>
-              </section>
+              <ReviewInspectionChecklist
+                episode={episode}
+                values={inspectionCheckValues}
+                onChange={setInspectionCheck}
+                t={t}
+              />
 
-              {episodeInspectionOpen && (
-                <>
-                  <DataEpisodeInspectionWorkspace
-                    episode={episode}
-                    episodeIndex={episodeIndex}
-                    totalEpisodes={reviewWorkspace.total_episodes || activeDataset.stats.total_episodes}
-                    loading={loading}
-                    canLoadEpisode={Boolean(activeDatasetId)}
-                    error={inspectError}
-                    emptyLabel={t('dataQcReviewVisualsLoading')}
-                    onEpisodeIndexChange={setEpisodeIndex}
-                    onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
-                  />
-                  <div ref={inspectionEndRef} className="data-qc-inspection-end-marker" aria-hidden="true" />
-                </>
-              )}
+              <DataEpisodeInspectionWorkspace
+                episode={episode}
+                episodeIndex={episodeIndex}
+                totalEpisodes={reviewWorkspace.total_episodes || activeDataset.stats.total_episodes}
+                loading={loading}
+                canLoadEpisode={Boolean(activeDatasetId)}
+                error={inspectError}
+                emptyLabel={t('dataQcReviewVisualsLoading')}
+                showEpisodeControls={false}
+                showTitle={false}
+                onEpisodeIndexChange={setEpisodeIndex}
+                onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
+              />
             </>
           ) : (
-            <section className="data-panel data-qc-review-empty">
-              {reviewLoading ? t('dataQcReviewVisualsLoading') : t('dataQcSelectReviewDataset')}
+            <section className="data-panel">
+              <div className="data-empty">
+                {reviewLoading ? t('dataQcReviewVisualsLoading') : t('dataQcSelectReviewDataset')}
+              </div>
             </section>
           )}
         </div>
@@ -392,12 +490,14 @@ function ReviewSequenceSummary({
   nextRecord,
   summary,
   scoped,
+  onCancel,
   t,
 }: {
   activeRecord: QcDatasetRecord | null
   nextRecord: QcDatasetRecord | null
   summary: QcSequenceSummary
   scoped: boolean
+  onCancel?: () => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
   const percent = `${summary.percent}%`
@@ -406,9 +506,16 @@ function ReviewSequenceSummary({
       <div className="data-qc-sequence-summary__head">
         <div>
           <h2>{t('dataQcWorkQueue')}</h2>
-          <span>{scoped ? t('dataQcSequenceScopeSelected') : t('dataQcSequenceScopeAll')}</span>
+          {scoped && <span>{t('dataQcSequenceScopeSelected')}</span>}
         </div>
-        <strong>{percent}</strong>
+        <div className="data-qc-sequence-summary__actions">
+          {onCancel && (
+            <button type="button" className="data-analysis-secondary-button" onClick={onCancel}>
+              {t('dataQcCancelSequence')}
+            </button>
+          )}
+          <strong>{percent}</strong>
+        </div>
       </div>
       <div className="data-review-progress-panel__bar" aria-hidden="true">
         <i style={{ width: percent }} />
@@ -417,26 +524,23 @@ function ReviewSequenceSummary({
         <SequenceTile
           label={t('dataQcSequenceCurrent')}
           value={activeRecord?.name || t('dataQcManualQueueEmpty')}
-          detail={activeRecord ? (activeRecord.task || activeRecord.path) : ''}
         />
         <SequenceTile
           label={t('dataQcSequenceNext')}
           value={nextRecord?.name || t('dataQcSequenceNoNext')}
-          detail={nextRecord ? (nextRecord.task || nextRecord.path) : ''}
         />
-        <SequenceTile label={t('dataQcSequenceDone')} value={String(summary.done)} detail={t('dataQcSequenceTotal', { count: summary.total })} />
-        <SequenceTile label={t('dataQcSequenceRemaining')} value={String(summary.remaining)} detail={t('dataQcManualReviewQueueCount', { count: summary.reviewable })} />
+        <SequenceTile label={t('dataQcSequenceDone')} value={String(summary.done)} />
+        <SequenceTile label={t('dataQcSequenceRemaining')} value={String(summary.remaining)} />
       </div>
     </div>
   )
 }
 
-function SequenceTile({ label, value, detail }: { label: string; value: string; detail: string }) {
+function SequenceTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="data-qc-sequence-tile">
       <span>{label}</span>
       <strong>{value}</strong>
-      {detail && <em>{detail}</em>}
     </div>
   )
 }
@@ -513,11 +617,127 @@ function ReviewLedger({
   )
 }
 
+function ReviewInspectionChecklist({
+  episode,
+  values,
+  onChange,
+  t,
+}: {
+  episode: unknown
+  values: Record<string, InspectionCheckValue | ''>
+  onChange: (itemId: string, value: InspectionCheckValue) => void | Promise<void>
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const outcome = inspectionOutcome(values)
+  const activeItem = currentInspectionItem(values)
+  const currentPosition = activeItem
+    ? REVIEW_INSPECTION_ITEMS.findIndex((item) => item.id === activeItem.id) + 1
+    : REVIEW_INSPECTION_ITEMS.length
+  return (
+    <section className="data-panel data-review-inspection-checklist">
+      <div className="data-panel__title">
+        <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
+      </div>
+      {activeItem ? (
+        <article className={cn('data-review-inspection-item', values[activeItem.id] && `is-${values[activeItem.id]}`)}>
+          <div className="data-review-inspection-item__head">
+            <div>
+              <span>{t('dataReviewInspectionStep', { current: currentPosition, total: REVIEW_INSPECTION_ITEMS.length })}</span>
+              <strong>{t(activeItem.labelKey)}</strong>
+              {activeItem.scope === 'dataset' && <em>{t('dataReviewInspectionDatasetScope')}</em>}
+            </div>
+            <div className="data-review-inspection-item__actions">
+              <button
+                type="button"
+                className={cn('data-review-check-option is-pass', values[activeItem.id] === 'passed' && 'is-active')}
+                onClick={() => void onChange(activeItem.id, 'passed')}
+              >
+                {t('dataReviewPass')}
+              </button>
+              <button
+                type="button"
+                className={cn('data-review-check-option is-fail', values[activeItem.id] === 'failed' && 'is-active')}
+                onClick={() => void onChange(activeItem.id, 'failed')}
+              >
+                {t('dataReviewFail')}
+              </button>
+            </div>
+          </div>
+          {activeItem.id === 'first_last_frame' && <FirstLastFrameInspection episode={episode} t={t} />}
+        </article>
+      ) : (
+        <div className="data-review-inspection-complete">
+          {t(outcome === 'passed' ? 'dataReviewInspectionAllPassed' : 'dataReviewInspectionFailed')}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function FirstLastFrameInspection({
+  episode,
+  t,
+}: {
+  episode: unknown
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const videos = useMemo(() => readQcFrameVideos(episode), [episode])
+  if (!videos.length) {
+    return <div className="data-empty">{t('dataReviewFirstLastFrameEmpty')}</div>
+  }
+  return (
+    <div className="data-review-first-last-frame">
+      <span>{t('dataReviewFirstLastFrameTitle')}</span>
+      <div className="data-review-first-last-frame__grid">
+        {videos.map((video, index) => (
+          <div key={`${video.path}-${index}`} className="data-review-first-last-frame__stream">
+            <strong>{video.stream || video.path}</strong>
+            <div className="data-review-first-last-frame__frames">
+              <FramePreviewVideo video={video} label={t('dataReviewFirstFrame')} position="first" />
+              <FramePreviewVideo video={video} label={t('dataReviewLastFrame')} position="last" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FramePreviewVideo({
+  video,
+  label,
+  position,
+}: {
+  video: QcFrameVideo
+  label: string
+  position: 'first' | 'last'
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const node = videoRef.current
+    if (!node) return undefined
+    const seekFrame = () => {
+      const duration = Number.isFinite(node.duration) ? node.duration : null
+      node.currentTime = framePreviewTime(video, position, duration)
+    }
+    node.addEventListener('loadedmetadata', seekFrame)
+    if (node.readyState >= 1) seekFrame()
+    return () => node.removeEventListener('loadedmetadata', seekFrame)
+  }, [position, video])
+
+  return (
+    <figure className="data-review-frame-preview">
+      <video ref={videoRef} src={video.url} muted playsInline preload="metadata" />
+      <figcaption>{label}</figcaption>
+    </figure>
+  )
+}
+
 function ReviewDecisionControls({
   workspace,
-  episodeIndex,
   saving,
-  unlocked,
+  outcome,
   failureOpen,
   failureReason,
   failureNote,
@@ -529,9 +749,8 @@ function ReviewDecisionControls({
   t,
 }: {
   workspace: DataReviewWorkspace
-  episodeIndex: number
   saving: boolean
-  unlocked: boolean
+  outcome: ReviewInspectionOutcome
   failureOpen: boolean
   failureReason: string
   failureNote: string
@@ -542,34 +761,39 @@ function ReviewDecisionControls({
   onFail: () => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
-  const currentDecision = workspace.review.episodes[String(episodeIndex)]
   if (!workspace.episode_indices.length) {
     return <div className="data-empty">{t('dataReviewNoEpisodes')}</div>
   }
-  const decisionDisabled = saving || !unlocked
+  if (outcome === 'pending') {
+    return (
+      <div className="data-review-final-status is-pending">
+        {t('dataReviewInspectionPendingDecision')}
+      </div>
+    )
+  }
+  const savingReason = saving ? t('saving') : undefined
+  const submitFailDisabledReason = savingReason || (!failureReason ? t('dataReviewFailureReasonRequired') : undefined)
   return (
     <div className="data-qc-review-decision">
-      <div className="data-review-decision-panel__head">
-        <div>
-          <span>{t('dataReviewCurrentEpisode')}</span>
-          <strong>Episode {episodeIndex + 1}</strong>
+      <div className={cn('data-review-verdict-panel', outcome === 'passed' ? 'is-passed' : 'is-failed')}>
+        <div className="data-review-verdict-summary">
+          {t(outcome === 'passed' ? 'dataReviewInspectionOutcomePassed' : 'dataReviewInspectionOutcomeFailed')}
         </div>
-        {currentDecision && (
-          <em className={cn('data-review-decision-state', `is-${currentDecision.decision}`)}>
-            {t(currentDecision.decision === 'passed' ? 'dataReviewDecisionPassed' : 'dataReviewDecisionFailed')}
-          </em>
-        )}
-      </div>
-      <p className={cn('data-qc-review-decision__hint', unlocked && 'is-ready')}>
-        {unlocked ? t('dataQcReviewActionsReady') : t('dataQcReviewActionsLocked')}
-      </p>
-      <div className="data-review-decision-panel__actions">
-        <button type="button" className="data-review-pass-button" onClick={onPass} disabled={decisionDisabled}>
-          {t('dataReviewPass')}
-        </button>
-        <button type="button" className="data-review-fail-button" onClick={onFailureOpen} disabled={decisionDisabled}>
-          {t('dataReviewFail')}
-        </button>
+        <div className="data-review-decision-panel__actions">
+          {outcome === 'passed' ? (
+            <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
+              <button type="button" className="data-review-pass-button" onClick={onPass} disabled={saving}>
+                {t('dataReviewPass')}
+              </button>
+            </span>
+          ) : (
+            <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
+              <button type="button" className="data-review-fail-button" onClick={onFailureOpen} disabled={saving}>
+                {t('dataReviewFail')}
+              </button>
+            </span>
+          )}
+        </div>
       </div>
       {failureOpen && (
         <div className="data-review-failure-editor">
@@ -590,14 +814,16 @@ function ReviewDecisionControls({
             onChange={(event) => onFailureNoteChange(event.target.value)}
             placeholder={t('dataReviewNotePlaceholder')}
           />
-          <button
-            type="button"
-            className="data-review-submit-fail-button"
-            onClick={onFail}
-            disabled={decisionDisabled || !failureReason}
-          >
-            {t('dataReviewSubmitFail')}
-          </button>
+          <span className="data-review-submit-fail-action data-tooltip-host" data-tooltip={submitFailDisabledReason}>
+            <button
+              type="button"
+              className="data-review-submit-fail-button"
+              onClick={onFail}
+              disabled={saving || !failureReason}
+            >
+              {t('dataReviewSubmitFail')}
+            </button>
+          </span>
         </div>
       )}
     </div>
@@ -667,7 +893,10 @@ function isReviewCompleteRecord(record: QcDatasetRecord): boolean {
 }
 
 function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {
-  return Array.from(new Set(searchParams.getAll('datasets').filter(Boolean)))
+  const scopedIds = searchParams.getAll('datasets').filter(Boolean)
+  if (scopedIds.length) return Array.from(new Set(scopedIds))
+  const datasetId = searchParams.get('dataset')
+  return datasetId ? [datasetId] : []
 }
 
 function reviewPayload(dataset: Dataset): Record<string, unknown> {
@@ -681,6 +910,11 @@ function reviewTaskDescription(workspace: DataReviewWorkspace): string {
 
 function firstUnreviewedEpisodeIndex(workspace: DataReviewWorkspace): number | null {
   return workspace.episode_indices.find((index) => !workspace.review.episodes[String(index)]) ?? null
+}
+
+function lastReviewedEpisodeIndex(workspace: DataReviewWorkspace): number | null {
+  const reviewedIndices = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)])
+  return reviewedIndices[reviewedIndices.length - 1] ?? null
 }
 
 function nextUnreviewedEpisodeIndex(workspace: DataReviewWorkspace, currentEpisodeIndex: number): number | null {
@@ -699,6 +933,63 @@ function nextReviewDatasetId(records: QcDatasetRecord[], currentDatasetId: strin
   return after?.id || ids[0] || ''
 }
 
+function currentInspectionCheckValues(
+  datasetId: string,
+  episodeIndex: number,
+  datasetChecks: Record<string, InspectionCheckValue>,
+  episodeChecks: Record<string, InspectionCheckValue>,
+): Record<string, InspectionCheckValue | ''> {
+  return REVIEW_INSPECTION_ITEMS.reduce<Record<string, InspectionCheckValue | ''>>((values, item) => {
+    values[item.id] = item.scope === 'dataset'
+      ? datasetChecks[datasetInspectionCheckKey(datasetId, item.id)] || ''
+      : episodeChecks[episodeInspectionCheckKey(datasetId, episodeIndex, item.id)] || ''
+    return values
+  }, {})
+}
+
+function inspectionOutcome(values: Record<string, InspectionCheckValue | ''>): ReviewInspectionOutcome {
+  if (REVIEW_INSPECTION_ITEMS.some((item) => values[item.id] === 'failed')) return 'failed'
+  if (REVIEW_INSPECTION_ITEMS.every((item) => values[item.id] === 'passed')) return 'passed'
+  return 'pending'
+}
+
+function currentInspectionItem(values: Record<string, InspectionCheckValue | ''>): ReviewInspectionItem | null {
+  return REVIEW_INSPECTION_ITEMS.find((item) => values[item.id] === 'failed')
+    ?? REVIEW_INSPECTION_ITEMS.find((item) => !values[item.id])
+    ?? null
+}
+
+function datasetInspectionCheckKey(datasetId: string, itemId: string): string {
+  return `${datasetId}:${itemId}`
+}
+
+function episodeInspectionCheckKey(datasetId: string, episodeIndex: number, itemId: string): string {
+  return `${datasetId}:${episodeIndex}:${itemId}`
+}
+
+function readQcFrameVideos(episode: unknown): QcFrameVideo[] {
+  const episodePayload = asRecord(episode)
+  return asArray(episodePayload.videos).map(asRecord).map((video) => ({
+    path: textValue(video.path),
+    url: textValue(video.url),
+    stream: textValue(video.stream) || textValue(video.path),
+    from_timestamp: numberValue(video.from_timestamp),
+    to_timestamp: numberValue(video.to_timestamp),
+  })).filter((video) => Boolean(video.url))
+}
+
+function framePreviewTime(video: QcFrameVideo, position: 'first' | 'last', duration: number | null): number {
+  const start = video.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
+  const end = video.to_timestamp != null && Number.isFinite(video.to_timestamp)
+    ? video.to_timestamp
+    : duration
+  const target = position === 'first'
+    ? start
+    : Math.max((end ?? duration ?? 0) - 0.05, start)
+  if (duration == null || duration <= 0) return Math.max(target, 0)
+  return Math.min(Math.max(target, 0), Math.max(duration - 0.05, 0))
+}
+
 function workspaceRecordFallback(dataset: Dataset): QcDatasetRecord {
   return buildQcDatasetRecord(dataset)
 }
@@ -713,4 +1004,13 @@ function currentReviewerId(user: { id?: string; phone?: string; nickname?: strin
 
 function currentReviewerLabel(user: { id?: string; phone?: string; nickname?: string | null } | null): string {
   return user?.nickname || user?.phone || user?.id || ''
+}
+
+function CopyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  )
 }

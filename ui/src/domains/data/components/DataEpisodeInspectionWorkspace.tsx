@@ -10,6 +10,8 @@ interface DataEpisodeInspectionWorkspaceProps {
   canLoadEpisode: boolean
   error?: string
   emptyLabel?: string
+  showEpisodeControls?: boolean
+  showTitle?: boolean
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
 }
@@ -22,6 +24,8 @@ export function DataEpisodeInspectionWorkspace({
   canLoadEpisode,
   error,
   emptyLabel,
+  showEpisodeControls = true,
+  showTitle = true,
   onEpisodeIndexChange,
   onLoadEpisode,
 }: DataEpisodeInspectionWorkspaceProps) {
@@ -40,17 +44,23 @@ export function DataEpisodeInspectionWorkspace({
           canLoadEpisode={canLoadEpisode}
           onEpisodeIndexChange={onEpisodeIndexChange}
           onLoadEpisode={onLoadEpisode}
+          showEpisodeControls={showEpisodeControls}
+          showTitle={showTitle}
         />
       ) : (
         <section className="data-panel data-qc-episode-inspection">
-          <div className="data-panel__title">
-            <h2>{t('dataQcEpisodeInspectionTitle')}</h2>
-            <div className="data-analysis-player__summary">
-              <button type="button" onClick={() => onLoadEpisode(episodeIndex)} disabled={loading || !canLoadEpisode}>
-                {t('dataAnalysisLoadEpisode', { index: episodeIndex })}
-              </button>
+          {showTitle && (
+            <div className="data-panel__title">
+              <h2>{t('dataQcEpisodeInspectionTitle')}</h2>
+              {showEpisodeControls && (
+                <div className="data-analysis-player__summary">
+                  <button type="button" onClick={() => onLoadEpisode(episodeIndex)} disabled={loading || !canLoadEpisode}>
+                    {t('dataAnalysisLoadEpisode', { index: episodeIndex })}
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
           <div className="data-empty">{emptyLabel || t('dataQcReviewVisualsLoading')}</div>
         </section>
       )}

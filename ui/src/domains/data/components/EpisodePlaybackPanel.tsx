@@ -33,6 +33,8 @@ export function EpisodePlaybackPanel({
   canLoadEpisode,
   onEpisodeIndexChange,
   onLoadEpisode,
+  showEpisodeControls = true,
+  showTitle = true,
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -41,6 +43,8 @@ export function EpisodePlaybackPanel({
   canLoadEpisode: boolean
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
+  showEpisodeControls?: boolean
+  showTitle?: boolean
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
@@ -139,7 +143,7 @@ export function EpisodePlaybackPanel({
   if (!hasPlaybackData) {
     return (
       <section className="data-panel">
-        <div className="data-panel__title"><h2>Episode 可视化</h2></div>
+        {showTitle && <div className="data-panel__title"><h2>Episode 可视化</h2></div>}
         <div className="data-empty">加载 episode 后显示视频和 action / observation 曲线</div>
       </section>
     )
@@ -147,22 +151,26 @@ export function EpisodePlaybackPanel({
 
   return (
     <section className="data-panel data-analysis-player">
-      <div className="data-panel__title">
-        <h2>Episode 可视化</h2>
-        <div className="data-analysis-player__summary">
-          <EpisodePicker
-            value={episodeIndex}
-            totalEpisodes={totalEpisodes}
-            loading={loading}
-            canLoadEpisode={canLoadEpisode}
-            onChange={onEpisodeIndexChange}
-            onLoad={onLoadEpisode}
-          />
-          <span>Episode #{loadedEpisodeIndex}</span>
-          <span>{formatSeconds(duration)}</span>
-          <span>{summary.video_count == null ? videos.length : textValue(summary.video_count)} videos</span>
+      {showTitle && (
+        <div className="data-panel__title">
+          <h2>Episode 可视化</h2>
+          {showEpisodeControls && (
+            <div className="data-analysis-player__summary">
+              <EpisodePicker
+                value={episodeIndex}
+                totalEpisodes={totalEpisodes}
+                loading={loading}
+                canLoadEpisode={canLoadEpisode}
+                onChange={onEpisodeIndexChange}
+                onLoad={onLoadEpisode}
+              />
+              <span>Episode #{loadedEpisodeIndex}</span>
+              <span>{formatSeconds(duration)}</span>
+              <span>{summary.video_count == null ? videos.length : textValue(summary.video_count)} videos</span>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {playbackError && <div className="data-alert">{playbackError}</div>}
 
