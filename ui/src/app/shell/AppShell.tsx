@@ -71,6 +71,14 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
     </svg>
   ),
+  '/data/qc': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 12l2 2 4-5" />
+      <path d="M4 5h16" />
+      <path d="M6 5v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5" />
+      <path d="M9 3h6" />
+    </svg>
+  ),
   '/settings': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
@@ -192,6 +200,7 @@ export default function AppShell() {
   ]
   const dataChildren = [
     { path: '/data/manage', label: t('dataManageNav') },
+    { path: '/data/qc', label: t('dataQcNav') },
     { path: '/data/analysis', label: t('dataAnalysisNav') },
     { path: '/data/annotation', label: t('dataAnnotationNav') },
   ]

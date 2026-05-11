@@ -26,12 +26,7 @@ export const dataApi = {
   inspectEpisode: (params: { dataset?: string; source: string; path?: string; episode_index?: number; preview?: boolean }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episode${query(params)}`),
   startDiagnosisRun: (body: { dataset_ids: string[] }) => postJson<DataJob>(`${DATA_API}/qc/diagnosis-runs`, body),
   startAutoCleanRun: (body: { dataset_ids: string[]; chain_id?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/auto-clean-runs`, body),
-  startManualReviewSession: (body: { dataset_id: string; chain_id?: string }) => postJson<Record<string, unknown>>(`${DATA_API}/qc/manual-review-sessions`, body),
   qcRun: (params: { dataset_id: string; run_id: string }) => api<DataQcRun>(`${DATA_API}/qc/run-details${query(params)}`),
-  saveManualReviewDecision: (
-    sessionId: string,
-    body: { decision: 'passed' | 'rejected' | 'needs_rework'; message?: string; details?: Record<string, unknown> },
-  ) => patchJson<Record<string, unknown>>(`${DATA_API}/qc/manual-review-sessions/${encodeURIComponent(sessionId)}/decision`, body),
   reviewWorkspace: (params: { dataset_id: string }) => api<DataReviewWorkspace>(`${DATA_API}/review/workspace${query(params)}`),
   saveReviewEpisode: (
     datasetId: string,

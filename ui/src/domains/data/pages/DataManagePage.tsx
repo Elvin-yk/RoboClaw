@@ -197,6 +197,14 @@ export default function DataManagePage() {
   const rawStatusSummary = useMemo(() => datasetSectionStatusSummary(rawDatasetPool), [rawDatasetPool])
   const rawFilteredIds = useMemo(() => rawDatasets.map((dataset) => dataset.id), [rawDatasets])
   const selectedRawIds = rawFilteredIds.filter((id) => selectedDatasetIdSet.has(id))
+  const selectedRawDatasets = useMemo(
+    () => rawDatasetPool.filter((dataset) => selectedDatasetIdSet.has(dataset.id)),
+    [rawDatasetPool, selectedDatasetIdSet],
+  )
+  const selectedRawBatchIds = selectedRawDatasets.map((dataset) => dataset.id)
+  const selectedManualReviewDatasets = selectedRawDatasets.filter(isAutoCleanPassedDataset)
+  const canStartManualReviewBatch = selectedRawDatasets.length > 0
+    && selectedManualReviewDatasets.length === selectedRawDatasets.length
   const allFilteredRawSelected = rawFilteredIds.length > 0 && rawFilteredIds.every((id) => selectedDatasetIdSet.has(id))
   const selectedReviewBatchIds = selectedDatasetIds.filter((id) => datasetsById.has(id))
   const canApplyReviewBatch = selectedReviewBatchIds.length > 0
@@ -276,10 +284,18 @@ export default function DataManagePage() {
   }
 
   async function startSelectedAutoClean() {
-    if (!selectedRawIds.length) return
-    const job = await dataApi.startAutoCleanRun({ dataset_ids: selectedRawIds, chain_id: 'default', force: true })
+    if (!selectedRawBatchIds.length) return
+    const job = await dataApi.startAutoCleanRun({ dataset_ids: selectedRawBatchIds, chain_id: 'default', force: true })
     attach(job)
     setAutoCleanDialogJobId(job.job_id)
+  }
+
+  function openSelectedReviewQueue() {
+    if (!canStartManualReviewBatch || !selectedManualReviewDatasets.length) return
+    const params = new URLSearchParams()
+    params.set('dataset', selectedManualReviewDatasets[0].id)
+    selectedManualReviewDatasets.forEach((dataset) => params.append('datasets', dataset.id))
+    navigate(`/data/qc?${params.toString()}`)
   }
 
   async function startSelectedReviewBatch() {
@@ -316,7 +332,7 @@ export default function DataManagePage() {
   function openDatasetReview(dataset: Dataset) {
     setDrawerTarget(null)
     const encodedDataset = encodeURIComponent(dataset.id)
-    navigate(`/data/analysis?mode=review&dataset=${encodedDataset}&returnTo=data-manage&manageDataset=${encodedDataset}`)
+    navigate(`/data/qc?dataset=${encodedDataset}`)
   }
 
   function openPackageGate(packageItem: DatasetPackage, gateKey: string) {
@@ -388,19 +404,27 @@ export default function DataManagePage() {
             <div className="data-manage-section__action-group">
               <button
                 type="button"
+                className={cn('data-manage-batch-clean-button', selectedRawBatchIds.length > 0 && 'is-armed')}
+                onClick={() => void startSelectedAutoClean()}
+                disabled={selectedRawBatchIds.length === 0}
+              >
+                {t('dataManageBatchAutoClean')}
+              </button>
+              <button
+                type="button"
+                className={cn('data-manage-manual-review-button', canStartManualReviewBatch && 'is-armed')}
+                onClick={openSelectedReviewQueue}
+                disabled={!canStartManualReviewBatch}
+              >
+                {t('dataManageStartManualReviewBatch')}
+              </button>
+              <button
+                type="button"
                 className={cn('data-manage-review-batch-button', canApplyReviewBatch && 'is-armed')}
                 onClick={() => void startSelectedReviewBatch()}
                 disabled={!canApplyReviewBatch}
               >
                 {t('dataManageApplyReviewBatch')}
-              </button>
-              <button
-                type="button"
-                className={cn('data-manage-batch-clean-button', selectedRawIds.length > 0 && 'is-armed')}
-                onClick={() => void startSelectedAutoClean()}
-                disabled={selectedRawIds.length === 0}
-              >
-                {t('dataManageBatchAutoClean')}
               </button>
             </div>
           )}
@@ -1602,6 +1626,11 @@ function isPackableDataset(dataset: Dataset): boolean {
 
 function isReviewBatchReady(dataset: Dataset | undefined): boolean {
   return Boolean(dataset && qcReviewStatus(dataset) === 'ready_for_batch')
+}
+
+function isAutoCleanPassedDataset(dataset: Dataset): boolean {
+  const quality = buildDatasetQualityView(dataset)
+  return displayQualityStatus(quality.autoCleanStatus, 'auto_clean') === 'passed'
 }
 
 function currentReviewerId(user: { id?: string; phone?: string; nickname?: string | null } | null): string {
