@@ -750,6 +750,8 @@ export const inlineZh = {
         dataReviewFirstFrame: '首帧',
         dataReviewLastFrame: '尾帧',
         dataReviewFirstLastFrameEmpty: '当前 Episode 没有可预览的视频',
+        dataReviewActionInspectionEmpty: '当前 Episode 没有可检查的 Action 曲线',
+        dataReviewVideoInspectionEmpty: '当前 Episode 没有可检查的视频',
         dataReviewTaskDraft: '任务描述修正',
         dataReviewTaskDraftPlaceholder: '输入修正后的任务描述',
         dataReviewSaveDraft: '保存描述',

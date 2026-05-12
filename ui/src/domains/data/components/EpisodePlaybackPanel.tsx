@@ -22,8 +22,12 @@ interface EpisodeVideo {
   to_timestamp: number | null
 }
 
+export type EpisodePlaybackDisplayMode = 'full' | 'video' | 'trajectory'
+
 const VIDEO_SYNC_TOLERANCE = 0.15
 const LOOP_EPSILON = 0.05
+const EMPTY_VIDEOS: EpisodeVideo[] = []
+const EMPTY_TRAJECTORY: TrajectoryPayload = { timeValues: [], items: [], totalPoints: 0 }
 
 export function EpisodePlaybackPanel({
   episode,
@@ -35,6 +39,8 @@ export function EpisodePlaybackPanel({
   onLoadEpisode,
   showEpisodeControls = true,
   showTitle = true,
+  displayMode = 'full',
+  emptyLabel,
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -45,15 +51,22 @@ export function EpisodePlaybackPanel({
   onLoadEpisode: (episodeIndex: number) => void
   showEpisodeControls?: boolean
   showTitle?: boolean
+  displayMode?: EpisodePlaybackDisplayMode
+  emptyLabel?: string
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
   const videos = useMemo(() => readVideos(episode), [episode])
   const trajectory = useMemo(() => readTrajectory(episode), [episode])
   const taskDescription = useMemo(() => readTaskDescription(episode), [episode])
+  const showVideos = displayMode === 'full' || displayMode === 'video'
+  const showTrajectory = displayMode === 'full' || displayMode === 'trajectory'
+  const showTaskDescription = displayMode === 'full'
+  const visibleVideos = showVideos ? videos : EMPTY_VIDEOS
+  const visibleTrajectory = showTrajectory ? trajectory : EMPTY_TRAJECTORY
   const duration = useMemo(
-    () => resolvePlaybackDuration(summary, videos, trajectory),
-    [summary, videos, trajectory],
+    () => resolvePlaybackDuration(summary, visibleVideos, visibleTrajectory),
+    [summary, visibleVideos, visibleTrajectory],
   )
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -71,7 +84,7 @@ export function EpisodePlaybackPanel({
     syncLockRef.current = true
     videoRefs.current.forEach((video, index) => {
       if (!video || index === skipIndex || video.readyState === 0) return
-      const targetTime = getAbsoluteTime(videos[index], relativeTime, video.duration)
+      const targetTime = getAbsoluteTime(visibleVideos[index], relativeTime, video.duration)
       if (forceSeek || Math.abs(video.currentTime - targetTime) > VIDEO_SYNC_TOLERANCE) {
         video.currentTime = targetTime
       }
@@ -79,7 +92,7 @@ export function EpisodePlaybackPanel({
     queueMicrotask(() => {
       syncLockRef.current = false
     })
-  }, [videos])
+  }, [visibleVideos])
 
   const seekTo = useCallback((nextTime: number, forceSeek = true) => {
     const bounded = clamp(nextTime, 0, duration || 0)
@@ -94,7 +107,7 @@ export function EpisodePlaybackPanel({
     setPlaybackTime(0)
     setIsPlaying(false)
     setPlaybackError('')
-  }, [loadedEpisodeIndex])
+  }, [displayMode, loadedEpisodeIndex])
 
   useEffect(() => {
     const videosReady = videoRefs.current.filter((video): video is HTMLVideoElement => Boolean(video))
@@ -116,14 +129,14 @@ export function EpisodePlaybackPanel({
         })
       }
     })
-  }, [isPlaying, syncVideosTo, videos])
+  }, [isPlaying, syncVideosTo, visibleVideos])
 
   const handleLeaderTimeUpdate = (index: number) => {
     if (syncLockRef.current || index !== 0) return
     const video = videoRefs.current[index]
     if (!video) return
 
-    const videoMeta = videos[index]
+    const videoMeta = visibleVideos[index]
     const clipEnd = getClipEnd(videoMeta, video.duration)
     if (isPlaying && clipEnd != null && video.currentTime >= clipEnd - LOOP_EPSILON) {
       seekTo(0)
@@ -138,13 +151,13 @@ export function EpisodePlaybackPanel({
     syncVideosTo(nextTime, false, index)
   }
 
-  const hasPlaybackData = videos.length > 0 || trajectory.items.length > 0
+  const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0
 
   if (!hasPlaybackData) {
     return (
       <section className="data-panel">
         {showTitle && <div className="data-panel__title"><h2>Episode 可视化</h2></div>}
-        <div className="data-empty">加载 episode 后显示视频和 action / observation 曲线</div>
+        <div className="data-empty">{emptyLabel || '加载 episode 后显示视频和 action / observation 曲线'}</div>
       </section>
     )
   }
@@ -166,7 +179,7 @@ export function EpisodePlaybackPanel({
               />
               <span>Episode #{loadedEpisodeIndex}</span>
               <span>{formatSeconds(duration)}</span>
-              <span>{summary.video_count == null ? videos.length : textValue(summary.video_count)} videos</span>
+              {showVideos && <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>}
             </div>
           )}
         </div>
@@ -174,32 +187,34 @@ export function EpisodePlaybackPanel({
 
       {playbackError && <div className="data-alert">{playbackError}</div>}
 
-      {taskDescription && (
+      {showTaskDescription && taskDescription && (
         <div className="data-analysis-task-strip">
           <span>Task</span>
           <strong>{taskDescription}</strong>
         </div>
       )}
 
-      <div className="data-analysis-video-grid">
-        {videos.map((video, index) => (
-          <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
-            <video
-              ref={(node) => {
-                videoRefs.current[index] = node
-              }}
-              src={video.url}
-              muted
-              playsInline
-              preload="metadata"
-              onClick={() => setIsPlaying((current) => !current)}
-              onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
-              onTimeUpdate={() => handleLeaderTimeUpdate(index)}
-            />
-            <figcaption>{video.stream || video.path}</figcaption>
-          </figure>
-        ))}
-      </div>
+      {showVideos && (
+        <div className="data-analysis-video-grid">
+          {visibleVideos.map((video, index) => (
+            <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
+              <video
+                ref={(node) => {
+                  videoRefs.current[index] = node
+                }}
+                src={video.url}
+                muted
+                playsInline
+                preload="metadata"
+                onClick={() => setIsPlaying((current) => !current)}
+                onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+                onTimeUpdate={() => handleLeaderTimeUpdate(index)}
+              />
+              <figcaption>{video.stream || video.path}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
 
       <PlaybackTimeline
         currentTime={playbackTime}
@@ -216,12 +231,14 @@ export function EpisodePlaybackPanel({
         }}
       />
 
-      <TrajectoryCharts
-        trajectory={trajectory}
-        currentTime={playbackTime}
-        duration={duration}
-        onSeek={(seconds) => seekTo(seconds)}
-      />
+      {showTrajectory && (
+        <TrajectoryCharts
+          trajectory={visibleTrajectory}
+          currentTime={playbackTime}
+          duration={duration}
+          onSeek={(seconds) => seekTo(seconds)}
+        />
+      )}
     </section>
   )
 }

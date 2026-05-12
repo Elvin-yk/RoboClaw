@@ -427,49 +427,24 @@ export default function DataQcPage() {
                 />
               </section>
 
-              <section className="data-panel data-qc-review-edit-panel">
-                <div className="data-panel__title">
-                  <h2>{t('dataReviewEditSectionTitle')}</h2>
-                </div>
-                <div className="data-review-draft">
-                  <label>
-                    <span>{t('dataReviewTaskDraft')}</span>
-                    <input
-                      value={draftTaskDescription}
-                      onChange={(event) => setDraftTaskDescription(event.target.value)}
-                      placeholder={datasetTaskDescription(activeDataset) || t('dataReviewTaskDraftPlaceholder')}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="data-analysis-secondary-button"
-                    onClick={() => void saveDraftTaskDescription()}
-                    disabled={reviewSaving || reviewLoading}
-                  >
-                    {t('dataReviewSaveDraft')}
-                  </button>
-                </div>
-              </section>
-
               <ReviewInspectionChecklist
-                episode={episode}
-                values={inspectionCheckValues}
-                onChange={setInspectionCheck}
-                t={t}
-              />
-
-              <DataEpisodeInspectionWorkspace
                 episode={episode}
                 episodeIndex={episodeIndex}
                 totalEpisodes={reviewWorkspace.total_episodes || activeDataset.stats.total_episodes}
                 loading={loading}
                 canLoadEpisode={Boolean(activeDatasetId)}
                 error={inspectError}
-                emptyLabel={t('dataQcReviewVisualsLoading')}
-                showEpisodeControls={false}
-                showTitle={false}
+                values={inspectionCheckValues}
+                datasetTask={datasetTaskDescription(activeDataset)}
+                draftTaskDescription={draftTaskDescription}
+                saving={reviewSaving}
+                reviewLoading={reviewLoading}
+                onChange={setInspectionCheck}
                 onEpisodeIndexChange={setEpisodeIndex}
                 onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
+                onDraftTaskDescriptionChange={setDraftTaskDescription}
+                onSaveDraftTaskDescription={() => void saveDraftTaskDescription()}
+                t={t}
               />
             </>
           ) : (
@@ -619,13 +594,39 @@ function ReviewLedger({
 
 function ReviewInspectionChecklist({
   episode,
+  episodeIndex,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  error,
   values,
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
   onChange,
+  onEpisodeIndexChange,
+  onLoadEpisode,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
   t,
 }: {
   episode: unknown
+  episodeIndex: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  error?: string
   values: Record<string, InspectionCheckValue | ''>
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
   onChange: (itemId: string, value: InspectionCheckValue) => void | Promise<void>
+  onEpisodeIndexChange: (episodeIndex: number) => void
+  onLoadEpisode: (episodeIndex: number) => void
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
   const outcome = inspectionOutcome(values)
@@ -663,7 +664,24 @@ function ReviewInspectionChecklist({
               </button>
             </div>
           </div>
-          {activeItem.id === 'first_last_frame' && <FirstLastFrameInspection episode={episode} t={t} />}
+          <ReviewInspectionEvidence
+            item={activeItem}
+            episode={episode}
+            episodeIndex={episodeIndex}
+            totalEpisodes={totalEpisodes}
+            loading={loading}
+            canLoadEpisode={canLoadEpisode}
+            error={error}
+            datasetTask={datasetTask}
+            draftTaskDescription={draftTaskDescription}
+            saving={saving}
+            reviewLoading={reviewLoading}
+            onEpisodeIndexChange={onEpisodeIndexChange}
+            onLoadEpisode={onLoadEpisode}
+            onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+            onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+            t={t}
+          />
         </article>
       ) : (
         <div className="data-review-inspection-complete">
@@ -671,6 +689,117 @@ function ReviewInspectionChecklist({
         </div>
       )}
     </section>
+  )
+}
+
+function ReviewInspectionEvidence({
+  item,
+  episode,
+  episodeIndex,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  error,
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
+  onEpisodeIndexChange,
+  onLoadEpisode,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
+  t,
+}: {
+  item: ReviewInspectionItem
+  episode: unknown
+  episodeIndex: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  error?: string
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
+  onEpisodeIndexChange: (episodeIndex: number) => void
+  onLoadEpisode: (episodeIndex: number) => void
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  if (item.id === 'task_description') {
+    return (
+      <TaskDescriptionInspection
+        datasetTask={datasetTask}
+        draftTaskDescription={draftTaskDescription}
+        saving={saving}
+        reviewLoading={reviewLoading}
+        onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+        onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+        t={t}
+      />
+    )
+  }
+  if (item.id === 'first_last_frame') return <FirstLastFrameInspection episode={episode} t={t} />
+  if (item.id === 'action' || item.id === 'video') {
+    const displayMode = item.id === 'action' ? 'trajectory' : 'video'
+    const emptyLabel = item.id === 'action' ? t('dataReviewActionInspectionEmpty') : t('dataReviewVideoInspectionEmpty')
+    return (
+      <DataEpisodeInspectionWorkspace
+        episode={episode}
+        episodeIndex={episodeIndex}
+        totalEpisodes={totalEpisodes}
+        loading={loading}
+        canLoadEpisode={canLoadEpisode}
+        error={error}
+        emptyLabel={emptyLabel}
+        showEpisodeControls={false}
+        showTitle={false}
+        displayMode={displayMode}
+        onEpisodeIndexChange={onEpisodeIndexChange}
+        onLoadEpisode={onLoadEpisode}
+      />
+    )
+  }
+  return null
+}
+
+function TaskDescriptionInspection({
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
+  t,
+}: {
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="data-review-draft data-review-draft--inspection">
+      <label>
+        <span>{t('dataReviewTaskDraft')}</span>
+        <input
+          value={draftTaskDescription}
+          onChange={(event) => onDraftTaskDescriptionChange(event.target.value)}
+          placeholder={datasetTask || t('dataReviewTaskDraftPlaceholder')}
+        />
+      </label>
+      <button
+        type="button"
+        className="data-analysis-secondary-button"
+        onClick={onSaveDraftTaskDescription}
+        disabled={saving || reviewLoading}
+      >
+        {t('dataReviewSaveDraft')}
+      </button>
+    </div>
   )
 }
 

@@ -749,6 +749,8 @@ export const inlineEn = {
         dataReviewFirstFrame: 'First frame',
         dataReviewLastFrame: 'Last frame',
         dataReviewFirstLastFrameEmpty: 'No previewable video exists for this episode',
+        dataReviewActionInspectionEmpty: 'No action / observation curves exist for this episode',
+        dataReviewVideoInspectionEmpty: 'No reviewable video exists for this episode',
         dataReviewTaskDraft: 'Task description edit',
         dataReviewTaskDraftPlaceholder: 'Enter the revised task description',
         dataReviewSaveDraft: 'Save Description',

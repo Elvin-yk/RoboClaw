@@ -1,6 +1,6 @@
 import { asRecord } from '@/domains/data/lib/analysisPayload'
 import { useI18n } from '@/i18n'
-import { EpisodePlaybackPanel } from './EpisodePlaybackPanel'
+import { EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
 
 interface DataEpisodeInspectionWorkspaceProps {
   episode: unknown
@@ -12,6 +12,7 @@ interface DataEpisodeInspectionWorkspaceProps {
   emptyLabel?: string
   showEpisodeControls?: boolean
   showTitle?: boolean
+  displayMode?: EpisodePlaybackDisplayMode
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
 }
@@ -26,6 +27,7 @@ export function DataEpisodeInspectionWorkspace({
   emptyLabel,
   showEpisodeControls = true,
   showTitle = true,
+  displayMode = 'full',
   onEpisodeIndexChange,
   onLoadEpisode,
 }: DataEpisodeInspectionWorkspaceProps) {
@@ -46,6 +48,8 @@ export function DataEpisodeInspectionWorkspace({
           onLoadEpisode={onLoadEpisode}
           showEpisodeControls={showEpisodeControls}
           showTitle={showTitle}
+          displayMode={displayMode}
+          emptyLabel={emptyLabel}
         />
       ) : (
         <section className="data-panel data-qc-episode-inspection">
