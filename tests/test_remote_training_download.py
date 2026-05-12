@@ -8,10 +8,10 @@ import tarfile
 import pytest
 
 from roboclaw.http.routes.train import (
-    RemoteDownloadResult,
     RemoteTrainStartRequest,
-    RemoteTrainingConnection,
+    serialize_remote_request,
 )
+from roboclaw.http.remote_training_transfer import RemoteDownloadStream, RemoteTrainingConnection
 
 
 def _make_tar(files: dict[str, bytes]) -> bytes:
@@ -25,20 +25,18 @@ def _make_tar(files: dict[str, bytes]) -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_download_reads_tar_json_response_and_reuses_connection() -> None:
+async def test_download_streams_tar_and_keeps_regular_requests_available() -> None:
     actions: list[str] = []
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             request = json.loads((await reader.readline()).decode("utf-8"))
             actions.append(request["action"])
-            writer.write(_make_tar({"checkpoint.txt": b"weights"}))
-            writer.write(json.dumps({"message": "download ok", "tasks": []}).encode("utf-8") + b"\n")
-            await writer.drain()
-
-            request = json.loads((await reader.readline()).decode("utf-8"))
-            actions.append(request["action"])
-            writer.write(json.dumps({"message": "sync success", "tasks": []}).encode("utf-8") + b"\n")
+            if request["action"] == "结果下载":
+                writer.write(_make_tar({"checkpoint.txt": b"weights"}))
+                writer.write(json.dumps({"message": "download ok", "tasks": []}).encode("utf-8") + b"\n")
+            else:
+                writer.write(json.dumps({"message": "sync success", "tasks": []}).encode("utf-8") + b"\n")
             await writer.drain()
         finally:
             writer.close()
@@ -49,23 +47,28 @@ async def test_download_reads_tar_json_response_and_reuses_connection() -> None:
     connection = RemoteTrainingConnection(host, port)
     try:
         download = await connection.download(
-            RemoteTrainStartRequest(username="alice", taskName="job1", action="结果下载")
+            serialize_remote_request(RemoteTrainStartRequest(username="alice", taskName="job1", action="结果下载")),
+            "job1-result.tar",
         )
-        assert isinstance(download, RemoteDownloadResult)
-        assert download.response == {"message": "download ok", "tasks": []}
+        assert isinstance(download, RemoteDownloadStream)
+        assert download.response == {"message": "download started"}
 
-        with tarfile.open(download.file_path, "r:") as tar:
+        tar_bytes = b""
+        async for chunk in download.chunks:
+            tar_bytes += chunk
+
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as tar:
             member = tar.extractfile("checkpoint.txt")
             assert member is not None
             assert member.read() == b"weights"
 
-        response = await connection.request(RemoteTrainStartRequest(username="alice", action="任务同步"))
+        response = await connection.request(
+            serialize_remote_request(RemoteTrainStartRequest(username="alice", action="任务同步"))
+        )
         assert response == {"message": "sync success", "tasks": []}
         assert actions == ["结果下载", "任务同步"]
     finally:
         await connection.close()
-        if "download" in locals() and isinstance(download, RemoteDownloadResult):
-            download.file_path.unlink(missing_ok=True)
         server.close()
         await server.wait_closed()
 
@@ -85,7 +88,10 @@ async def test_download_returns_json_error_without_waiting_for_socket_close() ->
     connection = RemoteTrainingConnection(host, port)
     try:
         response = await asyncio.wait_for(
-            connection.download(RemoteTrainStartRequest(username="alice", taskName="job1", action="结果下载")),
+            connection.download(
+                serialize_remote_request(RemoteTrainStartRequest(username="alice", taskName="job1", action="结果下载")),
+                "job1-result.tar",
+            ),
             timeout=0.5,
         )
         assert response == {"message": "job is running", "tasks": []}

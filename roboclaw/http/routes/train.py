@@ -61,14 +61,6 @@ class RemoteDownloadProgress:
                 "updatedAt": time.time(),
             }
 
-    async def update(self, download_id: str, downloaded_bytes: int) -> None:
-        async with self._lock:
-            item = self._items.get(download_id)
-            if item is None:
-                return
-            item["downloadedBytes"] = downloaded_bytes
-            item["updatedAt"] = time.time()
-
     def update_now(self, download_id: str, downloaded_bytes: int) -> None:
         item = self._items.get(download_id)
         if item is None:

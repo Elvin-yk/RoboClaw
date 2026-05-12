@@ -593,6 +593,8 @@ export default function TrainingCenterPage() {
                         setSelectedRemoteCheckpoints([])
                         setRemoteDownloadTotalBytes(0)
                         setRemoteDownloadProgress(null)
+                        setWebTerminalUrl('')
+                        sessionStorage.removeItem('webterminal_url')
                       }}
                       className="h-10 min-w-0 flex-1 bg-bg border border-bd text-tx px-3 rounded-lg text-sm focus:outline-none focus:border-ac"
                     >
