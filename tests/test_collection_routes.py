@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
-from fastapi import Response
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
 from roboclaw.http.routes.collection import CloudApiError, register_collection_routes
+from roboclaw.http.routes.collection_upload import CollectionUploadManager
 
 
 class FakeDatasets:
@@ -76,6 +76,7 @@ class FakeCloud:
         self.proxy_requests: list[dict[str, Any]] = []
         self.fail_finish = False
         self.fail_assignments = False
+        self.fail_upload = False
         self.assignments = [{"id": "assign-1", "task_name": "Task A"}]
 
     async def request(
@@ -121,6 +122,34 @@ class FakeCloud:
             if self.fail_finish:
                 raise CloudApiError(502, "cloud down")
             return {"id": "run-1", "status": json_body["status"], "duration_seconds": json_body["duration_seconds"]}
+        if path == "/collection/runs/run-1/upload":
+            return {
+                "id": "run-upload-1",
+                "run_id": "run-1",
+                **(json_body or {}),
+            }
+        if path == "/collection/runs/run-1/upload/session":
+            if self.fail_upload:
+                raise CloudApiError(502, "oss down")
+            return {
+                "upload_id": "run-1",
+                "upload_dir": "prod/orgs/org-1/users/user-1/collection-runs/run-1/raw/cloud_dataset/",
+            }
+        if path == "/sts/presign":
+            if self.fail_upload:
+                raise CloudApiError(502, "oss down")
+            return {
+                "urls": {
+                    relative_path: f"http://upload.local/{relative_path}"
+                    for relative_path in json_body["relative_paths"]
+                }
+            }
+        if path == "/datasets/upload/complete":
+            if self.fail_upload:
+                raise CloudApiError(502, "oss down")
+            return {"upload_id": json_body["upload_id"], "status": "pending"}
+        if path.startswith("/datasets/upload/") and path.endswith("/status"):
+            return {"upload_id": path.split("/")[-2], "status": "pending"}
         if path == "/collection/admin/tasks":
             return []
         if path.startswith("/collection/admin/tasks/") and method == "DELETE":
@@ -149,7 +178,16 @@ def app(tmp_path: Path):
     register_collection_routes(
         app,
         service,  # type: ignore[arg-type]
-        collection_config=type("Config", (), {"api_url": "http://fake", "heartbeat_interval_s": 999, "finish_retry_interval_s": 999})(),
+        collection_config=type(
+            "Config",
+            (),
+            {
+                "api_url": "http://fake",
+                "heartbeat_interval_s": 999,
+                "finish_retry_interval_s": 999,
+                "auto_upload_enabled": False,
+            },
+        )(),
         cloud_client=cloud,  # type: ignore[arg-type]
         state_dir=tmp_path / "state",
     )
@@ -209,6 +247,7 @@ def test_evo_auth_proxy_uses_auth_cloud_not_collection_cloud(tmp_path: Path) -> 
                 "api_url": "http://8.136.130.234/dev-api",
                 "heartbeat_interval_s": 999,
                 "finish_retry_interval_s": 999,
+                "auto_upload_enabled": False,
             },
         )(),
         cloud_client=collection_cloud,  # type: ignore[arg-type]
@@ -346,6 +385,154 @@ def test_finish_failure_is_queued_without_persisting_token(client: TestClient, a
     assert retry.status_code == 200
     assert retry.json()["synced"] == 1
     assert json.loads(pending_path.read_text(encoding="utf-8")) == []
+
+
+def test_stop_uploads_dataset_to_oss_before_finishing_cloud_run(tmp_path: Path) -> None:
+    app = FastAPI()
+    service = FakeService(tmp_path / "datasets")
+    cloud = FakeCloud()
+    uploaded_paths: list[str] = []
+
+    async def fake_put(_url: str, path: Path) -> None:
+        uploaded_paths.append(path.relative_to(service.datasets.root / "local" / "cloud_dataset").as_posix())
+
+    upload_manager = CollectionUploadManager(
+        cloud=cloud,
+        state_dir=tmp_path / "state" / "uploads",
+        put_object=fake_put,
+    )
+    register_collection_routes(
+        app,
+        service,  # type: ignore[arg-type]
+        collection_config=type(
+            "Config",
+            (),
+            {
+                "api_url": "http://fake",
+                "heartbeat_interval_s": 999,
+                "finish_retry_interval_s": 999,
+                "auto_upload_enabled": False,
+            },
+        )(),
+        cloud_client=cloud,  # type: ignore[arg-type]
+        upload_manager=upload_manager,
+        state_dir=tmp_path / "state",
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    start = client.post(
+        "/api/collection/runs/start",
+        headers={"Authorization": "Bearer secret-token"},
+        json={"assignment_id": "assign-1"},
+    )
+    assert start.status_code == 200
+    dataset = service.datasets.root / "local" / "cloud_dataset"
+    (dataset / "meta").mkdir(parents=True)
+    (dataset / "data" / "chunk-000").mkdir(parents=True)
+    (dataset / "meta" / "info.json").write_text(
+        json.dumps({"total_episodes": 1, "total_frames": 40, "fps": 20}),
+        encoding="utf-8",
+    )
+    (dataset / "data" / "chunk-000" / "episode_000000.parquet").write_bytes(b"episode")
+    (dataset / ".status").mkdir()
+    (dataset / ".status" / "local.json").write_text("{}", encoding="utf-8")
+
+    stop = client.post("/api/collection/runs/stop", headers={"Authorization": "Bearer secret-token"})
+
+    assert stop.status_code == 200
+    assert stop.json()["status"] == "finished"
+    assert uploaded_paths == [
+        "data/chunk-000/episode_000000.parquet",
+        "meta/info.json",
+    ]
+    request_paths = [item["path"] for item in cloud.requests]
+    assert "/collection/runs/run-1/upload/session" in request_paths
+    assert "/sts/presign" in request_paths
+    assert "/datasets/upload/complete" in request_paths
+    upload_updates = [
+        item["json"]
+        for item in cloud.requests
+        if item["path"] == "/collection/runs/run-1/upload"
+    ]
+    assert [item["status"] for item in upload_updates] == ["pending", "uploading", "uploaded", "validating"]
+    assert upload_updates[-1]["uploaded_files"] == 2
+    assert upload_updates[-1]["total_files"] == 2
+    assert upload_updates[-1]["uploaded_bytes"] == len(b"episode") + len(
+        json.dumps({"total_episodes": 1, "total_frames": 40, "fps": 20})
+    )
+    finish = cloud.requests[-1]
+    assert finish["path"] == "/collection/runs/run-1/finish"
+    assert finish["json"]["metadata"]["oss_upload"]["status"] == "completed"
+    assert finish["json"]["metadata"]["oss_upload"]["upload_id"] == "run-1"
+    assert (
+        finish["json"]["metadata"]["oss_upload"]["oss_path"]
+        == "prod/orgs/org-1/users/user-1/collection-runs/run-1/raw/cloud_dataset/"
+    )
+    assert "secret-token" not in (tmp_path / "state" / "uploads" / "run-1.json").read_text(encoding="utf-8")
+
+
+def test_upload_failure_queues_finish_for_retry(tmp_path: Path) -> None:
+    app = FastAPI()
+    service = FakeService(tmp_path / "datasets")
+    cloud = FakeCloud()
+
+    async def fake_put(_url: str, _path: Path) -> None:
+        return None
+
+    upload_manager = CollectionUploadManager(
+        cloud=cloud,
+        state_dir=tmp_path / "state" / "uploads",
+        put_object=fake_put,
+    )
+    register_collection_routes(
+        app,
+        service,  # type: ignore[arg-type]
+        collection_config=type(
+            "Config",
+            (),
+            {
+                "api_url": "http://fake",
+                "heartbeat_interval_s": 999,
+                "finish_retry_interval_s": 999,
+                "auto_upload_enabled": False,
+            },
+        )(),
+        cloud_client=cloud,  # type: ignore[arg-type]
+        upload_manager=upload_manager,
+        state_dir=tmp_path / "state",
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    start = client.post(
+        "/api/collection/runs/start",
+        headers={"Authorization": "Bearer secret-token"},
+        json={"assignment_id": "assign-1"},
+    )
+    assert start.status_code == 200
+    dataset = service.datasets.root / "local" / "cloud_dataset" / "meta"
+    dataset.mkdir(parents=True)
+    (dataset / "info.json").write_text(
+        json.dumps({"total_episodes": 1, "total_frames": 40, "fps": 20}),
+        encoding="utf-8",
+    )
+    cloud.fail_upload = True
+
+    stop = client.post("/api/collection/runs/stop", headers={"Authorization": "Bearer secret-token"})
+
+    assert stop.status_code == 200
+    assert stop.json()["status"] == "pending_cloud_finish"
+    pending_path = tmp_path / "state" / "pending_collection_finishes.json"
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert pending[0]["requires_upload"] is True
+    assert "secret-token" not in pending_path.read_text(encoding="utf-8")
+    assert not any(item["path"] == "/collection/runs/run-1/finish" for item in cloud.requests)
+    upload_updates = [
+        item["json"]
+        for item in cloud.requests
+        if item["path"] == "/collection/runs/run-1/upload"
+    ]
+    assert upload_updates[-1]["status"] == "failed"
+    assert upload_updates[-1]["error_message"] == "oss down"
 
 
 def test_stop_failure_marks_cloud_run_failed_and_clears_active(client: TestClient, app: FastAPI) -> None:
