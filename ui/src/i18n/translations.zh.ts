@@ -828,7 +828,6 @@ export const inlineZh = {
         dataManageBatchDisabledNoDataset: '未选中 Dataset',
         dataManageManualReviewDisabledAutoCleanNotPassed: '包含 {count} 条自动清洗未通过的数据',
         dataManageReviewBatchDisabledAutoCleanNotPassed: '包含 {count} 条自动清洗未通过的数据',
-        dataManageReviewBatchDisabledManualReviewNotPassed: '包含 {count} 条人工检阅未通过的数据',
         dataManageReviewBatchDisabledNotReady: '包含 {count} 条尚未完成或已应用的数据',
         dataManageFilterConditions: '筛选条件',
         dataManageTaskFilterLabel: '任务',

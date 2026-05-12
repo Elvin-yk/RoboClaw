@@ -1659,7 +1659,6 @@ function isPackableDataset(dataset: Dataset): boolean {
 function isReviewBatchReady(dataset: Dataset): boolean {
   return qcReviewStatus(dataset) === 'ready_for_batch'
     && datasetAutoCleanDisplayStatus(dataset) === 'passed'
-    && datasetManualReviewDisplayStatus(dataset) === 'passed'
 }
 
 function isAutoCleanPassedDataset(dataset: Dataset): boolean {
@@ -1716,10 +1715,6 @@ function applyReviewBatchDisabledReason(
   const autoCleanBlockedCount = datasets.filter((dataset) => datasetAutoCleanDisplayStatus(dataset) !== 'passed').length
   if (autoCleanBlockedCount) {
     return t('dataManageReviewBatchDisabledAutoCleanNotPassed', { count: autoCleanBlockedCount })
-  }
-  const manualReviewBlockedCount = datasets.filter((dataset) => datasetManualReviewDisplayStatus(dataset) !== 'passed').length
-  if (manualReviewBlockedCount) {
-    return t('dataManageReviewBatchDisabledManualReviewNotPassed', { count: manualReviewBlockedCount })
   }
   const notReadyCount = datasets.filter((dataset) => qcReviewStatus(dataset) !== 'ready_for_batch').length
   if (notReadyCount) {

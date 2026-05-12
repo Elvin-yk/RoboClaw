@@ -827,7 +827,6 @@ export const inlineEn = {
         dataManageBatchDisabledNoDataset: 'No Dataset selected',
         dataManageManualReviewDisabledAutoCleanNotPassed: '{count} selected datasets have not passed auto clean',
         dataManageReviewBatchDisabledAutoCleanNotPassed: '{count} selected datasets have not passed auto clean',
-        dataManageReviewBatchDisabledManualReviewNotPassed: '{count} selected datasets have not passed manual review',
         dataManageReviewBatchDisabledNotReady: '{count} selected datasets are not ready to apply or were already applied',
         dataManageFilterConditions: 'Filters',
         dataManageTaskFilterLabel: 'Task',
