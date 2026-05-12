@@ -1,5 +1,5 @@
 import { api, deleteApi, patchJson, postJson } from '@/shared/api/client'
-import type { DataJob, DataOverview, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
+import type { DataJob, DataOverview, DataQcRun, DataReviewWorkspace, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
 
 const DATA_API = '/api/data'
 
@@ -25,7 +25,19 @@ export const dataApi = {
   inspectEpisodes: (params: { dataset?: string; source: string; path?: string; page?: number; page_size?: number }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episodes${query(params)}`),
   inspectEpisode: (params: { dataset?: string; source: string; path?: string; episode_index?: number; preview?: boolean }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episode${query(params)}`),
   startDiagnosisRun: (body: { dataset_ids: string[] }) => postJson<DataJob>(`${DATA_API}/qc/diagnosis-runs`, body),
-  startCleanRun: (body: { dataset_ids: string[]; task?: string; vcodec?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/runs`, body),
+  startAutoCleanRun: (body: { dataset_ids: string[]; chain_id?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/auto-clean-runs`, body),
+  qcRun: (params: { dataset_id: string; run_id: string }) => api<DataQcRun>(`${DATA_API}/qc/run-details${query(params)}`),
+  reviewWorkspace: (params: { dataset_id: string }) => api<DataReviewWorkspace>(`${DATA_API}/review/workspace${query(params)}`),
+  saveReviewEpisode: (
+    datasetId: string,
+    episodeIndex: number,
+    body: { decision: 'passed' | 'failed'; reason?: string; note?: string; reviewer_id?: string },
+  ) => patchJson<DataReviewWorkspace>(`${DATA_API}/review/datasets/${encodePath(datasetId)}/episodes/${episodeIndex}`, body),
+  saveReviewDraft: (
+    datasetId: string,
+    body: { draft_edits: Record<string, unknown>; reviewer_id?: string },
+  ) => patchJson<DataReviewWorkspace>(`${DATA_API}/review/datasets/${encodePath(datasetId)}/draft`, body),
+  startReviewBatchRun: (body: { dataset_ids: string[]; reviewer_id?: string }) => postJson<DataJob>(`${DATA_API}/review/batch-runs`, body),
   updateDatasetGate: (datasetId: string, gateKey: string, body: { status: string; message?: string; details?: Record<string, unknown> }) => (
     patchJson<{ dataset: Dataset }>(`${DATA_API}/lifecycle/datasets/${encodePath(datasetId)}/gates/${gateKey}`, body)
   ),

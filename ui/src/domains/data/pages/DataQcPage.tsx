@@ -1,230 +1,1133 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useDataJobStore } from '@/domains/data/store/jobStore'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { dataApi } from '@/domains/data/api/dataApi'
+import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
+import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import {
+  buildDatasetQualityView,
+  datasetTaskDescription,
+  qualityStatusLabelKey,
+  qcReviewStatus,
+  type QualityStatus,
+} from '@/domains/data/model/datasetQuality'
+import type { DataReviewDecision, DataReviewStatus, DataReviewWorkspace, Dataset } from '@/domains/data/model/types'
+import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
-import { useDataLifecycleStore } from '@/domains/data/store/lifecycleStore'
-import { dataGateLabelKey, dataGateStatusLabelKey } from '@/domains/data/model/gates'
-import { isTerminalDataJobPhase, type DataGate, type Dataset } from '@/domains/data/model/types'
-import { textValue } from '@/domains/data/lib/analysisPayload'
+import { useAuthStore } from '@/shared/lib/authStore'
 import { useI18n, type TranslationKey } from '@/i18n'
+import { cn } from '@/shared/lib/cn'
 
-type StageFilter = 'all' | Dataset['lifecycle_stage']
-type RepairableFilter = 'all' | 'yes' | 'no'
+type ReviewWorkStatus = DataReviewStatus | 'blocked'
+type InspectionCheckValue = 'passed' | 'failed'
+type InspectionCheckScope = 'dataset' | 'episode'
+type ReviewInspectionOutcome = 'pending' | 'passed' | 'failed'
 
-const STAGE_LABEL_KEYS: Record<string, TranslationKey> = {
-  raw: 'dataStageRaw',
-  inspecting: 'dataStageInspecting',
-  cleaning: 'dataStageCleaning',
-  needs_review: 'dataStageNeedsReview',
-  clean: 'dataQcStageClean',
-  excluded: 'dataStageExcluded',
+interface QcDatasetRecord {
+  id: string
+  name: string
+  path: string
+  task: string
+  createdDate: string
+  autoCleanStatus: QualityStatus
+  reviewStatus: ReviewWorkStatus
+  reviewedCount: number
+  passedCount: number
+  failedCount: number
+  totalEpisodes: number
+  reviewerIds: string[]
 }
+
+interface QcSequenceSummary {
+  total: number
+  done: number
+  remaining: number
+  reviewable: number
+  percent: number
+  nextRecord: QcDatasetRecord | null
+}
+
+interface ReviewInspectionItem {
+  id: string
+  labelKey: TranslationKey
+  scope: InspectionCheckScope
+}
+
+interface QcFrameVideo {
+  path: string
+  url: string
+  stream: string
+  from_timestamp: number | null
+  to_timestamp: number | null
+}
+
+const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }> = [
+  { value: 'motion_abnormal', labelKey: 'dataReviewReasonMotionAbnormal' },
+  { value: 'video_abnormal', labelKey: 'dataReviewReasonVideoAbnormal' },
+  { value: 'task_mismatch', labelKey: 'dataReviewReasonTaskMismatch' },
+  { value: 'robot_state_abnormal', labelKey: 'dataReviewReasonRobotStateAbnormal' },
+  { value: 'other', labelKey: 'dataReviewReasonOther' },
+]
+
+const REVIEW_INSPECTION_ITEMS: ReviewInspectionItem[] = [
+  { id: 'task_description', labelKey: 'dataReviewInspectionTaskDescription', scope: 'dataset' },
+  { id: 'first_last_frame', labelKey: 'dataReviewInspectionFirstLastFrame', scope: 'episode' },
+  { id: 'action', labelKey: 'dataReviewInspectionAction', scope: 'episode' },
+  { id: 'video', labelKey: 'dataReviewInspectionVideo', scope: 'episode' },
+]
 
 export default function DataQcPage() {
   const { t } = useI18n()
-  const { datasets, selectedDatasetIds, loading, error, load, toggleDataset, clearSelection } = useDataLibraryStore()
-  const { startDiagnosis, startClean, passReview } = useDataLifecycleStore()
-  const { jobs, cancel } = useDataJobStore()
-  const [query, setQuery] = useState('')
-  const [stageFilter, setStageFilter] = useState<StageFilter>('all')
-  const [damageFilter, setDamageFilter] = useState('all')
-  const [repairableFilter, setRepairableFilter] = useState<RepairableFilter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const user = useAuthStore((state) => state.user)
+  const { datasets, error, load } = useDataLibraryStore()
+  const {
+    episode,
+    loading,
+    error: inspectError,
+    setSource,
+    setDataset,
+    loadEpisode,
+  } = useDataInspectWorkspace()
+  const [activeDatasetId, setActiveDatasetId] = useState(searchParams.get('dataset') || '')
+  const [reviewWorkspace, setReviewWorkspace] = useState<DataReviewWorkspace | null>(null)
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewSaving, setReviewSaving] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [episodeIndex, setEpisodeIndex] = useState(0)
+  const [failureOpen, setFailureOpen] = useState(false)
+  const [failureReason, setFailureReason] = useState('')
+  const [failureNote, setFailureNote] = useState('')
+  const [draftTaskDescription, setDraftTaskDescription] = useState('')
+  const [datasetIdCopied, setDatasetIdCopied] = useState(false)
+  const [datasetInspectionChecks, setDatasetInspectionChecks] = useState<Record<string, InspectionCheckValue>>({})
+  const [episodeInspectionChecks, setEpisodeInspectionChecks] = useState<Record<string, InspectionCheckValue>>({})
+  const reviewLoadRequestRef = useRef(0)
+  const inspectionLoadRequestRef = useRef(0)
+  const reviewerId = currentReviewerId(user)
+  const reviewerLabel = currentReviewerLabel(user)
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const damageTypes = useMemo(() => {
-    const values = new Set<string>()
-    datasets.forEach((dataset) => {
-      const damageType = diagnosis(dataset).damage_type
-      if (damageType) values.add(String(damageType))
-    })
-    return Array.from(values).sort()
-  }, [datasets])
+  useEffect(() => {
+    const datasetId = searchParams.get('dataset') || ''
+    if (datasetId === activeDatasetId) return
+    setActiveDatasetId(datasetId)
+    if (!datasetId) {
+      reviewLoadRequestRef.current += 1
+      inspectionLoadRequestRef.current += 1
+      setReviewWorkspace(null)
+      setReviewLoading(false)
+      setReviewError('')
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+      setDraftTaskDescription('')
+    }
+  }, [activeDatasetId, searchParams])
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return datasets.filter((dataset) => {
-      const diagnosisPayload = diagnosis(dataset)
-      if (needle && !`${dataset.id} ${dataset.label} ${dataset.path}`.toLowerCase().includes(needle)) {
-        return false
-      }
-      if (stageFilter !== 'all' && dataset.lifecycle_stage !== stageFilter) return false
-      if (damageFilter !== 'all' && diagnosisPayload.damage_type !== damageFilter) return false
-      if (repairableFilter !== 'all') {
-        const repairable = Boolean(diagnosisPayload.repairable)
-        if (repairable !== (repairableFilter === 'yes')) return false
-      }
+  const scopedDatasetIds = useMemo(() => scopedDatasetIdsFromSearch(searchParams), [searchParams])
+  const scopedDatasetIdSet = useMemo(() => new Set(scopedDatasetIds), [scopedDatasetIds])
+  const records = useMemo(() => datasets.map(buildQcDatasetRecord), [datasets])
+  const filteredRecords = useMemo(() => (
+    scopedDatasetIds.length
+      ? records.filter((record) => scopedDatasetIdSet.has(record.id))
+      : records
+  ), [records, scopedDatasetIdSet, scopedDatasetIds.length])
+  const hasReviewSelection = activeDatasetId.trim().length > 0
+  const summaryRecords = useMemo(() => (hasReviewSelection ? filteredRecords : []), [filteredRecords, hasReviewSelection])
+  const reviewableRecords = useMemo(() => summaryRecords.filter(isReviewableRecord), [summaryRecords])
+  const sequenceSummary = useMemo(() => buildSequenceSummary(summaryRecords, activeDatasetId), [activeDatasetId, summaryRecords])
+  const activeRecord = filteredRecords.find((record) => record.id === activeDatasetId)
+    ?? records.find((record) => record.id === activeDatasetId)
+    ?? null
+  const activeDataset = reviewWorkspace?.dataset
+    ?? datasets.find((datasetItem) => datasetItem.id === activeDatasetId)
+    ?? null
+
+  useEffect(() => {
+    if (!activeDatasetId) return
+    void loadReviewWorkspace(activeDatasetId)
+  }, [activeDatasetId])
+
+  useEffect(() => {
+    setDatasetIdCopied(false)
+  }, [activeDatasetId, episodeIndex])
+
+  const inspectionCheckValues = useMemo(() => (
+    currentInspectionCheckValues(activeDatasetId, episodeIndex, datasetInspectionChecks, episodeInspectionChecks)
+  ), [activeDatasetId, datasetInspectionChecks, episodeIndex, episodeInspectionChecks])
+  const reviewInspectionOutcome = useMemo(() => inspectionOutcome(inspectionCheckValues), [inspectionCheckValues])
+
+  useEffect(() => {
+    if (reviewInspectionOutcome === 'failed') {
+      setFailureOpen(true)
+      return
+    }
+    setFailureOpen(false)
+    setFailureReason('')
+    setFailureNote('')
+  }, [activeDatasetId, episodeIndex, reviewInspectionOutcome])
+
+  function openDataset(record: QcDatasetRecord) {
+    setActiveDatasetId(record.id)
+    const params = new URLSearchParams()
+    params.set('dataset', record.id)
+    scopedDatasetIds.forEach((datasetId) => params.append('datasets', datasetId))
+    setSearchParams(params)
+  }
+
+  async function loadReviewWorkspace(datasetId: string) {
+    const requestId = ++reviewLoadRequestRef.current
+    setReviewLoading(true)
+    setReviewError('')
+    setFailureOpen(false)
+    setFailureReason('')
+    setFailureNote('')
+    try {
+      const workspace = await dataApi.reviewWorkspace({ dataset_id: datasetId })
+      if (requestId !== reviewLoadRequestRef.current) return
+      const nextEpisodeIndex = firstUnreviewedEpisodeIndex(workspace)
+        ?? lastReviewedEpisodeIndex(workspace)
+        ?? workspace.episode_indices[0]
+        ?? 0
+      setReviewWorkspace(workspace)
+      setDraftTaskDescription(reviewTaskDescription(workspace))
+      setFailureDraftFromWorkspace(workspace, nextEpisodeIndex, false)
+      setEpisodeIndex(nextEpisodeIndex)
+      setReviewLoading(false)
+      void loadInspectionEpisode(datasetId, nextEpisodeIndex)
+    } catch (error) {
+      if (requestId !== reviewLoadRequestRef.current) return
+      setReviewWorkspace(null)
+      setReviewError(error instanceof Error ? error.message : String(error))
+      setReviewLoading(false)
+    }
+  }
+
+  async function loadInspectionEpisode(datasetId: string, nextEpisodeIndex: number) {
+    const requestId = ++inspectionLoadRequestRef.current
+    setSource('local')
+    setDataset(datasetId)
+    if (requestId !== inspectionLoadRequestRef.current) return
+    await loadEpisode(nextEpisodeIndex)
+  }
+
+  async function loadSelectedEpisode(nextEpisodeIndex: number) {
+    inspectionLoadRequestRef.current += 1
+    setEpisodeIndex(nextEpisodeIndex)
+    if (reviewWorkspace) {
+      setFailureDraftFromWorkspace(reviewWorkspace, nextEpisodeIndex, false)
+    } else {
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+    }
+    await loadEpisode(nextEpisodeIndex)
+  }
+
+  async function saveDraftTaskDescription(): Promise<boolean> {
+    if (!activeDatasetId) return false
+    setReviewSaving(true)
+    setReviewError('')
+    try {
+      const workspace = await dataApi.saveReviewDraft(activeDatasetId, {
+        draft_edits: { task_description: draftTaskDescription },
+        reviewer_id: reviewerId,
+      })
+      setReviewWorkspace(workspace)
+      await load()
       return true
-    })
-  }, [damageFilter, datasets, query, repairableFilter, stageFilter])
-
-  const summary = useMemo(() => ({
-    total: datasets.length,
-    raw: datasets.filter((dataset) => dataset.lifecycle_stage === 'raw').length,
-    needsReview: datasets.filter((dataset) => dataset.lifecycle_stage === 'needs_review').length,
-    clean: datasets.filter((dataset) => dataset.lifecycle_stage === 'clean').length,
-    damaged: datasets.filter((dataset) => {
-      const damageType = diagnosis(dataset).damage_type
-      return damageType && damageType !== 'healthy'
-    }).length,
-  }), [datasets])
-
-  const qcJobs = Object.values(jobs).filter((job) => job.kind === 'diagnose' || job.kind === 'clean')
-
-  async function runDiagnosis() {
-    await startDiagnosis(selectedDatasetIds)
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : String(error))
+      return false
+    } finally {
+      setReviewSaving(false)
+    }
   }
 
-  async function runClean() {
-    await startClean(selectedDatasetIds)
+  async function copyActiveDatasetId() {
+    if (!activeDataset) return
+    await navigator.clipboard.writeText(activeDataset.label || activeDataset.id)
+    setDatasetIdCopied(true)
   }
 
-  async function approve(datasetId: string) {
-    await passReview(datasetId)
-    await load()
+  async function setInspectionCheck(itemId: string, value: InspectionCheckValue) {
+    if (!activeDatasetId) return
+    const item = REVIEW_INSPECTION_ITEMS.find((entry) => entry.id === itemId)
+    if (!item) return
+    if (item.scope === 'dataset') {
+      if (item.id === 'task_description' && value === 'passed') {
+        const saved = await saveDraftTaskDescription()
+        if (!saved) return
+      }
+      setDatasetInspectionChecks((current) => ({
+        ...current,
+        [datasetInspectionCheckKey(activeDatasetId, itemId)]: value,
+      }))
+      return
+    }
+    setEpisodeInspectionChecks((current) => ({
+      ...current,
+      [episodeInspectionCheckKey(activeDatasetId, episodeIndex, itemId)]: value,
+    }))
+  }
+
+  async function saveReviewDecision(decision: DataReviewDecision) {
+    if (!activeDatasetId || !reviewWorkspace) return
+    if (reviewInspectionOutcome === 'pending') {
+      setReviewError(t('dataQcReviewChecklistLocked'))
+      return
+    }
+    if (decision !== reviewInspectionOutcome) {
+      setReviewError(reviewInspectionOutcome === 'failed'
+        ? t('dataReviewInspectionEpisodeFailOnly')
+        : t('dataReviewInspectionEpisodePassOnly'))
+      return
+    }
+    if (decision === 'failed' && !failureReason) {
+      setReviewError(t('dataReviewFailureReasonRequired'))
+      return
+    }
+    setReviewSaving(true)
+    setReviewError('')
+    try {
+      const workspace = await dataApi.saveReviewEpisode(activeDatasetId, episodeIndex, {
+        decision,
+        reason: decision === 'failed' ? failureReason : '',
+        note: decision === 'failed' ? failureNote : '',
+        reviewer_id: reviewerId,
+      })
+      setReviewWorkspace(workspace)
+      await load()
+      await advanceReviewCursor(workspace)
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setReviewSaving(false)
+    }
+  }
+
+  async function advanceReviewCursor(workspace: DataReviewWorkspace) {
+    const nextEpisodeIndex = nextUnreviewedEpisodeIndex(workspace, episodeIndex)
+    if (nextEpisodeIndex !== null) {
+      await loadSelectedEpisode(nextEpisodeIndex)
+      return
+    }
+    advanceToNextDatasetOrClear(workspace.dataset.id, workspace.dataset)
+  }
+
+  function advanceToNextDatasetOrClear(currentDatasetId: string, fallbackDataset: Dataset) {
+    const nextDatasetId = nextReviewDatasetId(reviewableRecords, currentDatasetId)
+    if (nextDatasetId) {
+      const nextRecord = records.find((record) => record.id === nextDatasetId)
+      openDataset(nextRecord ?? { ...workspaceRecordFallback(fallbackDataset), id: nextDatasetId })
+      return
+    }
+    clearReviewSequence()
+  }
+
+  function setFailureDraftFromWorkspace(workspace: DataReviewWorkspace, targetEpisodeIndex: number, open: boolean) {
+    const decision = workspace.review.episodes[String(targetEpisodeIndex)]
+    if (decision?.decision !== 'failed') {
+      setFailureOpen(false)
+      setFailureReason('')
+      setFailureNote('')
+      return
+    }
+    setFailureOpen(open)
+    setFailureReason(decision.reason)
+    setFailureNote(decision.note)
+  }
+
+  function clearReviewSequence() {
+    reviewLoadRequestRef.current += 1
+    inspectionLoadRequestRef.current += 1
+    setActiveDatasetId('')
+    setReviewWorkspace(null)
+    setReviewLoading(false)
+    setReviewError('')
+    setEpisodeIndex(0)
+    setFailureOpen(false)
+    setFailureReason('')
+    setFailureNote('')
+    setDraftTaskDescription('')
+    setDatasetInspectionChecks({})
+    setEpisodeInspectionChecks({})
+    setSearchParams(new URLSearchParams())
   }
 
   return (
-    <section className="data-page">
-      <div className="data-page__page-actions">
-        <div className="data-actions">
-          <button type="button" onClick={() => void runDiagnosis()} disabled={selectedDatasetIds.length === 0}>{t('dataQcRunDiagnosis')}</button>
-          <button type="button" onClick={() => void runClean()} disabled={selectedDatasetIds.length === 0}>{t('dataQcRunQc')}</button>
-          <button type="button" onClick={() => void load()} disabled={loading}>{t('refresh')}</button>
-        </div>
-      </div>
-
+    <section className="data-page data-qc-page">
       {error && <div className="data-alert">{error}</div>}
+      {reviewError && <div className="data-alert">{reviewError}</div>}
 
-      <div className="data-grid data-grid--five">
-        <Metric title={t('dataQcDatasetsMetric')} value={summary.total} />
-        <Metric title={t('dataQcRawMetric')} value={summary.raw} />
-        <Metric title={t('dataQcNeedsReviewMetric')} value={summary.needsReview} />
-        <Metric title={t('dataQcCleanMetric')} value={summary.clean} />
-        <Metric title={t('dataQcDamagedMetric')} value={summary.damaged} />
-      </div>
+      <div className="data-qc-review-workspace">
+        <section className="data-panel data-qc-review-list-panel">
+          <ReviewSequenceSummary
+            activeRecord={activeRecord}
+            nextRecord={sequenceSummary.nextRecord}
+            summary={sequenceSummary}
+            scoped={scopedDatasetIds.length > 0}
+            onCancel={hasReviewSelection ? clearReviewSequence : undefined}
+            t={t}
+          />
+        </section>
 
-      <section className="data-panel">
-        <div className="data-toolbar">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('dataQcFilterPlaceholder')} />
-          <select value={stageFilter} onChange={(event) => setStageFilter(event.target.value as StageFilter)}>
-            <option value="all">{t('dataQcAllStages')}</option>
-            {Object.keys(STAGE_LABEL_KEYS).map((stage) => <option key={stage} value={stage}>{stageLabel(stage, t)}</option>)}
-          </select>
-          <select value={damageFilter} onChange={(event) => setDamageFilter(event.target.value)}>
-            <option value="all">{t('dataQcAllDiagnoses')}</option>
-            {damageTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-          <select value={repairableFilter} onChange={(event) => setRepairableFilter(event.target.value as RepairableFilter)}>
-            <option value="all">{t('dataQcAllRepairability')}</option>
-            <option value="yes">{t('dataQcAutoRepairable')}</option>
-            <option value="no">{t('dataQcManualRequired')}</option>
-          </select>
-          <button type="button" onClick={clearSelection} disabled={selectedDatasetIds.length === 0}>{t('clearSelection')}</button>
-        </div>
-      </section>
-
-      <section className="data-panel">
-        <div className="data-panel__title">
-          <h2>{t('dataQcQueueTitle')}</h2>
-          <span>{filtered.length} / {datasets.length}</span>
-        </div>
-        <div className="data-list">
-          {filtered.map((dataset) => {
-            const diagnosisPayload = diagnosis(dataset)
-            return (
-              <div key={dataset.id} className="data-row data-row--rich">
-                <input
-                  type="checkbox"
-                  checked={selectedDatasetIds.includes(dataset.id)}
-                  onChange={() => toggleDataset(dataset.id)}
-                />
-                <span>
-                  <strong>{dataset.label}</strong>
-                  <small>{dataset.id}</small>
-                  <small>{dataset.path}</small>
-                </span>
-                <div className="data-pill-row">
-                  <span className={`data-badge data-badge--${dataset.lifecycle_stage}`}>
-                    {stageLabel(dataset.lifecycle_stage, t)}
-                  </span>
-                  <span className="data-badge">{diagnosisLabel(diagnosisPayload.damage_type, t)}</span>
-                  {diagnosisPayload.repairable !== undefined && (
-                    <span className={`data-badge data-badge--${diagnosisPayload.repairable ? 'passed' : 'failed'}`}>
-                      {diagnosisPayload.repairable ? t('dataQcAutoRepairable') : t('dataQcManualRequired')}
-                    </span>
-                  )}
+        <div className="data-qc-review-main">
+          {activeDataset && activeRecord && reviewWorkspace ? (
+            <>
+              <section className="data-panel data-qc-review-control-panel">
+                <div className="data-qc-review-control-panel__head">
+                  <div className="data-qc-dataset-title">
+                    <span>{t('dataQcManualReviewTitle')}</span>
+                    <div className="data-qc-dataset-title__row">
+                      <strong>{activeDataset.label}</strong>
+                      <button
+                        type="button"
+                        className="data-qc-copy-icon-button"
+                        onClick={() => void copyActiveDatasetId()}
+                        aria-label={datasetIdCopied ? t('dataCopied') : t('dataCopy')}
+                        title={datasetIdCopied ? t('dataCopied') : t('dataCopy')}
+                      >
+                        <CopyIcon />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <span className="data-gates">
-                  {Object.values(dataset.gates).map((gate) => (
-                    <span key={gate.key} className={`data-gate data-gate--${gate.status}`}>
-                      {gateChipText(gate, t)}
-                    </span>
-                  ))}
-                </span>
-                {dataset.lifecycle_stage === 'needs_review' && (
-                  <button type="button" onClick={() => void approve(dataset.id)}>{t('dataQcApprove')}</button>
-                )}
+                <ReviewStatusCards activeRecord={activeRecord} reviewerLabel={reviewerLabel} t={t} />
+                <ReviewDecisionControls
+                  workspace={reviewWorkspace}
+                  saving={reviewSaving}
+                  outcome={reviewInspectionOutcome}
+                  failureOpen={failureOpen}
+                  failureReason={failureReason}
+                  failureNote={failureNote}
+                  onFailureOpen={() => setFailureOpen(true)}
+                  onFailureReasonChange={setFailureReason}
+                  onFailureNoteChange={setFailureNote}
+                  onPass={() => void saveReviewDecision('passed')}
+                  onFail={() => void saveReviewDecision('failed')}
+                  t={t}
+                />
+                <ReviewLedger
+                  workspace={reviewWorkspace}
+                  episodeIndex={episodeIndex}
+                  onEpisodeSelect={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
+                  t={t}
+                />
+              </section>
+
+              <ReviewInspectionChecklist
+                episode={episode}
+                episodeIndex={episodeIndex}
+                totalEpisodes={reviewWorkspace.total_episodes || activeDataset.stats.total_episodes}
+                loading={loading}
+                canLoadEpisode={Boolean(activeDatasetId)}
+                error={inspectError}
+                values={inspectionCheckValues}
+                datasetTask={datasetTaskDescription(activeDataset)}
+                draftTaskDescription={draftTaskDescription}
+                saving={reviewSaving}
+                reviewLoading={reviewLoading}
+                onChange={setInspectionCheck}
+                onEpisodeIndexChange={setEpisodeIndex}
+                onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
+                onDraftTaskDescriptionChange={setDraftTaskDescription}
+                onSaveDraftTaskDescription={() => void saveDraftTaskDescription()}
+                t={t}
+              />
+            </>
+          ) : (
+            <section className="data-panel">
+              <div className="data-empty">
+                {reviewLoading ? t('dataQcReviewVisualsLoading') : t('dataQcSelectReviewDataset')}
               </div>
-            )
-          })}
-          {!filtered.length && <div className="data-empty">{t('dataQcEmptyDatasets')}</div>}
+            </section>
+          )}
         </div>
-      </section>
-
-      <section className="data-panel">
-        <div className="data-panel__title"><h2>{t('dataQcJobsTitle')}</h2></div>
-        <div className="data-list">
-          {qcJobs.map((job) => (
-            <div key={job.job_id} className="data-row">
-              <span>
-                <strong>{job.kind}</strong>
-                <small>{job.target_id}</small>
-                <small>{job.message}</small>
-              </span>
-              <span>{job.processed}/{job.total}</span>
-              <span className={`data-badge data-badge--${job.phase}`}>{job.phase}</span>
-              {!isTerminalDataJobPhase(job.phase) && (
-                <button type="button" onClick={() => void cancel(job.job_id)}>{t('cancel')}</button>
-              )}
-            </div>
-          ))}
-          {!qcJobs.length && <div className="data-empty">{t('dataQcEmptyJobs')}</div>}
-        </div>
-      </section>
+      </div>
     </section>
   )
 }
 
-function Metric({ title, value }: { title: string; value: number }) {
+function ReviewSequenceSummary({
+  activeRecord,
+  nextRecord,
+  summary,
+  scoped,
+  onCancel,
+  t,
+}: {
+  activeRecord: QcDatasetRecord | null
+  nextRecord: QcDatasetRecord | null
+  summary: QcSequenceSummary
+  scoped: boolean
+  onCancel?: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const percent = `${summary.percent}%`
   return (
-    <section className="data-panel data-panel--metric">
-      <span>{title}</span>
-      <strong className="data-metric">{value}</strong>
+    <div className="data-qc-sequence-summary">
+      <div className="data-qc-sequence-summary__head">
+        <div>
+          <h2>{t('dataQcWorkQueue')}</h2>
+          {scoped && <span>{t('dataQcSequenceScopeSelected')}</span>}
+        </div>
+        <div className="data-qc-sequence-summary__actions">
+          {onCancel && (
+            <button type="button" className="data-analysis-secondary-button" onClick={onCancel}>
+              {t('dataQcCancelSequence')}
+            </button>
+          )}
+          <strong>{percent}</strong>
+        </div>
+      </div>
+      <div className="data-review-progress-panel__bar" aria-hidden="true">
+        <i style={{ width: percent }} />
+      </div>
+      <div className="data-qc-sequence-summary__grid">
+        <SequenceTile
+          label={t('dataQcSequenceCurrent')}
+          value={activeRecord?.name || t('dataQcManualQueueEmpty')}
+        />
+        <SequenceTile
+          label={t('dataQcSequenceNext')}
+          value={nextRecord?.name || t('dataQcSequenceNoNext')}
+        />
+        <SequenceTile label={t('dataQcSequenceDone')} value={String(summary.done)} />
+        <SequenceTile label={t('dataQcSequenceRemaining')} value={String(summary.remaining)} />
+      </div>
+    </div>
+  )
+}
+
+function SequenceTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="data-qc-sequence-tile">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function ReviewStatusCards({
+  activeRecord,
+  reviewerLabel,
+  t,
+}: {
+  activeRecord: QcDatasetRecord
+  reviewerLabel: string
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="data-qc-review-status-cards">
+      <div className="data-qc-review-status-card">
+        <span>{t('dataManageAutoCleanStatus')}</span>
+        <strong>{t(qualityStatusLabelKey(activeRecord.autoCleanStatus))}</strong>
+      </div>
+      <div className="data-qc-review-status-card">
+        <span>{t('dataQcCurrentAssignee')}</span>
+        <strong>{reviewerLabel || t('dataQcUnassigned')}</strong>
+      </div>
+    </div>
+  )
+}
+
+function ReviewLedger({
+  workspace,
+  episodeIndex,
+  onEpisodeSelect,
+  t,
+}: {
+  workspace: DataReviewWorkspace
+  episodeIndex: number
+  onEpisodeSelect: (episodeIndex: number) => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const reviewedCount = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)]).length
+  const total = workspace.episode_indices.length
+  const currentPosition = Math.max(0, workspace.episode_indices.indexOf(episodeIndex))
+  const progress = total ? Math.round((reviewedCount / total) * 100) : 0
+  return (
+    <div className="data-qc-review-ledger">
+      <div className="data-qc-review-ledger__head">
+        <span>{t('dataReviewEpisodeProgress', { current: currentPosition + 1, total: Math.max(total, 1) })}</span>
+        <span>{t('dataReviewReviewedCount', { reviewed: reviewedCount, total })}</span>
+        <span>{t('dataQcRemaining')}: {Math.max(total - reviewedCount, 0)}</span>
+      </div>
+      <div className="data-review-progress-panel__bar" aria-hidden="true">
+        <i style={{ width: `${progress}%` }} />
+      </div>
+      <div className="data-review-sequence" aria-label={t('dataReviewEpisodeSequence')}>
+        {workspace.episode_indices.map((index) => {
+          const decision = workspace.review.episodes[String(index)]?.decision
+          return (
+            <button
+              key={index}
+              type="button"
+              className={cn(
+                'data-review-sequence__item',
+                episodeIndex === index && 'is-active',
+                decision && `is-${decision}`,
+              )}
+              onClick={() => onEpisodeSelect(index)}
+            >
+              {index + 1}
+            </button>
+          )
+        })}
+        {!workspace.episode_indices.length && <span className="data-review-sequence__empty">{t('dataReviewNoEpisodes')}</span>}
+      </div>
+    </div>
+  )
+}
+
+function ReviewInspectionChecklist({
+  episode,
+  episodeIndex,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  error,
+  values,
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
+  onChange,
+  onEpisodeIndexChange,
+  onLoadEpisode,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
+  t,
+}: {
+  episode: unknown
+  episodeIndex: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  error?: string
+  values: Record<string, InspectionCheckValue | ''>
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
+  onChange: (itemId: string, value: InspectionCheckValue) => void | Promise<void>
+  onEpisodeIndexChange: (episodeIndex: number) => void
+  onLoadEpisode: (episodeIndex: number) => void
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const outcome = inspectionOutcome(values)
+  const activeItem = currentInspectionItem(values)
+  const currentPosition = activeItem
+    ? REVIEW_INSPECTION_ITEMS.findIndex((item) => item.id === activeItem.id) + 1
+    : REVIEW_INSPECTION_ITEMS.length
+  return (
+    <section className="data-panel data-review-inspection-checklist">
+      <div className="data-panel__title">
+        <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
+      </div>
+      {activeItem ? (
+        <article className={cn('data-review-inspection-item', values[activeItem.id] && `is-${values[activeItem.id]}`)}>
+          <div className="data-review-inspection-item__head">
+            <div>
+              <span>{t('dataReviewInspectionStep', { current: currentPosition, total: REVIEW_INSPECTION_ITEMS.length })}</span>
+              <strong>{t(activeItem.labelKey)}</strong>
+              {activeItem.scope === 'dataset' && <em>{t('dataReviewInspectionDatasetScope')}</em>}
+            </div>
+            <div className="data-review-inspection-item__actions">
+              <button
+                type="button"
+                className={cn('data-review-check-option is-pass', values[activeItem.id] === 'passed' && 'is-active')}
+                onClick={() => void onChange(activeItem.id, 'passed')}
+              >
+                {t('dataReviewPass')}
+              </button>
+              <button
+                type="button"
+                className={cn('data-review-check-option is-fail', values[activeItem.id] === 'failed' && 'is-active')}
+                onClick={() => void onChange(activeItem.id, 'failed')}
+              >
+                {t('dataReviewFail')}
+              </button>
+            </div>
+          </div>
+          <ReviewInspectionEvidence
+            item={activeItem}
+            episode={episode}
+            episodeIndex={episodeIndex}
+            totalEpisodes={totalEpisodes}
+            loading={loading}
+            canLoadEpisode={canLoadEpisode}
+            error={error}
+            datasetTask={datasetTask}
+            draftTaskDescription={draftTaskDescription}
+            saving={saving}
+            reviewLoading={reviewLoading}
+            onEpisodeIndexChange={onEpisodeIndexChange}
+            onLoadEpisode={onLoadEpisode}
+            onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+            onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+            t={t}
+          />
+        </article>
+      ) : (
+        <div className="data-review-inspection-complete">
+          {t(outcome === 'passed' ? 'dataReviewInspectionAllPassed' : 'dataReviewInspectionFailed')}
+        </div>
+      )}
     </section>
   )
 }
 
-function diagnosis(dataset: Dataset): Record<string, unknown> {
-  const gate = dataset.gates.diagnose
-  return gate?.details || {}
+function ReviewInspectionEvidence({
+  item,
+  episode,
+  episodeIndex,
+  totalEpisodes,
+  loading,
+  canLoadEpisode,
+  error,
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
+  onEpisodeIndexChange,
+  onLoadEpisode,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
+  t,
+}: {
+  item: ReviewInspectionItem
+  episode: unknown
+  episodeIndex: number
+  totalEpisodes: number
+  loading: boolean
+  canLoadEpisode: boolean
+  error?: string
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
+  onEpisodeIndexChange: (episodeIndex: number) => void
+  onLoadEpisode: (episodeIndex: number) => void
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  if (item.id === 'task_description') {
+    return (
+      <TaskDescriptionInspection
+        datasetTask={datasetTask}
+        draftTaskDescription={draftTaskDescription}
+        saving={saving}
+        reviewLoading={reviewLoading}
+        onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+        onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+        t={t}
+      />
+    )
+  }
+  if (item.id === 'first_last_frame') return <FirstLastFrameInspection episode={episode} t={t} />
+  if (item.id === 'action' || item.id === 'video') {
+    const displayMode = item.id === 'action' ? 'trajectory' : 'video'
+    const emptyLabel = item.id === 'action' ? t('dataReviewActionInspectionEmpty') : t('dataReviewVideoInspectionEmpty')
+    return (
+      <DataEpisodeInspectionWorkspace
+        episode={episode}
+        episodeIndex={episodeIndex}
+        totalEpisodes={totalEpisodes}
+        loading={loading}
+        canLoadEpisode={canLoadEpisode}
+        error={error}
+        emptyLabel={emptyLabel}
+        showEpisodeControls={false}
+        showTitle={false}
+        displayMode={displayMode}
+        onEpisodeIndexChange={onEpisodeIndexChange}
+        onLoadEpisode={onLoadEpisode}
+      />
+    )
+  }
+  return null
 }
 
-function diagnosisLabel(value: unknown, t: (key: TranslationKey) => string): string {
-  const text = textValue(value)
-  if (!text) return t('dataQcNotDiagnosed')
-  if (text === 'healthy') return t('dataQcHealthy')
-  return text
+function TaskDescriptionInspection({
+  datasetTask,
+  draftTaskDescription,
+  saving,
+  reviewLoading,
+  onDraftTaskDescriptionChange,
+  onSaveDraftTaskDescription,
+  t,
+}: {
+  datasetTask: string
+  draftTaskDescription: string
+  saving: boolean
+  reviewLoading: boolean
+  onDraftTaskDescriptionChange: (value: string) => void
+  onSaveDraftTaskDescription: () => void
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="data-review-draft data-review-draft--inspection">
+      <label>
+        <span>{t('dataReviewTaskDraft')}</span>
+        <input
+          value={draftTaskDescription}
+          onChange={(event) => onDraftTaskDescriptionChange(event.target.value)}
+          placeholder={datasetTask || t('dataReviewTaskDraftPlaceholder')}
+        />
+      </label>
+      <button
+        type="button"
+        className="data-analysis-secondary-button"
+        onClick={onSaveDraftTaskDescription}
+        disabled={saving || reviewLoading}
+      >
+        {t('dataReviewSaveDraft')}
+      </button>
+    </div>
+  )
 }
 
-function stageLabel(stage: string, t: (key: TranslationKey) => string): string {
-  const key = STAGE_LABEL_KEYS[stage]
-  return key ? t(key) : stage
+function FirstLastFrameInspection({
+  episode,
+  t,
+}: {
+  episode: unknown
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  const videos = useMemo(() => readQcFrameVideos(episode), [episode])
+  if (!videos.length) {
+    return <div className="data-empty">{t('dataReviewFirstLastFrameEmpty')}</div>
+  }
+  return (
+    <div className="data-review-first-last-frame">
+      <span>{t('dataReviewFirstLastFrameTitle')}</span>
+      <div className="data-review-first-last-frame__grid">
+        {videos.map((video, index) => (
+          <div key={`${video.path}-${index}`} className="data-review-first-last-frame__stream">
+            <strong>{video.stream || video.path}</strong>
+            <div className="data-review-first-last-frame__frames">
+              <FramePreviewVideo video={video} label={t('dataReviewFirstFrame')} position="first" />
+              <FramePreviewVideo video={video} label={t('dataReviewLastFrame')} position="last" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
-function gateChipText(gate: DataGate, t: (key: TranslationKey) => string): string {
-  const labelKey = dataGateLabelKey(gate.key)
-  const label = labelKey ? t(labelKey) : gate.key
-  return `${label}:${t(dataGateStatusLabelKey(gate.status))}`
+function FramePreviewVideo({
+  video,
+  label,
+  position,
+}: {
+  video: QcFrameVideo
+  label: string
+  position: 'first' | 'last'
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const node = videoRef.current
+    if (!node) return undefined
+    const seekFrame = () => {
+      const duration = Number.isFinite(node.duration) ? node.duration : null
+      node.currentTime = framePreviewTime(video, position, duration)
+    }
+    node.addEventListener('loadedmetadata', seekFrame)
+    if (node.readyState >= 1) seekFrame()
+    return () => node.removeEventListener('loadedmetadata', seekFrame)
+  }, [position, video])
+
+  return (
+    <figure className="data-review-frame-preview">
+      <video ref={videoRef} src={video.url} muted playsInline preload="metadata" />
+      <figcaption>{label}</figcaption>
+    </figure>
+  )
+}
+
+function ReviewDecisionControls({
+  workspace,
+  saving,
+  outcome,
+  failureOpen,
+  failureReason,
+  failureNote,
+  onFailureOpen,
+  onFailureReasonChange,
+  onFailureNoteChange,
+  onPass,
+  onFail,
+  t,
+}: {
+  workspace: DataReviewWorkspace
+  saving: boolean
+  outcome: ReviewInspectionOutcome
+  failureOpen: boolean
+  failureReason: string
+  failureNote: string
+  onFailureOpen: () => void
+  onFailureReasonChange: (value: string) => void
+  onFailureNoteChange: (value: string) => void
+  onPass: () => void
+  onFail: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+}) {
+  if (!workspace.episode_indices.length) {
+    return <div className="data-empty">{t('dataReviewNoEpisodes')}</div>
+  }
+  if (outcome === 'pending') {
+    return (
+      <div className="data-review-final-status is-pending">
+        {t('dataReviewInspectionPendingDecision')}
+      </div>
+    )
+  }
+  const savingReason = saving ? t('saving') : undefined
+  const submitFailDisabledReason = savingReason || (!failureReason ? t('dataReviewFailureReasonRequired') : undefined)
+  return (
+    <div className="data-qc-review-decision">
+      <div className={cn('data-review-verdict-panel', outcome === 'passed' ? 'is-passed' : 'is-failed')}>
+        <div className="data-review-verdict-summary">
+          {t(outcome === 'passed' ? 'dataReviewInspectionOutcomePassed' : 'dataReviewInspectionOutcomeFailed')}
+        </div>
+        <div className="data-review-decision-panel__actions">
+          {outcome === 'passed' ? (
+            <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
+              <button type="button" className="data-review-pass-button" onClick={onPass} disabled={saving}>
+                {t('dataReviewPass')}
+              </button>
+            </span>
+          ) : (
+            <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
+              <button type="button" className="data-review-fail-button" onClick={onFailureOpen} disabled={saving}>
+                {t('dataReviewFail')}
+              </button>
+            </span>
+          )}
+        </div>
+      </div>
+      {failureOpen && (
+        <div className="data-review-failure-editor">
+          <div className="data-review-failure-reasons" role="group" aria-label={t('dataReviewFailureReason')}>
+            {REVIEW_FAILURE_REASONS.map((reason) => (
+              <button
+                key={reason.value}
+                type="button"
+                className={cn('data-analysis-secondary-button', failureReason === reason.value && 'is-active')}
+                onClick={() => onFailureReasonChange(reason.value)}
+              >
+                {t(reason.labelKey)}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={failureNote}
+            onChange={(event) => onFailureNoteChange(event.target.value)}
+            placeholder={t('dataReviewNotePlaceholder')}
+          />
+          <span className="data-review-submit-fail-action data-tooltip-host" data-tooltip={submitFailDisabledReason}>
+            <button
+              type="button"
+              className="data-review-submit-fail-button"
+              onClick={onFail}
+              disabled={saving || !failureReason}
+            >
+              {t('dataReviewSubmitFail')}
+            </button>
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
+  const quality = buildDatasetQualityView(dataset)
+  const review = reviewPayload(dataset)
+  const episodes = asRecord(review.episodes)
+  const decisions = Object.values(episodes).map(asRecord)
+  const reviewStatus = datasetReviewStatus(dataset, quality.autoCleanStatus)
+  return {
+    id: dataset.id,
+    name: dataset.label || dataset.name,
+    path: dataset.real_path || dataset.path,
+    task: quality.taskDescription,
+    createdDate: quality.createdDate,
+    autoCleanStatus: quality.autoCleanStatus,
+    reviewStatus,
+    reviewedCount: decisions.length,
+    passedCount: decisions.filter((decision) => decision.decision === 'passed').length,
+    failedCount: decisions.filter((decision) => decision.decision === 'failed').length,
+    totalEpisodes: dataset.stats.total_episodes,
+    reviewerIds: Array.from(new Set(decisions.map((decision) => String(decision.reviewer_id || '')).filter(Boolean))),
+  }
+}
+
+function datasetReviewStatus(dataset: Dataset, autoCleanStatus: QualityStatus): ReviewWorkStatus {
+  const status = qcReviewStatus(dataset)
+  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
+    return status
+  }
+  if (autoCleanStatus === 'failed' || autoCleanStatus === 'running') return 'blocked'
+  return 'pending'
+}
+
+function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {
+  const sequenceRecords = records.filter((record) => record.reviewStatus !== 'blocked')
+  const done = sequenceRecords.filter(isReviewCompleteRecord).length
+  const remaining = sequenceRecords.filter(isReviewPendingRecord).length
+  const activeIndex = sequenceRecords.findIndex((record) => record.id === activeDatasetId)
+  const nextRecord = activeIndex >= 0
+    ? sequenceRecords.slice(activeIndex + 1).find(isReviewPendingRecord) ?? null
+    : sequenceRecords.find(isReviewPendingRecord) ?? null
+  const percent = sequenceRecords.length ? Math.round((done / sequenceRecords.length) * 100) : 0
+  return {
+    total: sequenceRecords.length,
+    done,
+    remaining,
+    reviewable: remaining,
+    percent,
+    nextRecord,
+  }
+}
+
+function isReviewableRecord(record: QcDatasetRecord): boolean {
+  return isReviewPendingRecord(record)
+}
+
+function isReviewPendingRecord(record: QcDatasetRecord): boolean {
+  return record.reviewStatus === 'pending'
+}
+
+function isReviewCompleteRecord(record: QcDatasetRecord): boolean {
+  return record.reviewStatus === 'ready_for_batch' || record.reviewStatus === 'applied'
+}
+
+function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {
+  const scopedIds = searchParams.getAll('datasets').filter(Boolean)
+  if (scopedIds.length) return Array.from(new Set(scopedIds))
+  const datasetId = searchParams.get('dataset')
+  return datasetId ? [datasetId] : []
+}
+
+function reviewPayload(dataset: Dataset): Record<string, unknown> {
+  return asRecord(asRecord(dataset.qc).review)
+}
+
+function reviewTaskDescription(workspace: DataReviewWorkspace): string {
+  const draftTask = workspace.review.draft_edits.task_description
+  return typeof draftTask === 'string' ? draftTask : datasetTaskDescription(workspace.dataset)
+}
+
+function firstUnreviewedEpisodeIndex(workspace: DataReviewWorkspace): number | null {
+  return workspace.episode_indices.find((index) => !workspace.review.episodes[String(index)]) ?? null
+}
+
+function lastReviewedEpisodeIndex(workspace: DataReviewWorkspace): number | null {
+  const reviewedIndices = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)])
+  return reviewedIndices[reviewedIndices.length - 1] ?? null
+}
+
+function nextUnreviewedEpisodeIndex(workspace: DataReviewWorkspace, currentEpisodeIndex: number): number | null {
+  const indices = workspace.episode_indices
+  const currentPosition = indices.indexOf(currentEpisodeIndex)
+  const afterCurrent = indices.slice(Math.max(currentPosition + 1, 0))
+  const beforeCurrent = currentPosition >= 0 ? indices.slice(0, currentPosition + 1) : indices
+  return [...afterCurrent, ...beforeCurrent].find((index) => !workspace.review.episodes[String(index)]) ?? null
+}
+
+function nextReviewDatasetId(records: QcDatasetRecord[], currentDatasetId: string): string {
+  const ids = records.map((record) => record.id).filter((id) => id !== currentDatasetId)
+  const currentIndex = records.findIndex((record) => record.id === currentDatasetId)
+  if (currentIndex < 0) return ids[0] || ''
+  const after = records.slice(currentIndex + 1).find((record) => record.id !== currentDatasetId)
+  return after?.id || ids[0] || ''
+}
+
+function currentInspectionCheckValues(
+  datasetId: string,
+  episodeIndex: number,
+  datasetChecks: Record<string, InspectionCheckValue>,
+  episodeChecks: Record<string, InspectionCheckValue>,
+): Record<string, InspectionCheckValue | ''> {
+  return REVIEW_INSPECTION_ITEMS.reduce<Record<string, InspectionCheckValue | ''>>((values, item) => {
+    values[item.id] = item.scope === 'dataset'
+      ? datasetChecks[datasetInspectionCheckKey(datasetId, item.id)] || ''
+      : episodeChecks[episodeInspectionCheckKey(datasetId, episodeIndex, item.id)] || ''
+    return values
+  }, {})
+}
+
+function inspectionOutcome(values: Record<string, InspectionCheckValue | ''>): ReviewInspectionOutcome {
+  if (REVIEW_INSPECTION_ITEMS.some((item) => values[item.id] === 'failed')) return 'failed'
+  if (REVIEW_INSPECTION_ITEMS.every((item) => values[item.id] === 'passed')) return 'passed'
+  return 'pending'
+}
+
+function currentInspectionItem(values: Record<string, InspectionCheckValue | ''>): ReviewInspectionItem | null {
+  return REVIEW_INSPECTION_ITEMS.find((item) => values[item.id] === 'failed')
+    ?? REVIEW_INSPECTION_ITEMS.find((item) => !values[item.id])
+    ?? null
+}
+
+function datasetInspectionCheckKey(datasetId: string, itemId: string): string {
+  return `${datasetId}:${itemId}`
+}
+
+function episodeInspectionCheckKey(datasetId: string, episodeIndex: number, itemId: string): string {
+  return `${datasetId}:${episodeIndex}:${itemId}`
+}
+
+function readQcFrameVideos(episode: unknown): QcFrameVideo[] {
+  const episodePayload = asRecord(episode)
+  return asArray(episodePayload.videos).map(asRecord).map((video) => ({
+    path: textValue(video.path),
+    url: textValue(video.url),
+    stream: textValue(video.stream) || textValue(video.path),
+    from_timestamp: numberValue(video.from_timestamp),
+    to_timestamp: numberValue(video.to_timestamp),
+  })).filter((video) => Boolean(video.url))
+}
+
+function framePreviewTime(video: QcFrameVideo, position: 'first' | 'last', duration: number | null): number {
+  const start = video.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
+  const end = video.to_timestamp != null && Number.isFinite(video.to_timestamp)
+    ? video.to_timestamp
+    : duration
+  const target = position === 'first'
+    ? start
+    : Math.max((end ?? duration ?? 0) - 0.05, start)
+  if (duration == null || duration <= 0) return Math.max(target, 0)
+  return Math.min(Math.max(target, 0), Math.max(duration - 0.05, 0))
+}
+
+function workspaceRecordFallback(dataset: Dataset): QcDatasetRecord {
+  return buildQcDatasetRecord(dataset)
+}
+
+function currentReviewerId(user: { id?: string; phone?: string; nickname?: string | null } | null): string {
+  return user?.id || user?.phone || user?.nickname || ''
+}
+
+function currentReviewerLabel(user: { id?: string; phone?: string; nickname?: string | null } | null): string {
+  return user?.nickname || user?.phone || user?.id || ''
+}
+
+function CopyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  )
 }

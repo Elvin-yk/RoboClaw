@@ -14,6 +14,7 @@ from .library import DataLibraryService
 from .overview import DataOverviewService
 from .packages import DatasetPackageService
 from .evaluation import DataEvaluationService
+from .review import DataReviewService
 
 
 class DataService:
@@ -27,4 +28,5 @@ class DataService:
         self.packages = DatasetPackageService(self.repository, self.jobs)
         self.evaluation = DataEvaluationService(self.repository, self.jobs)
         self.annotation = DataAnnotationService(self.repository, self.jobs)
+        self.review = DataReviewService(self.repository, self.jobs)
         self.overview = DataOverviewService(self.repository)

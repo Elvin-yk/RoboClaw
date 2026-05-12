@@ -48,14 +48,6 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
     </svg>
   ),
-  '/data/qc': (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6h18" />
-      <path d="M8 6v12" />
-      <path d="M16 6v12" />
-      <path d="M5 18h14" />
-    </svg>
-  ),
   '/data/analysis': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19V5" />
@@ -77,6 +69,14 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M5 8h14" />
       <path d="M5 16h14" />
       <path d="M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+    </svg>
+  ),
+  '/data/qc': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 12l2 2 4-5" />
+      <path d="M4 5h16" />
+      <path d="M6 5v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5" />
+      <path d="M9 3h6" />
     </svg>
   ),
   '/settings': (
@@ -200,11 +200,10 @@ export default function AppShell() {
     { path: '/training/remote/terminal', label: '远程终端' },
   ]
   const dataChildren = [
-    { path: '/data', label: t('dataOverviewNav') },
+    { path: '/data/manage', label: t('dataManageNav') },
     { path: '/data/qc', label: t('dataQcNav') },
     { path: '/data/analysis', label: t('dataAnalysisNav') },
     { path: '/data/annotation', label: t('dataAnnotationNav') },
-    { path: '/data/manage', label: t('dataManageNav') },
   ]
   const settingsChildren = [
     { path: '/settings/hardware', label: t('settingsHardware') },
@@ -232,7 +231,7 @@ export default function AppShell() {
     data: {
       id: 'data',
       rootPath: '/data',
-      collapsedPath: '/data',
+      collapsedPath: '/data/manage',
       iconPath: '/data',
       label: t('dataCenter'),
       children: dataChildren,

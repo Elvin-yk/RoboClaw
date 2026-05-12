@@ -50,5 +50,5 @@ def test_data_tool_current_page_data_uses_data_context(tmp_path: Path) -> None:
 
     result = json.loads(asyncio.run(tool.execute(action="get_current_page_data")))
 
-    assert result["page"] == "data_overview"
-    assert result["overview"]["summary"]["dataset_count"] == 1
+    assert result["page"] == "data_manage"
+    assert result["datasets"][0]["id"] == "local/demo"

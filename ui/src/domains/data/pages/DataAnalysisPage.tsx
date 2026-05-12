@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { DatasetStatsPanel } from '@/domains/data/components/DatasetStatsPanel'
-import { EpisodePlaybackPanel } from '@/domains/data/components/EpisodePlaybackPanel'
-import { useDataInspectStore } from '@/domains/data/store/inspectStore'
-import {
-  asArray,
-  asRecord,
-  numberValue,
-  textValue,
-} from '@/domains/data/lib/analysisPayload'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { DataAnalysisWorkspace } from '@/domains/data/components/DataAnalysisWorkspace'
+import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
+import { useI18n } from '@/i18n'
 
 type SourceMode = 'remote' | 'local'
 
 export default function DataAnalysisPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { t } = useI18n()
   const {
     source,
     dataset,
@@ -23,56 +19,103 @@ export default function DataAnalysisPage() {
     episode,
     loading,
     error,
+    reset,
     setSource,
     setDataset,
     inspect,
     loadEpisode,
-  } = useDataInspectStore()
+  } = useDataInspectWorkspace()
   const [episodeIndex, setEpisodeIndex] = useState(0)
   const loadedDatasetFromQuery = useRef('')
+  const loadRequestRef = useRef(0)
   const datasetFromQuery = searchParams.get('dataset') || ''
+  const returnTo = searchParams.get('returnTo') || ''
+  const manageDataset = searchParams.get('manageDataset') || datasetFromQuery
+  const qcDataset = searchParams.get('qcDataset') || datasetFromQuery
 
   useEffect(() => {
-    if (!datasetFromQuery || loadedDatasetFromQuery.current === datasetFromQuery) return
+    if (!datasetFromQuery) {
+      if (loadedDatasetFromQuery.current) {
+        loadedDatasetFromQuery.current = ''
+        loadRequestRef.current += 1
+        reset()
+        setEpisodeIndex(0)
+      }
+      return
+    }
+    if (loadedDatasetFromQuery.current === datasetFromQuery) return
     loadedDatasetFromQuery.current = datasetFromQuery
+    const requestId = ++loadRequestRef.current
     setSource('local')
     setDataset(datasetFromQuery)
     void (async () => {
       await inspect()
+      if (requestId !== loadRequestRef.current) return
       setEpisodeIndex(0)
       await loadEpisode(0)
     })()
-  }, [datasetFromQuery, inspect, loadEpisode, setDataset, setSource])
-
-  const summaryPayload = asRecord(summary?.summary)
-  const detailsPayload = asRecord(details)
-  const episodeRows = useMemo(() => asArray(asRecord(episodes).episodes).map(asRecord), [episodes])
-  const episodePayload = asRecord(episode)
-  const totalEpisodes = numberValue(summaryPayload.total_episodes) ?? numberValue(asRecord(episodes).total_episodes) ?? 0
+  }, [datasetFromQuery, inspect, loadEpisode, reset, setDataset, setSource])
 
   async function inspectThenLoad(nextEpisodeIndex = 0) {
     if (!dataset.trim()) return
+    const requestId = ++loadRequestRef.current
     await inspect()
+    if (requestId !== loadRequestRef.current) return
     setEpisodeIndex(nextEpisodeIndex)
     await loadEpisode(nextEpisodeIndex)
   }
 
   async function loadSelectedEpisode(nextEpisodeIndex = episodeIndex) {
+    loadRequestRef.current += 1
     setEpisodeIndex(nextEpisodeIndex)
     await loadEpisode(nextEpisodeIndex)
   }
 
+  function changeSource(nextSource: SourceMode) {
+    loadRequestRef.current += 1
+    setSource(nextSource)
+  }
+
+  function changeDataset(nextDataset: string) {
+    loadRequestRef.current += 1
+    setDataset(nextDataset)
+  }
+
+  function returnToManage() {
+    const targetDataset = manageDataset || dataset.trim()
+    const query = targetDataset ? `?dataset=${encodeURIComponent(targetDataset)}` : ''
+    navigate(`/data/manage${query}`)
+  }
+
+  function returnToPreviousPage() {
+    if (returnTo === 'data-qc') {
+      const targetDataset = qcDataset || dataset.trim()
+      const query = targetDataset ? `?dataset=${encodeURIComponent(targetDataset)}` : ''
+      navigate(`/data/qc${query}`)
+      return
+    }
+    returnToManage()
+  }
+
   return (
     <section className="data-page data-analysis-page">
+      {(returnTo === 'data-manage' || returnTo === 'data-qc') && (
+        <div className="data-analysis-toolbar">
+          <button type="button" className="data-analysis-return" onClick={returnToPreviousPage}>
+            {t(returnTo === 'data-qc' ? 'dataAnalysisBackToQc' : 'dataAnalysisBackToManage')}
+          </button>
+        </div>
+      )}
+
       <section className="data-panel">
         <div className="data-analysis-query">
-          <select value={source} onChange={(event) => setSource(event.target.value as SourceMode)}>
+          <select value={source} onChange={(event) => changeSource(event.target.value as SourceMode)}>
             <option value="local">本地数据</option>
             <option value="remote">HuggingFace 数据</option>
           </select>
           <input
             value={dataset}
-            onChange={(event) => setDataset(event.target.value)}
+            onChange={(event) => changeDataset(event.target.value)}
             placeholder={source === 'remote' ? 'namespace/dataset' : 'local/name'}
           />
           <button type="button" onClick={() => void inspectThenLoad(0)} disabled={loading || !dataset.trim()}>
@@ -82,35 +125,17 @@ export default function DataAnalysisPage() {
         {error && <div className="data-alert">{error}</div>}
       </section>
 
-      <DatasetStatsPanel
-        summary={summaryPayload}
-        details={detailsPayload}
-        episodeRows={episodeRows}
+      <DataAnalysisWorkspace
+        summary={summary}
+        details={details}
+        episodes={episodes}
+        episode={episode}
+        episodeIndex={episodeIndex}
+        loading={loading}
+        canLoadEpisode={Boolean(dataset.trim())}
+        onEpisodeIndexChange={setEpisodeIndex}
+        onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
       />
-
-      {Object.keys(episodePayload).length > 0 ? (
-        <EpisodePlaybackPanel
-          episode={episodePayload}
-          episodeIndex={episodeIndex}
-          totalEpisodes={totalEpisodes}
-          loading={loading}
-          canLoadEpisode={Boolean(dataset.trim())}
-          onEpisodeIndexChange={setEpisodeIndex}
-          onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
-        />
-      ) : (
-        <section className="data-panel">
-          <div className="data-panel__title">
-            <h2>Episode 可视化</h2>
-            <div className="data-analysis-player__summary">
-              <button type="button" onClick={() => void loadSelectedEpisode()} disabled={loading || !dataset.trim()}>
-                加载 Episode #{episodeIndex}
-              </button>
-            </div>
-          </div>
-          <div className="data-empty">{textValue(summary?.dataset) ? '选择一个 episode 后加载视频和曲线' : '先检查数据集'}</div>
-        </section>
-      )}
     </section>
   )
 }

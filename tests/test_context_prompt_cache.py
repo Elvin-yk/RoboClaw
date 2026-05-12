@@ -79,7 +79,7 @@ def test_runtime_context_includes_current_web_app_metadata(tmp_path) -> None:
 
     messages = builder.build_messages(
         history=[],
-        current_message="现在数据总览是什么状态？",
+        current_message="现在数据管理是什么状态？",
         channel="web",
         chat_id="chat-1",
         metadata={

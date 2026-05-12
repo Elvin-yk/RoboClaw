@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
 from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
@@ -46,11 +47,11 @@ class DatasetPackageService:
             shutil.rmtree(package_path)
         if package_path.exists():
             raise FileExistsError(f"DatasetPackage '{package_id}' already exists")
-        dataset_paths = [self.repository.resolve_dataset_path(dataset_id) for dataset_id in dataset_ids]
-        for dataset_id, dataset_path in zip(dataset_ids, dataset_paths):
-            dataset = self.repository._dataset_from_path(dataset_id, dataset_path)
+        datasets = [self.repository.read_dataset(dataset_id) for dataset_id in dataset_ids]
+        for dataset in datasets:
             if dataset.stage != "clean":
-                raise ValueError(f"Dataset '{dataset_id}' must be clean before packaging")
+                raise ValueError(f"Dataset '{dataset.id}' must be clean before packaging")
+        dataset_paths = [self.repository.dataset_materialized_path(dataset_id) for dataset_id in dataset_ids]
 
         package_path.mkdir(parents=True)
         self._materialize_package(package_path, dataset_ids, dataset_paths)
@@ -153,7 +154,7 @@ class DatasetPackageService:
             repo_type="dataset",
             token=token or defaults.token,
             private=private,
-            ignore_patterns=[".data/*", "sources/*"],
+            ignore_patterns=[".status/*", ".data/*", "sources/*"],
             endpoint=defaults.endpoint,
             proxy=defaults.proxy,
         )
@@ -211,7 +212,7 @@ class DatasetPackageService:
         for dataset_id, dataset_path in zip(dataset_ids, dataset_paths):
             source_slug = self._safe_slug(dataset_id)
             source_root = package_path / "sources" / source_slug
-            shutil.copytree(dataset_path, source_root, ignore=shutil.ignore_patterns(".data", ".workflow"))
+            shutil.copytree(dataset_path, source_root, ignore=shutil.ignore_patterns(".status", ".data", ".workflow"))
             info = self._read_json(dataset_path / "meta" / "info.json")
             episodes = self._read_episode_meta(dataset_path, info)
             if not combined_info["robot_type"]:
@@ -335,7 +336,7 @@ class DatasetPackageService:
         data_files = sorted((dataset_path / "data").rglob("*.parquet"))
         data_file_by_episode: dict[int, tuple[int, int]] = {}
         for source_file in data_files:
-            rows = self._read_parquet_table_rows(source_file)
+            rows = read_parquet_rows(source_file)
             if not rows:
                 continue
             source_episode = self._infer_source_episode_for_parquet(dataset_path, info, episodes, source_file)
@@ -356,7 +357,7 @@ class DatasetPackageService:
                 data_file_by_episode[row_episode] = (chunk_index, file_index)
                 remapped_rows.append(row)
             output_file = package_path / PACKAGE_DATA_PATH.format(chunk_index=chunk_index, file_index=file_index)
-            self._write_parquet_rows(output_file, remapped_rows)
+            write_parquet_rows(output_file, remapped_rows)
             parquet_file_index += 1
         return data_file_by_episode, frame_index, parquet_file_index
 
@@ -473,23 +474,11 @@ class DatasetPackageService:
     def _read_parquet_rows(self, root: Path) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         if root.is_file() and root.suffix == ".parquet":
-            rows.extend(self._read_parquet_table_rows(root))
+            rows.extend(read_parquet_rows(root))
         elif root.is_dir():
             for path in sorted(root.rglob("*.parquet")):
-                rows.extend(self._read_parquet_table_rows(path))
+                rows.extend(read_parquet_rows(path))
         return rows
-
-    def _read_parquet_table_rows(self, path: Path) -> list[dict[str, Any]]:
-        import pyarrow.parquet as pq
-
-        return pq.read_table(path).to_pylist()
-
-    def _write_parquet_rows(self, path: Path, rows: list[dict[str, Any]]) -> None:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(pa.Table.from_pylist(rows), path)
 
     def _coerce_episode_index(self, value: Any, fallback: int | None) -> int:
         if value is None:

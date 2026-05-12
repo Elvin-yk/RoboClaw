@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
+from roboclaw.data.curation.bridge import read_parquet_rows
 from roboclaw.data.domain.models import Dataset, DatasetPackage, DatasetStats, Gate
 from roboclaw.data.paths import datasets_root
 
@@ -37,6 +38,12 @@ class DataRepository:
     def read_dataset(self, dataset_id: str) -> Dataset:
         path = self.resolve_dataset_path(dataset_id)
         return self._dataset_from_path(dataset_id, path)
+
+    def dataset_materialized_path(self, dataset_id: str) -> Path:
+        path = self.resolve_dataset_path(dataset_id)
+        state = self.state_store.load_dataset_state(path)
+        active_path = self._active_output_path(path, state)
+        return active_path or path
 
     def delete_dataset(self, dataset_id: str) -> None:
         path = self.resolve_dataset_path(dataset_id)
@@ -105,6 +112,8 @@ class DataRepository:
     def _dataset_from_path(self, dataset_id: str, path: Path) -> Dataset:
         info = self._read_info(path)
         state = self.state_store.load_dataset_state(path)
+        stats_path = self._active_output_path(path, state) or path
+        stats_info = self._read_info(stats_path) if stats_path != path else info
         return Dataset(
             id=dataset_id,
             name=path.name,
@@ -112,8 +121,10 @@ class DataRepository:
             path=path,
             real_path=path.resolve(),
             stage=state["lifecycle_stage"],
-            stats=self._stats_from_info(path, info),
+            stats=self._stats_from_info(stats_path, stats_info),
             gates={key: Gate(**gate) for key, gate in state["gates"].items()},
+            qc=dict(state.get("qc") or {}),
+            active_output=dict(state.get("active_output") or {}),
             updated_at=str(state.get("updated_at") or ""),
         )
 
@@ -144,6 +155,23 @@ class DataRepository:
             return {}
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def _active_output_path(self, dataset_path: Path, state: dict[str, Any]) -> Path | None:
+        active_output = state.get("active_output")
+        if not isinstance(active_output, dict) or active_output.get("kind") != "artifact":
+            return None
+        relative_path = active_output.get("relative_path")
+        if isinstance(relative_path, str) and relative_path:
+            candidate = (dataset_path / relative_path).resolve()
+            candidate.relative_to(dataset_path.resolve())
+            if self._is_dataset_dir(candidate):
+                return candidate
+        absolute_path = active_output.get("path")
+        if isinstance(absolute_path, str) and absolute_path:
+            candidate = Path(absolute_path).expanduser().resolve()
+            if self._is_dataset_dir(candidate):
+                return candidate
+        return None
+
     def _stats_from_info(self, root: Path, info: dict[str, Any]) -> DatasetStats:
         episode_lengths: list[int] = []
         episodes_path = root / "meta" / "episodes.jsonl"
@@ -167,7 +195,19 @@ class DataRepository:
         info_text = self._task_text(info)
         if info_text:
             return info_text
-        tasks_path = root / "meta" / "tasks.jsonl"
+        parquet_text = self._task_description_from_parquet(root / "meta" / "tasks.parquet")
+        if parquet_text:
+            return parquet_text
+        return self._task_description_from_jsonl(root / "meta" / "tasks.jsonl")
+
+    def _task_description_from_parquet(self, tasks_path: Path) -> str:
+        for payload in read_parquet_rows(tasks_path):
+            task_text = self._task_text(payload)
+            if task_text:
+                return task_text
+        return ""
+
+    def _task_description_from_jsonl(self, tasks_path: Path) -> str:
         if not tasks_path.is_file():
             return ""
         for raw_line in tasks_path.read_text(encoding="utf-8").splitlines():

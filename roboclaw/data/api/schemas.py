@@ -13,9 +13,27 @@ class ImportRequest(BaseModel):
 
 class QcRunRequest(BaseModel):
     dataset_ids: list[str]
+    chain_id: str = "default"
     task: str = ""
     vcodec: str = "libx264"
     force: bool = True
+
+
+class ReviewEpisodeDecisionRequest(BaseModel):
+    decision: str
+    reason: str = ""
+    note: str = ""
+    reviewer_id: str = ""
+
+
+class ReviewDraftRequest(BaseModel):
+    draft_edits: dict[str, Any] = Field(default_factory=dict)
+    reviewer_id: str = ""
+
+
+class ReviewBatchRunRequest(BaseModel):
+    dataset_ids: list[str]
+    reviewer_id: str = ""
 
 
 class GateUpdateRequest(BaseModel):
