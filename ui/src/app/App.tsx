@@ -8,6 +8,7 @@ import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
 import DataManagePage from '@/domains/data/pages/DataManagePage'
 import DataQcPage from '@/domains/data/pages/DataQcPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
+import WebTerminalPage from '@/domains/training/pages/WebTerminalPage'
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
 import HubSettingsPage from '@/domains/settings/pages/HubSettingsPage'
@@ -57,6 +58,7 @@ function App() {
                         <Route path="training" element={<Navigate to="/training/local" replace />} />
                         <Route path="training/local" element={<TrainingCenterPage />} />
                         <Route path="training/remote" element={<TrainingCenterPage />} />
+                        <Route path="training/remote/terminal" element={<WebTerminalPage />} />
                         <Route path="data" element={<Navigate to="/data/manage" replace />} />
                         <Route path="data/analysis" element={<DataAnalysisPage />} />
                         <Route path="data/annotation" element={<DataAnnotationPage />} />
