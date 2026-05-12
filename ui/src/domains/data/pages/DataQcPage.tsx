@@ -6,6 +6,7 @@ import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/an
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
+  qualityStatusLabelKey,
   qcReviewStatus,
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
@@ -73,15 +74,6 @@ const REVIEW_INSPECTION_ITEMS: ReviewInspectionItem[] = [
   { id: 'action', labelKey: 'dataReviewInspectionAction', scope: 'episode' },
   { id: 'video', labelKey: 'dataReviewInspectionVideo', scope: 'episode' },
 ]
-
-const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
-  pending: 'dataQualityStatusPending',
-  running: 'dataQualityStatusRunning',
-  passed: 'dataQualityStatusPassed',
-  failed: 'dataQualityStatusFailed',
-  needs_review: 'dataQualityStatusNeedsReview',
-  skipped: 'dataQualityStatusSkipped',
-}
 
 export default function DataQcPage() {
   const { t } = useI18n()
@@ -533,7 +525,7 @@ function ReviewStatusCards({
     <div className="data-qc-review-status-cards">
       <div className="data-qc-review-status-card">
         <span>{t('dataManageAutoCleanStatus')}</span>
-        <strong>{qualityStatusLabel(activeRecord.autoCleanStatus, t)}</strong>
+        <strong>{t(qualityStatusLabelKey(activeRecord.autoCleanStatus))}</strong>
       </div>
       <div className="data-qc-review-status-card">
         <span>{t('dataQcCurrentAssignee')}</span>
@@ -1121,10 +1113,6 @@ function framePreviewTime(video: QcFrameVideo, position: 'first' | 'last', durat
 
 function workspaceRecordFallback(dataset: Dataset): QcDatasetRecord {
   return buildQcDatasetRecord(dataset)
-}
-
-function qualityStatusLabel(status: QualityStatus, t: (key: TranslationKey) => string): string {
-  return t(QUALITY_STATUS_LABELS[status])
 }
 
 function currentReviewerId(user: { id?: string; phone?: string; nickname?: string | null } | null): string {

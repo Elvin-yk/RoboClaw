@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
 from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
@@ -335,7 +336,7 @@ class DatasetPackageService:
         data_files = sorted((dataset_path / "data").rglob("*.parquet"))
         data_file_by_episode: dict[int, tuple[int, int]] = {}
         for source_file in data_files:
-            rows = self._read_parquet_table_rows(source_file)
+            rows = read_parquet_rows(source_file)
             if not rows:
                 continue
             source_episode = self._infer_source_episode_for_parquet(dataset_path, info, episodes, source_file)
@@ -356,7 +357,7 @@ class DatasetPackageService:
                 data_file_by_episode[row_episode] = (chunk_index, file_index)
                 remapped_rows.append(row)
             output_file = package_path / PACKAGE_DATA_PATH.format(chunk_index=chunk_index, file_index=file_index)
-            self._write_parquet_rows(output_file, remapped_rows)
+            write_parquet_rows(output_file, remapped_rows)
             parquet_file_index += 1
         return data_file_by_episode, frame_index, parquet_file_index
 
@@ -473,23 +474,11 @@ class DatasetPackageService:
     def _read_parquet_rows(self, root: Path) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         if root.is_file() and root.suffix == ".parquet":
-            rows.extend(self._read_parquet_table_rows(root))
+            rows.extend(read_parquet_rows(root))
         elif root.is_dir():
             for path in sorted(root.rglob("*.parquet")):
-                rows.extend(self._read_parquet_table_rows(path))
+                rows.extend(read_parquet_rows(path))
         return rows
-
-    def _read_parquet_table_rows(self, path: Path) -> list[dict[str, Any]]:
-        import pyarrow.parquet as pq
-
-        return pq.read_table(path).to_pylist()
-
-    def _write_parquet_rows(self, path: Path, rows: list[dict[str, Any]]) -> None:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(pa.Table.from_pylist(rows), path)
 
     def _coerce_episode_index(self, value: Any, fallback: int | None) -> int:
         if value is None:

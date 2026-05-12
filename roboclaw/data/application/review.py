@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
 from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
@@ -306,7 +307,7 @@ class DataReviewService:
         frame_index = 0
         parquet_file_index = 0
         for source_file in sorted((source_path / "data").rglob("*.parquet")):
-            rows = self._read_parquet_table_rows(source_file)
+            rows = read_parquet_rows(source_file)
             if not rows:
                 continue
             source_episode = self._infer_source_episode_for_parquet(source_path, info, episodes, source_file)
@@ -332,7 +333,7 @@ class DataReviewService:
             for row in remapped_rows:
                 data_file_by_episode[int(row["episode_index"])] = (chunk_index, file_index)
             output_file = output_path / PACKAGE_DATA_PATH.format(chunk_index=chunk_index, file_index=file_index)
-            self._write_parquet_rows(output_file, remapped_rows)
+            write_parquet_rows(output_file, remapped_rows)
             parquet_file_index += 1
         return {
             source_episode: pointer
@@ -551,18 +552,6 @@ class DataReviewService:
             return template.format(**values)
         except KeyError:
             return None
-
-    def _read_parquet_table_rows(self, path: Path) -> list[dict[str, Any]]:
-        import pyarrow.parquet as pq
-
-        return pq.read_table(path).to_pylist()
-
-    def _write_parquet_rows(self, path: Path, rows: list[dict[str, Any]]) -> None:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(pa.Table.from_pylist(rows), path)
 
     def _coerce_episode_index(self, value: Any, fallback: int | None) -> int:
         if value is None:

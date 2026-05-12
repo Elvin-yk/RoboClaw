@@ -1,7 +1,17 @@
-import { textValue } from '@/domains/data/lib/analysisPayload'
+import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
 import type { DataGate, Dataset, GateStatus } from '@/domains/data/model/types'
+import type { TranslationKey } from '@/i18n'
 
 export type QualityStatus = GateStatus
+
+const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
+  pending: 'dataQualityStatusPending',
+  running: 'dataQualityStatusRunning',
+  passed: 'dataQualityStatusPassed',
+  failed: 'dataQualityStatusFailed',
+  needs_review: 'dataQualityStatusNeedsReview',
+  skipped: 'dataQualityStatusSkipped',
+}
 
 export interface DatasetQualityView {
   taskDescription: string
@@ -81,8 +91,8 @@ function manualReviewStatus(laneStatus: QualityStatus, gateStatus: QualityStatus
 }
 
 export function qcReviewStatus(dataset: Dataset): string {
-  const qc = recordValue(dataset.qc)
-  const review = recordValue(qc.review)
+  const qc = asRecord(dataset.qc)
+  const review = asRecord(qc.review)
   const status = textValue(review.status).toLowerCase()
   if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
     return status
@@ -90,10 +100,14 @@ export function qcReviewStatus(dataset: Dataset): string {
   return ''
 }
 
+export function qualityStatusLabelKey(status: QualityStatus): TranslationKey {
+  return QUALITY_STATUS_LABELS[status]
+}
+
 function qcLaneStatus(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): QualityStatus {
-  const qc = recordValue(dataset.qc)
-  const lanes = recordValue(qc.lanes)
-  const payload = recordValue(lanes[lane])
+  const qc = asRecord(dataset.qc)
+  const lanes = asRecord(qc.lanes)
+  const payload = asRecord(lanes[lane])
   const status = textValue(payload.status).toLowerCase()
   if (status === 'completed' || status === 'passed') return 'passed'
   if (status === 'failed' || status === 'rejected') return 'failed'
@@ -105,10 +119,6 @@ function qcLaneStatus(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Q
 
 function gateOrPending(gate: DataGate | undefined): Pick<DataGate, 'status' | 'message'> {
   return gate ? { status: gate.status, message: gate.message } : { status: 'pending', message: '' }
-}
-
-function recordValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function firstString(...values: unknown[]): string {

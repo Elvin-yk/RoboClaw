@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataDateRangeFilter, isDateInFilter, type DateFilterValue } from '@/domains/data/components/DataDateRangeFilter'
+import { asRecord } from '@/domains/data/lib/analysisPayload'
 import {
   dataGateLabelKey,
   dataGateMessageLabelKey,
@@ -11,6 +12,7 @@ import {
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
+  qualityStatusLabelKey,
   qcReviewStatus,
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
@@ -78,14 +80,6 @@ const JOB_PHASE_LABELS: Record<DataJob['phase'], TranslationKey> = {
   cancelled: 'dataJobPhaseCancelled',
 }
 
-const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
-  pending: 'dataQualityStatusPending',
-  running: 'dataQualityStatusRunning',
-  passed: 'dataQualityStatusPassed',
-  failed: 'dataQualityStatusFailed',
-  needs_review: 'dataQualityStatusNeedsReview',
-  skipped: 'dataQualityStatusSkipped',
-}
 const QUALITY_STEP_LABELS: Record<string, TranslationKey> = {
   empty_dataset_check: 'dataManageQualityStepEmptyDatasetCheck',
   damage_diagnosis: 'dataManageQualityStepDamageDiagnosis',
@@ -1697,10 +1691,10 @@ function reviewDecisionDisplayStatus(dataset: Dataset): ManageQualityStatus {
 }
 
 function reviewEpisodeDecisions(dataset: Dataset): Array<Record<string, unknown>> {
-  const review = recordValue(recordValue(dataset.qc).review)
-  const episodes = recordValue(review.episodes)
+  const review = asRecord(asRecord(dataset.qc).review)
+  const episodes = asRecord(review.episodes)
   return Object.values(episodes)
-    .map(recordValue)
+    .map(asRecord)
     .filter((decision) => stringValue(decision.decision) === 'passed' || stringValue(decision.decision) === 'failed')
 }
 
@@ -1746,7 +1740,7 @@ function displayQualityStatus(status: QualityStatus, lane: QualityLane): ManageQ
 }
 
 function manageQualityStatusLabel(status: ManageQualityStatus, t: (key: TranslationKey) => string): string {
-  return qualityStatusLabel(status, t)
+  return t(qualityStatusLabelKey(status))
 }
 
 function qualityStepStatusClass(status: string): QualityStepStatusClass {
@@ -1758,7 +1752,7 @@ function qualityStepStatusClass(status: string): QualityStepStatusClass {
 
 function qualityStepStatusLabel(status: string, t: (key: TranslationKey) => string): string {
   if (normalizedQualityStepStatus(status) === 'skipped') return t('dataGateStatusSkipped')
-  return qualityStatusLabel(normalizedQualityStepStatus(status), t)
+  return t(qualityStatusLabelKey(normalizedQualityStepStatus(status)))
 }
 
 function qualityStepLabel(stepId: string, t: (key: TranslationKey) => string): string {
@@ -1833,9 +1827,9 @@ function autoCleanStepIndex(stepId: string): number {
 }
 
 function qualityLanePayload(dataset: Dataset, lane: QualityLane): Record<string, unknown> {
-  const qc = recordValue(dataset.qc)
-  const lanes = recordValue(qc.lanes)
-  return recordValue(lanes[lane])
+  const qc = asRecord(dataset.qc)
+  const lanes = asRecord(qc.lanes)
+  return asRecord(lanes[lane])
 }
 
 function qualityLaneLastRunId(dataset: Dataset, lane: QualityLane): string {
@@ -1846,10 +1840,6 @@ function compactRecord(value: Record<string, unknown>): string {
   return Object.entries(value)
     .map(([key, entry]) => `${key}: ${stringValue(entry) || JSON.stringify(entry)}`)
     .join(', ')
-}
-
-function recordValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function stringValue(value: unknown): string {
@@ -1904,8 +1894,4 @@ function gateMessage(gate: DataGate, t: (key: TranslationKey) => string): string
   const messageKey = dataGateMessageLabelKey(message)
   const displayMessage = messageKey ? t(messageKey) : message
   return displayMessage === statusText ? '' : displayMessage
-}
-
-function qualityStatusLabel(status: QualityStatus, t: (key: TranslationKey) => string): string {
-  return t(QUALITY_STATUS_LABELS[status])
 }
