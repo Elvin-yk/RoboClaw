@@ -14,8 +14,6 @@ function terminalUrl(): string {
 
 export default function WebTerminalPage() {
   const terminalRef = useRef<HTMLDivElement | null>(null)
-  const socketRef = useRef<WebSocket | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
   const [hasUrl] = useState(() => terminalUrl().startsWith('wss://'))
   const [expired, setExpired] = useState(false)
 
@@ -35,13 +33,11 @@ export default function WebTerminalPage() {
       },
     })
     const fitAddon = new FitAddon()
-    fitAddonRef.current = fitAddon
     terminal.loadAddon(fitAddon)
     terminal.open(terminalRef.current!)
     fitAddon.fit()
 
     const socket = new WebSocket(url)
-    socketRef.current = socket
 
     function sendResize() {
       if (socket.readyState !== WebSocket.OPEN) return
