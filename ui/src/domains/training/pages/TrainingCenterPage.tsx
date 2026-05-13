@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useSessionStore } from '@/domains/session/store/useSessionStore'
-import { useTrainingStore } from '@/domains/training/store/useTrainingStore'
+import { useTrainingStore, type TrainingCurve } from '@/domains/training/store/useTrainingStore'
 import { useHubTransferStore } from '@/domains/hub/store/useHubTransferStore'
 import { LossCurvePanel } from '@/domains/training/components/LossCurvePanel'
 import { TrainingProgressPanel } from '@/domains/training/components/TrainingProgressPanel'
@@ -35,6 +35,7 @@ type RemoteTrainingTab = 'dispatch' | 'monitor' | 'tasks' | 'results'
 const REMOTE_TRAINING_START = '/api/train/remote/start'
 const REMOTE_TRAINING_DOWNLOAD = '/api/train/remote/download'
 const REMOTE_TRAINING_DOWNLOAD_PROGRESS = '/api/train/remote/download/progress'
+const REMOTE_TRAINING_LOSS = '/api/train/remote/loss'
 const REMOTE_WAITING_MESSAGE = '等待服务器响应'
 const ACCESS_KEY = 'evo_access_token'
 const REMOTE_DEFAULT_DATASET = '默认数据集'
@@ -139,6 +140,7 @@ export default function TrainingCenterPage() {
   const [trainingEstimate, setTrainingEstimate] = useState<TrainingEstimate | null>(null)
   const [creditMessage, setCreditMessage] = useState('')
   const [remoteTrainLogs, setRemoteTrainLogs] = useState('')
+  const [remoteLossCurve, setRemoteLossCurve] = useState<TrainingCurve | null>(null)
   const [remoteTrainingTab, setRemoteTrainingTab] = useState<RemoteTrainingTab>('dispatch')
   const [showRemoteTerminal, setShowRemoteTerminal] = useState(false)
   const remoteTaskNames = Object.keys(remoteTasks)
@@ -460,6 +462,33 @@ export default function TrainingCenterPage() {
       setRemoteCreateMessage(response.message || '日志刷新完成')
     } finally {
       setRemoteTrainingPending(false)
+    }
+  }
+
+  const refreshRemoteLossCurve = async () => {
+    const username = user?.nickname || user?.phone || user?.id || ''
+    if (!selectedRemoteTaskName) return
+    if (!username) {
+      alert('请先登陆')
+      return
+    }
+    setRemoteDownloadPending(true)
+    setRemoteCreateMessage('正在下载损失文件...')
+    try {
+      const params = new URLSearchParams({
+        username,
+        taskName: selectedRemoteTaskName,
+        limit: '1000',
+      })
+      const response = await fetch(`${REMOTE_TRAINING_LOSS}?${params.toString()}`, { headers: authHeaders() })
+      if (!response.ok) throw new Error(await response.text())
+      const curve = await response.json() as TrainingCurve & { message?: string }
+      setRemoteLossCurve(curve)
+      setRemoteCreateMessage(curve.message || '损失曲线刷新完成')
+    } catch (error) {
+      setRemoteCreateMessage(error instanceof Error ? error.message : '损失曲线刷新失败')
+    } finally {
+      setRemoteDownloadPending(false)
     }
   }
 
@@ -805,12 +834,15 @@ export default function TrainingCenterPage() {
               <>
                 <section className="bg-sf rounded-xl p-5 shadow-card shadow-inset-yl">
                   <h3 className="text-sm font-bold text-tx uppercase tracking-wide mb-4">过程监测</h3>
-                  <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
+                  <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
                     <label className="flex min-w-0 text-sm text-tx2">
                       <select
                         disabled={remoteDownloadPending}
                         value={selectedRemoteTaskName}
-                        onChange={(e) => setSelectedRemoteTaskName(e.target.value)}
+                        onChange={(e) => {
+                          setSelectedRemoteTaskName(e.target.value)
+                          setRemoteLossCurve(null)
+                        }}
                         className="h-10 min-w-0 flex-1 bg-bg border border-bd text-tx px-3 rounded-lg text-sm focus:outline-none focus:border-ac"
                       >
                         <option value="">请选择任务</option>
@@ -830,6 +862,14 @@ export default function TrainingCenterPage() {
                     >
                       刷新日志
                     </button>
+                    <button
+                      disabled={remoteBusy || !selectedRemoteTaskName}
+                      onClick={refreshRemoteLossCurve}
+                      className="h-10 w-full px-4 rounded-lg text-sm font-semibold text-white bg-gn hover:bg-gn/90
+                        transition-all active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      损失可视化
+                    </button>
                   </div>
                 </section>
                 <section className="bg-sf rounded-xl p-5 shadow-card shadow-inset-yl">
@@ -838,6 +878,12 @@ export default function TrainingCenterPage() {
                     {remoteTrainLogs || '暂无日志'}
                   </pre>
                 </section>
+                <LossCurvePanel
+                  curve={remoteLossCurve}
+                  title="损失可视化"
+                  showJobInput={false}
+                  gradientId="remote-loss-grad"
+                />
               </>
               )}
 
