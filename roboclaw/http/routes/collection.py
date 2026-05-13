@@ -13,19 +13,18 @@ import httpx
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+from roboclaw.http.routes.collection_cloud import CloudApiError
+from roboclaw.http.routes.collection_upload import (
+    CollectionUploadError,
+    CollectionUploadManager,
+)
+
 if TYPE_CHECKING:
     from roboclaw.embodied.service import EmbodiedService
 
 
 class CollectionRunStartRequest(BaseModel):
     assignment_id: str
-
-
-class CloudApiError(RuntimeError):
-    def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.detail = detail
 
 
 class EvoDataCloudClient:
@@ -123,12 +122,14 @@ class CollectionCoordinator:
         state_dir: Path,
         heartbeat_interval_s: int,
         finish_retry_interval_s: int,
+        upload_manager: CollectionUploadManager | None = None,
     ) -> None:
         self.service = service
         self.cloud = cloud
         self.state_dir = state_dir
         self.heartbeat_interval_s = heartbeat_interval_s
         self.finish_retry_interval_s = finish_retry_interval_s
+        self.upload_manager = upload_manager
         self.active_path = state_dir / "active_collection_run.json"
         self.pending_path = state_dir / "pending_collection_finishes.json"
         self.active = self._load_active()
@@ -137,9 +138,13 @@ class CollectionCoordinator:
         self._retry_task: asyncio.Task | None = None
 
     def status(self) -> dict[str, Any]:
+        upload = None
+        if self.active is not None and self.upload_manager is not None:
+            upload = self.upload_manager.status(self.active.run_id)
         return {
             "active_run": self.active.to_dict() if self.active else None,
             "pending_finish_count": len(self._load_pending()),
+            "upload": upload,
             "session": self.service.get_status(),
         }
 
@@ -241,6 +246,28 @@ class CollectionCoordinator:
         if local_failed:
             await self.service.dismiss_error()
         try:
+            upload_status = await self._sync_upload(active, authorization, complete=True)
+        except CollectionUploadError as exc:
+            self._attach_upload_metadata(
+                finish_payload,
+                {
+                    "enabled": True,
+                    "status": "pending",
+                    "dataset_name": active.dataset_name,
+                    "error": str(exc),
+                },
+            )
+            self._queue_pending(active, finish_payload, requires_upload=True)
+            self._clear_active()
+            self._ensure_retry(authorization)
+            return {
+                "status": "pending_cloud_finish",
+                "detail": f"OSS upload pending: {exc}",
+                "local_stop_error": stop_error or None,
+                "pending_finish_count": len(self._load_pending()),
+            }
+        self._attach_upload_metadata(finish_payload, upload_status)
+        try:
             cloud_run = await self.cloud.request(
                 "POST",
                 f"/collection/runs/{active.run_id}/finish",
@@ -273,14 +300,25 @@ class CollectionCoordinator:
     async def heartbeat_once(self) -> dict[str, Any]:
         if self.active is None or self._active_authorization is None:
             return {"status": "idle"}
-        payload = self._heartbeat_payload(self.active)
+        active = self.active
+        authorization = self._active_authorization
+        payload = self._heartbeat_payload(active)
         run = await self.cloud.request(
             "POST",
-            f"/collection/runs/{self.active.run_id}/heartbeat",
-            authorization=self._active_authorization,
+            f"/collection/runs/{active.run_id}/heartbeat",
+            authorization=authorization,
             json_body=payload,
         )
-        return {"status": "heartbeat_sent", "run": run}
+        upload_status = None
+        try:
+            upload_status = await self._sync_upload(
+                active,
+                authorization,
+                complete=False,
+            )
+        except CollectionUploadError:
+            upload_status = self.upload_manager.status(active.run_id) if self.upload_manager else None
+        return {"status": "heartbeat_sent", "run": run, "upload": upload_status}
 
     def _ensure_heartbeat(self) -> None:
         if self._heartbeat_task is not None and not self._heartbeat_task.done():
@@ -317,6 +355,12 @@ class CollectionCoordinator:
         synced = 0
         for item in pending:
             try:
+                upload_status = None
+                if item.get("requires_upload"):
+                    active = ActiveCollectionRun.from_dict(item)
+                    upload_status = await self._sync_upload(active, authorization, complete=True)
+                    self._attach_upload_metadata(item["payload"], upload_status)
+                    item["requires_upload"] = False
                 await self.cloud.request(
                     "POST",
                     f"/collection/runs/{item['run_id']}/finish",
@@ -324,7 +368,7 @@ class CollectionCoordinator:
                     json_body=item["payload"],
                 )
                 synced += 1
-            except CloudApiError:
+            except (CloudApiError, CollectionUploadError):
                 remaining.append(item)
         self._save_pending(remaining)
         return {"status": "ok", "synced": synced, "pending_finish_count": len(remaining)}
@@ -354,6 +398,40 @@ class CollectionCoordinator:
         except CloudApiError:
             self._queue_pending(active, payload)
             self._ensure_retry(authorization)
+
+    async def _sync_upload(
+        self,
+        active: ActiveCollectionRun,
+        authorization: str | None,
+        *,
+        complete: bool,
+    ) -> dict[str, Any] | None:
+        if self.upload_manager is None:
+            return None
+        self._require_auth(authorization)
+        dataset_dir = self.service.datasets.root / "local" / active.dataset_name
+        return await self.upload_manager.sync(
+            run_id=active.run_id,
+            dataset_name=active.dataset_name,
+            dataset_dir=dataset_dir,
+            authorization=authorization,
+            complete=complete,
+            metadata={
+                "description": active.task_params.get("task"),
+                "is_public": False,
+            },
+        )
+
+    def _attach_upload_metadata(
+        self,
+        payload: dict[str, Any],
+        upload_status: dict[str, Any] | None,
+    ) -> None:
+        if upload_status is None:
+            return
+        metadata = dict(payload.get("metadata") or {})
+        metadata["oss_upload"] = upload_status
+        payload["metadata"] = metadata
 
     def _heartbeat_payload(self, active: ActiveCollectionRun) -> dict[str, Any]:
         metrics = self._local_metrics(active)
@@ -456,13 +534,21 @@ class CollectionCoordinator:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_json(self.pending_path, items)
 
-    def _queue_pending(self, active: ActiveCollectionRun, payload: dict[str, Any]) -> None:
+    def _queue_pending(
+        self,
+        active: ActiveCollectionRun,
+        payload: dict[str, Any],
+        *,
+        requires_upload: bool = False,
+    ) -> None:
         pending = self._load_pending()
         pending.append({
             "run_id": active.run_id,
             "assignment_id": active.assignment_id,
             "dataset_name": active.dataset_name,
+            "task_params": active.task_params,
             "payload": payload,
+            "requires_upload": requires_upload,
         })
         self._save_pending(pending)
 
@@ -478,21 +564,32 @@ def register_collection_routes(
     collection_config: Any | None = None,
     cloud_client: EvoDataCloudClient | None = None,
     auth_client: EvoDataCloudClient | None = None,
+    upload_manager: CollectionUploadManager | None = None,
     state_dir: Path | None = None,
 ) -> None:
     api_url = getattr(collection_config, "api_url", "http://8.136.130.234/dev-api")
     auth_api_url = getattr(collection_config, "auth_api_url", "https://api.evomind-tech.com")
     heartbeat_interval_s = int(getattr(collection_config, "heartbeat_interval_s", 30))
     finish_retry_interval_s = int(getattr(collection_config, "finish_retry_interval_s", 60))
+    auto_upload_enabled = bool(getattr(collection_config, "auto_upload_enabled", True))
+    upload_batch_size = int(getattr(collection_config, "upload_batch_size", 100))
     cloud = cloud_client or EvoDataCloudClient(api_url)
     auth_cloud = auth_client or EvoDataCloudClient(auth_api_url)
     local_state_dir = state_dir or service.datasets.root.parent / "collection_state"
+    local_upload_manager = upload_manager
+    if local_upload_manager is None and auto_upload_enabled:
+        local_upload_manager = CollectionUploadManager(
+            cloud=cloud,
+            state_dir=local_state_dir / "uploads",
+            batch_size=upload_batch_size,
+        )
     coordinator = CollectionCoordinator(
         service=service,
         cloud=cloud,
         state_dir=local_state_dir,
         heartbeat_interval_s=heartbeat_interval_s,
         finish_retry_interval_s=finish_retry_interval_s,
+        upload_manager=local_upload_manager,
     )
     app.state.collection_coordinator = coordinator
     app.state.evo_auth_api_url = auth_cloud.api_url

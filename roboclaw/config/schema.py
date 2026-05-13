@@ -186,6 +186,8 @@ class EvoDataConfig(Base):
     remote_training_port: int = 9000
     heartbeat_interval_s: int = 30
     finish_retry_interval_s: int = 60
+    auto_upload_enabled: bool = True
+    upload_batch_size: int = 100
 
 
 class Config(BaseSettings):
