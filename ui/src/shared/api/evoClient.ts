@@ -88,6 +88,76 @@ export interface CurrentOrganization {
     members: OrganizationMember[]
 }
 
+export type CreditAccountType = 'data' | 'training'
+export type PaymentProvider = 'wechat' | 'alipay'
+
+export interface CreditAccount {
+    id: string
+    org_id: string | null
+    user_id: string
+    account_type: CreditAccountType
+    available_balance: number
+    held_balance: number
+    status: string
+}
+
+export interface CreditLedgerEntry {
+    id: string
+    account_id: string
+    entry_type: string
+    available_delta: number
+    held_delta: number
+    available_balance_after: number
+    held_balance_after: number
+    source_type: string
+    source_id: string
+    created_at: string
+}
+
+export interface RechargePackage {
+    id: string
+    account_type: CreditAccountType
+    name: string
+    fiat_currency: string
+    fiat_amount: number
+    credit_amount: number
+}
+
+export interface PaymentOrder {
+    id: string
+    account_id: string
+    package_id: string | null
+    provider: PaymentProvider
+    merchant_order_no: string
+    provider_order_id: string | null
+    fiat_currency: string
+    fiat_amount: number
+    credit_amount: number
+    status: string
+    qr_code_url: string | null
+    paid_at: string | null
+    expires_at: string | null
+}
+
+export interface TrainingEstimate {
+    account_id: string
+    gpu_count: number
+    gpu_type: string
+    seconds: number
+    rate_per_gpu_hour: number
+    hold_credit: number
+    available_balance: number
+    held_balance: number
+    enough_balance: boolean
+}
+
+export interface DatasetPurchaseGrant {
+    dataset_id: string
+    account_id: string
+    grant_id: string
+    status: string
+}
+
 export function currentMembershipRole(user: UserInfo | null): MembershipRole | null {
     return user?.current_membership?.role_code ?? null
 }
@@ -253,5 +323,44 @@ export const evoApi = {
         evoRequest(`/organizations/memberships/${membershipId}/response`, {
             method: 'PATCH',
             body: JSON.stringify({ status }),
+        }, true),
+
+    listCreditAccounts: (): Promise<CreditAccount[]> =>
+        evoRequest('/credits/accounts', {}, true),
+
+    listCreditLedger: (accountId: string): Promise<CreditLedgerEntry[]> =>
+        evoRequest(`/credits/ledger?account_id=${encodeURIComponent(accountId)}`, {}, true),
+
+    listRechargePackages: (accountType: CreditAccountType): Promise<RechargePackage[]> =>
+        evoRequest(`/credits/recharge-packages?account_type=${encodeURIComponent(accountType)}`, {}, true),
+
+    createPaymentOrder: (
+        accountId: string,
+        packageId: string,
+        provider: PaymentProvider,
+    ): Promise<PaymentOrder> =>
+        evoRequest('/credits/payment-orders', {
+            method: 'POST',
+            body: JSON.stringify({ account_id: accountId, package_id: packageId, provider }),
+        }, true),
+
+    getPaymentOrder: (orderId: string): Promise<PaymentOrder> =>
+        evoRequest(`/credits/payment-orders/${encodeURIComponent(orderId)}`, {}, true),
+
+    estimateRemoteTraining: (body: {
+        account_id: string
+        gpu_count: number
+        gpu_type: string
+        seconds: number
+    }): Promise<TrainingEstimate> =>
+        evoRequest('/train/remote/estimate', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }, true),
+
+    purchaseDataset: (datasetId: string, accountId: string): Promise<DatasetPurchaseGrant> =>
+        evoRequest(`/datasets/${encodeURIComponent(datasetId)}/purchase`, {
+            method: 'POST',
+            body: JSON.stringify({ account_id: accountId }),
         }, true),
 }

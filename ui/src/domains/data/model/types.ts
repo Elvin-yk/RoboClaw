@@ -44,6 +44,8 @@ export interface Dataset {
   gates: Record<string, DataGate>
   qc: Record<string, unknown>
   active_output: Record<string, unknown>
+  price_credit?: number | null
+  has_access?: boolean | null
   updated_at: string
 }
 

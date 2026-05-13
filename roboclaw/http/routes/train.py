@@ -6,15 +6,15 @@ import asyncio
 import json
 import time
 from typing import Any
-from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+import httpx
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from roboclaw.config.schema import EvoDataConfig
 from roboclaw.embodied.service import EmbodiedService
-from roboclaw.http.remote_training_transfer import RemoteTrainingConnection
+from roboclaw.http.routes.collection import EvoDataCloudClient
 
 
 class TrainStartRequest(BaseModel):
@@ -43,6 +43,7 @@ class RemoteTrainStartRequest(BaseModel):
     logFreq: int | None = None
     downloadAll: bool | None = None
     downloadList: str | None = None
+    account_id: str | None = None
     action: str
 
 
@@ -102,12 +103,7 @@ def register_train_routes(
     collection_config: EvoDataConfig | None = None,
 ) -> None:
     evo_data_config = collection_config or EvoDataConfig()
-    remote_training_connection = RemoteTrainingConnection(
-        evo_data_config.remote_training_host,
-        evo_data_config.remote_training_port,
-    )
-    remote_download_progress = RemoteDownloadProgress()
-    app.router.add_event_handler("shutdown", remote_training_connection.close)
+    cloud = EvoDataCloudClient(evo_data_config.api_url)
 
     @app.post("/api/train/start")
     async def train_start(body: TrainStartRequest) -> dict[str, Any]:
@@ -134,15 +130,18 @@ def register_train_routes(
         return {"message": result}
 
     @app.post("/api/train/remote/start", response_model=None)
-    async def remote_train_start(body: RemoteTrainStartRequest) -> Any:
-        if body.action == "结果下载":
-            return await remote_training_download(
-                body.username,
-                body.taskName,
-                downloadAll=body.downloadAll if body.downloadAll is not None else True,
-                downloadList=body.downloadList or "",
-            )
-        return await remote_training_connection.request(serialize_remote_request(body))
+    async def remote_train_start(
+        body: RemoteTrainStartRequest,
+        authorization: str | None = Header(None),
+    ) -> Any:
+        if not authorization:
+            raise HTTPException(401, "未登录")
+        return await cloud.request(
+            "POST",
+            "/train/remote/start",
+            authorization=authorization,
+            json_body=body.model_dump(exclude_none=True),
+        )
 
     @app.get("/api/train/remote/download", response_model=None)
     async def remote_training_download(
@@ -152,55 +151,36 @@ def register_train_routes(
         downloadAll: bool = True,
         downloadList: str = "",
         expectedSize: int = 0,
+        authorization: str | None = Header(None),
     ) -> Any:
-        body = RemoteTrainStartRequest(
-            username=username,
-            taskName=taskName,
-            action="结果下载",
-            downloadAll=downloadAll,
-            downloadList=downloadList,
-        )
-        total_bytes = max(0, expectedSize)
-        if downloadId:
-            await remote_download_progress.start(downloadId, total_bytes)
-        filename_task = body.taskName.strip() or "remote-training-result"
-        filename_scope = "all" if downloadAll else "selected"
-        download = await remote_training_connection.download(
-            serialize_remote_request(body),
-            f"{filename_task}-{filename_scope}-result.tar",
-            lambda downloaded: remote_download_progress.update_now(downloadId, downloaded) if downloadId else None,
-        )
-        if isinstance(download, dict):
-            if downloadId:
-                await remote_download_progress.fail(downloadId, str(download.get("message") or "download failed"))
-            return download
-
-        message = str(download.response.get("message") or "")
-
-        async def tracked_chunks() -> Any:
-            try:
-                async for chunk in download.chunks:
-                    yield chunk
-                if downloadId:
-                    await remote_download_progress.finish(downloadId)
-            except Exception as exc:
-                if downloadId:
-                    await remote_download_progress.fail(downloadId, str(exc))
-                raise
-
-        return StreamingResponse(
-            tracked_chunks(),
-            media_type=download.media_type,
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(download.filename)}",
-                "X-Remote-Training-Message": quote(message, safe=""),
-                "X-Remote-Training-Size": str(total_bytes),
+        if not authorization:
+            raise HTTPException(401, "未登录")
+        return await _proxy_remote_download(
+            cloud.api_url,
+            authorization,
+            {
+                "username": username,
+                "taskName": taskName,
+                "downloadId": downloadId,
+                "downloadAll": str(downloadAll),
+                "downloadList": downloadList,
+                "expectedSize": str(expectedSize),
             },
         )
 
     @app.get("/api/train/remote/download/progress")
-    async def remote_training_download_progress(downloadId: str) -> dict[str, Any]:
-        return await remote_download_progress.snapshot(downloadId)
+    async def remote_training_download_progress(
+        downloadId: str,
+        authorization: str | None = Header(None),
+    ) -> dict[str, Any]:
+        if not authorization:
+            raise HTTPException(401, "未登录")
+        return await cloud.request(
+            "GET",
+            "/train/remote/download/progress",
+            authorization=authorization,
+            params={"downloadId": downloadId},
+        )
 
     @app.get("/api/train/current")
     async def train_current() -> dict[str, Any]:
@@ -235,3 +215,42 @@ def register_train_routes(
     async def train_policies() -> dict[str, Any]:
         result = service.train.list_policies(service.manifest)
         return {"message": result}
+
+
+async def _proxy_remote_download(
+    api_url: str,
+    authorization: str,
+    params: dict[str, str],
+) -> StreamingResponse:
+    client = httpx.AsyncClient(timeout=None, trust_env=False)
+    request = client.build_request(
+        "GET",
+        f"{api_url.rstrip('/')}/train/remote/download",
+        headers={"Authorization": authorization},
+        params=params,
+    )
+    response = await client.send(request, stream=True)
+    if response.status_code >= 400:
+        content = await response.aread()
+        await response.aclose()
+        await client.aclose()
+        raise HTTPException(response.status_code, content.decode("utf-8", errors="ignore") or "download failed")
+
+    async def chunks() -> Any:
+        try:
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
+
+    headers: dict[str, str] = {}
+    for name in ("content-disposition", "x-remote-training-message", "x-remote-training-size"):
+        if name in response.headers:
+            headers[name] = response.headers[name]
+    return StreamingResponse(
+        chunks(),
+        status_code=response.status_code,
+        media_type=response.headers.get("content-type"),
+        headers=headers,
+    )

@@ -9,6 +9,7 @@ import DataManagePage from '@/domains/data/pages/DataManagePage'
 import DataQcPage from '@/domains/data/pages/DataQcPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
 import WebTerminalPage from '@/domains/training/pages/WebTerminalPage'
+import CreditsPage from '@/domains/credits/pages/CreditsPage'
 import HardwareSettingsPage from '@/domains/settings/pages/HardwareSettingsPage'
 import ProviderSettingsPage from '@/domains/settings/pages/ProviderSettingsPage'
 import HubSettingsPage from '@/domains/settings/pages/HubSettingsPage'
@@ -69,6 +70,7 @@ function App() {
                         <Route path="settings/provider" element={<ProviderSettingsPage />} />
                         <Route path="settings/hub" element={<HubSettingsPage />} />
                         <Route path="settings/account" element={<AccountSettingsPage />} />
+                        <Route path="settings/credits" element={<CreditsPage />} />
                         <Route path="logs" element={<LogsPage />} />
                     </Route>
                 </Route>

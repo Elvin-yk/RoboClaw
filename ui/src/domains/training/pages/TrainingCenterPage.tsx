@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useSessionStore } from '@/domains/session/store/useSessionStore'
@@ -9,6 +9,7 @@ import { TrainingProgressPanel } from '@/domains/training/components/TrainingPro
 import { useI18n } from '@/i18n'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { postJson } from '@/shared/api/client'
+import { evoApi, type CreditAccount, type TrainingEstimate } from '@/shared/api/evoClient'
 
 const POLICY_TYPES = [
   'act',
@@ -33,6 +34,7 @@ const REMOTE_TRAINING_START = '/api/train/remote/start'
 const REMOTE_TRAINING_DOWNLOAD = '/api/train/remote/download'
 const REMOTE_TRAINING_DOWNLOAD_PROGRESS = '/api/train/remote/download/progress'
 const REMOTE_WAITING_MESSAGE = '等待服务器响应'
+const ACCESS_KEY = 'evo_access_token'
 
 type RemoteTrainingTask = {
   taskName: string
@@ -67,6 +69,11 @@ function makeDownloadId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function authHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem(ACCESS_KEY) : ''
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 declare global {
@@ -124,15 +131,66 @@ export default function TrainingCenterPage() {
   const [remoteCreateMessage, setRemoteCreateMessage] = useState('')
   const [webTerminalUrl, setWebTerminalUrl] = useState('')
   const [selectedRemoteTaskName, setSelectedRemoteTaskName] = useState('')
+  const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([])
+  const [selectedTrainingAccountId, setSelectedTrainingAccountId] = useState('')
+  const [trainingEstimate, setTrainingEstimate] = useState<TrainingEstimate | null>(null)
+  const [creditMessage, setCreditMessage] = useState('')
   const remoteTaskNames = Object.keys(remoteTasks)
   const remoteTaskCount = Object.keys(remoteTasks).length
   const remoteBusy = remoteTrainingPending || remoteDownloadPending
+  const trainingAccounts = useMemo(
+    () => creditAccounts.filter((account) => account.account_type === 'training'),
+    [creditAccounts],
+  )
+  const selectedTrainingAccount = trainingAccounts.find((account) => account.id === selectedTrainingAccountId) || null
 
   useEffect(() => {
     void loadDataLibrary()
     void loadPolicies()
     void restoreCurrentTrainJob()
   }, [loadDataLibrary, loadPolicies, restoreCurrentTrainJob])
+
+  useEffect(() => {
+    if (!isLoggedIn || trainingMode !== 'remote') return
+    void loadTrainingCreditAccounts()
+  }, [isLoggedIn, trainingMode])
+
+  useEffect(() => {
+    if (selectedTrainingAccountId || trainingAccounts.length === 0) return
+    const personalAccount = trainingAccounts.find((account) => !account.org_id)
+    setSelectedTrainingAccountId((personalAccount || trainingAccounts[0]).id)
+  }, [selectedTrainingAccountId, trainingAccounts])
+
+  useEffect(() => {
+    if (!isLoggedIn || trainingMode !== 'remote' || !selectedTrainingAccountId) return
+    void refreshTrainingEstimate(selectedTrainingAccountId)
+  }, [isLoggedIn, trainingMode, selectedTrainingAccountId, remoteGpuCount, remoteGpuType, remoteSleepT])
+
+  async function loadTrainingCreditAccounts() {
+    try {
+      const next = await evoApi.listCreditAccounts()
+      setCreditAccounts(next)
+      setCreditMessage('')
+    } catch (error) {
+      setCreditMessage(error instanceof Error ? error.message : '训练积分账户加载失败')
+    }
+  }
+
+  async function refreshTrainingEstimate(accountId: string) {
+    try {
+      const next = await evoApi.estimateRemoteTraining({
+        account_id: accountId,
+        gpu_count: remoteGpuCount,
+        gpu_type: remoteGpuType.trim(),
+        seconds: remoteSleepT,
+      })
+      setTrainingEstimate(next)
+      setCreditMessage('')
+    } catch (error) {
+      setTrainingEstimate(null)
+      setCreditMessage(error instanceof Error ? error.message : '训练费用估算失败')
+    }
+  }
 
   const promptPushPolicy = (value: string) => {
     const repoId = prompt(t('enterRepoId'))
@@ -171,6 +229,20 @@ export default function TrainingCenterPage() {
       alert('请先登陆')
       return
     }
+    if (!selectedTrainingAccountId) {
+      alert('请选择训练积分账户')
+      return
+    }
+    const estimate = trainingEstimate || await evoApi.estimateRemoteTraining({
+      account_id: selectedTrainingAccountId,
+      gpu_count: remoteGpuCount,
+      gpu_type: remoteGpuType.trim(),
+      seconds: remoteSleepT,
+    })
+    if (!estimate.enough_balance) {
+      setCreditMessage(`训练积分不足：预计冻结 ${estimate.hold_credit}，当前可用 ${estimate.available_balance}`)
+      return
+    }
     setRemoteTrainingPending(true)
     setRemoteCreateMessage(REMOTE_WAITING_MESSAGE)
     try {
@@ -187,11 +259,13 @@ export default function TrainingCenterPage() {
         emptyDocker: remoteEmptyDocker,
         sleepT: remoteSleepT,
         logFreq: remoteLogFreq,
+        account_id: selectedTrainingAccountId,
         action: '开始训练',
       }) as { message?: string; tasks?: RemoteTrainingTask[] }
       const nextTasks = Object.fromEntries((response.tasks || []).map(task => [task.taskName, task]))
       setRemoteTasks(nextTasks)
       setRemoteCreateMessage(response.message === 'create task success' ? '创建成功' : '创建失败')
+      void loadTrainingCreditAccounts()
     } finally {
       setRemoteTrainingPending(false)
     }
@@ -379,6 +453,7 @@ export default function TrainingCenterPage() {
     setRemoteDownloadPending(true)
     setRemoteDownloadProgress({ downloadedBytes: 0, totalBytes, status: 'downloading' })
     setRemoteCreateMessage(`下载中 0% · 0 B / ${formatBytes(totalBytes)}`)
+    let timer: number | undefined
     try {
       const downloadId = makeDownloadId()
       const downloadList = selectedRemoteCheckpoints.join(',')
@@ -391,17 +466,11 @@ export default function TrainingCenterPage() {
         expectedSize: String(totalBytes),
       })
 
-      const link = document.createElement('a')
-      link.href = `${REMOTE_TRAINING_DOWNLOAD}?${params.toString()}`
-      link.download = `${selectedRemoteTaskName}-result.tar`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-
-      const timer = window.setInterval(async () => {
+      const headers = authHeaders()
+      timer = window.setInterval(async () => {
         try {
           const progressParams = new URLSearchParams({ downloadId })
-          const response = await fetch(`${REMOTE_TRAINING_DOWNLOAD_PROGRESS}?${progressParams.toString()}`)
+          const response = await fetch(`${REMOTE_TRAINING_DOWNLOAD_PROGRESS}?${progressParams.toString()}`, { headers })
           if (!response.ok) return
           const progress = await response.json() as RemoteDownloadProgress
           const downloadedBytes = Number(progress.downloadedBytes || 0)
@@ -418,11 +487,31 @@ export default function TrainingCenterPage() {
                 : '下载失败'
             )
           }
-        } catch {
-          // Keep the browser download alive even if one progress poll fails.
+        } catch (error) {
+          console.warn('remote training download progress failed', error)
         }
       }, 1000)
+
+      const response = await fetch(`${REMOTE_TRAINING_DOWNLOAD}?${params.toString()}`, { headers })
+      if (!response.ok) {
+        throw new Error(await response.text() || `HTTP ${response.status}`)
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${selectedRemoteTaskName}-result.tar`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      window.clearInterval(timer)
+      setRemoteDownloadPending(false)
+      setRemoteCreateMessage(`下载完成 · ${formatBytes(totalBytes)}`)
     } catch (error) {
+      if (timer !== undefined) {
+        window.clearInterval(timer)
+      }
       setRemoteCreateMessage(error instanceof Error ? error.message : '下载失败')
       setRemoteDownloadPending(false)
     }
@@ -448,6 +537,41 @@ export default function TrainingCenterPage() {
                     <span>{remoteServerConnected ? '已同步' : '未连接'}</span>
                   </div>
                 </div>
+                <div className="mt-4 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 max-[900px]:grid-cols-1">
+                  <label className="flex min-w-0 flex-col gap-1.5 text-sm text-tx3 font-mono">
+                    训练积分账户
+                    <select
+                      value={selectedTrainingAccountId}
+                      onChange={(event) => setSelectedTrainingAccountId(event.target.value)}
+                      className="h-10 min-w-0 rounded-lg border border-bd bg-bg px-3 text-sm text-tx focus:outline-none focus:border-ac"
+                    >
+                      {trainingAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.org_id ? '组织账户' : '个人账户'} · 可用 {account.available_balance}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="rounded-lg border border-bd/60 bg-bg px-3 py-2">
+                    <div className="text-xs text-tx3">可用 / 冻结</div>
+                    <div className="mt-1 text-sm font-semibold text-tx">
+                      {selectedTrainingAccount
+                        ? `${selectedTrainingAccount.available_balance} / ${selectedTrainingAccount.held_balance}`
+                        : '-'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-bd/60 bg-bg px-3 py-2">
+                    <div className="text-xs text-tx3">预计冻结</div>
+                    <div className={`mt-1 text-sm font-semibold ${trainingEstimate?.enough_balance === false ? 'text-rd' : 'text-tx'}`}>
+                      {trainingEstimate ? `${trainingEstimate.hold_credit} 分` : '-'}
+                    </div>
+                  </div>
+                </div>
+                {creditMessage && (
+                  <div className="mt-3 rounded-lg border border-bd/70 bg-bg px-3 py-2 text-sm text-tx2">
+                    {creditMessage}
+                  </div>
+                )}
               </section>
 
               <section className="bg-sf rounded-xl p-5 shadow-card shadow-inset-yl">

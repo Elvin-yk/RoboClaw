@@ -210,6 +210,7 @@ export default function AppShell() {
     { path: '/settings/provider', label: t('settingsProvider') },
     { path: '/settings/hub', label: t('hfConfig') },
     { path: '/settings/account', label: t('accountSettingsTab') },
+    { path: '/settings/credits', label: '积分账户' },
   ]
   const navGroups: Record<NavGroupId, NavGroup> = {
     collection: {
