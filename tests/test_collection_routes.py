@@ -135,7 +135,7 @@ class FakeCloud:
                 raise CloudApiError(502, "oss down")
             return {
                 "upload_id": "run-1",
-                "upload_dir": "prod/orgs/org-1/users/user-1/collection-runs/run-1/raw/cloud_dataset/",
+                "upload_dir": "dev/orgs/org-1/users/user-1/raw/collection-runs/run-1/cloud_dataset/",
             }
         if path == "/sts/presign":
             if self.fail_upload:
@@ -468,7 +468,7 @@ def test_stop_uploads_dataset_to_oss_before_finishing_cloud_run(tmp_path: Path) 
     assert finish["json"]["metadata"]["oss_upload"]["upload_id"] == "run-1"
     assert (
         finish["json"]["metadata"]["oss_upload"]["oss_path"]
-        == "prod/orgs/org-1/users/user-1/collection-runs/run-1/raw/cloud_dataset/"
+        == "dev/orgs/org-1/users/user-1/raw/collection-runs/run-1/cloud_dataset/"
     )
     assert "secret-token" not in (tmp_path / "state" / "uploads" / "run-1.json").read_text(encoding="utf-8")
 
