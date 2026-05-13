@@ -31,6 +31,7 @@ class TrainStopRequest(BaseModel):
 class RemoteTrainStartRequest(BaseModel):
     username: str
     taskName: str = ""
+    datasetName: str | None = None
     datasetPath: str | None = None
     steps: int | None = None
     saveFreq: int | None = None
