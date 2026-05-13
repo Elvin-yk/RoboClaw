@@ -197,7 +197,6 @@ export default function AppShell() {
   const trainingChildren = [
     { path: '/training/local', label: t('localTraining') },
     { path: '/training/remote', label: t('remoteTraining') },
-    { path: '/training/remote/terminal', label: '远程终端' },
   ]
   const dataChildren = [
     { path: '/data/manage', label: t('dataManageNav') },

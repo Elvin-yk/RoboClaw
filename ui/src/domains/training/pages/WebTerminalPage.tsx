@@ -12,7 +12,7 @@ function terminalUrl(): string {
   return sessionStorage.getItem('webterminal_url') || globalThis.webterminal_url || ''
 }
 
-export default function WebTerminalPage() {
+export function RemoteTerminalPanel({ className = 'h-full' }: { className?: string }) {
   const terminalRef = useRef<HTMLDivElement | null>(null)
   const [hasUrl] = useState(() => terminalUrl().startsWith('wss://'))
   const [expired, setExpired] = useState(false)
@@ -82,12 +82,12 @@ export default function WebTerminalPage() {
   }, [])
 
   if (!hasUrl) {
-    return <div className="h-full bg-bg" />
+    return <div className={`bg-bg ${className}`} />
   }
 
   if (expired) {
     return (
-      <div className="flex h-full items-center justify-center bg-bg p-6">
+      <div className={`flex items-center justify-center bg-bg p-6 ${className}`}>
         <div className="rounded-xl border border-bd bg-sf px-6 py-5 text-sm font-semibold text-rd">
           容器链接已过期
         </div>
@@ -96,11 +96,15 @@ export default function WebTerminalPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#080b12]">
+    <div className={`flex flex-col bg-[#080b12] ${className}`}>
       <div className="border-b border-white/10 px-4 py-2 text-sm font-semibold text-white">
         容器终端
       </div>
       <div ref={terminalRef} className="min-h-0 flex-1 p-3" />
     </div>
   )
+}
+
+export default function WebTerminalPage() {
+  return <RemoteTerminalPanel />
 }
