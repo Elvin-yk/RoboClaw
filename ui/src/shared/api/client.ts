@@ -1,5 +1,7 @@
 import { useI18n } from '@/i18n'
 
+const ACCESS_KEY = 'evo_access_token'
+
 export class ApiError extends Error {
   meta: Record<string, string>
   constructor(code: string, meta: Record<string, string>) {
@@ -11,7 +13,12 @@ export class ApiError extends Error {
 }
 
 export async function api<T = any>(url: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(url, opts)
+  const headers = new Headers(opts?.headers)
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem(ACCESS_KEY) : ''
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  const r = await fetch(url, { ...opts, headers })
   let j: any
   try {
     j = await r.json()

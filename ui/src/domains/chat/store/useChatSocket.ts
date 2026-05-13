@@ -47,7 +47,7 @@ function persistSessionId(sessionId: string): void {
   window.localStorage.setItem(STORAGE_KEY, sessionId)
 }
 
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let reconnectTimer: number | null = null
 
 function resolveWebSocketUrl(sessionId: string): string {
   const override = import.meta.env.VITE_WEBSOCKET_URL as string | undefined

@@ -171,7 +171,7 @@ interface SetupStore {
   error: string | null
 }
 
-let motionTimer: ReturnType<typeof setInterval> | null = null
+let motionTimer: number | null = null
 
 function clearMotionTimer(): void {
   if (!motionTimer) {

@@ -23,6 +23,7 @@ import { useI18n } from '@/i18n'
 import type { TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 import { useAuthStore } from '@/shared/lib/authStore'
+import { evoApi, type CreditAccount } from '@/shared/api/evoClient'
 
 type DrawerTarget =
   | { type: 'dataset'; id: string }
@@ -223,6 +224,16 @@ export default function DataManagePage() {
     .map((job) => `${job.job_id}:${job.phase}:${job.updated_at}`)
     .sort()
   const terminalJobSignature = terminalJobSignatures[terminalJobSignatures.length - 1] ?? ''
+  const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([])
+  const [selectedDataAccountId, setSelectedDataAccountId] = useState('')
+  const [purchasePendingDatasetId, setPurchasePendingDatasetId] = useState('')
+  const [purchaseMessage, setPurchaseMessage] = useState('')
+  const [dataCreditMessage, setDataCreditMessage] = useState('')
+  const dataAccounts = useMemo(
+    () => creditAccounts.filter((account) => account.account_type === 'data'),
+    [creditAccounts],
+  )
+  const selectedDataAccount = dataAccounts.find((account) => account.id === selectedDataAccountId) || dataAccounts[0] || null
 
   useEffect(() => {
     setRawPage((current) => clampPage(current, pageCount(rawDatasets.length, pageSize)))
@@ -247,6 +258,17 @@ export default function DataManagePage() {
     setDrawerTarget({ type: 'dataset', id: drawerDatasetFromQuery })
   }, [datasets, drawerDatasetFromQuery])
 
+  useEffect(() => {
+    if (!user) return
+    void loadDataCreditAccounts()
+  }, [user])
+
+  useEffect(() => {
+    if (selectedDataAccountId || dataAccounts.length === 0) return
+    const personalAccount = dataAccounts.find((account) => !account.org_id)
+    setSelectedDataAccountId((personalAccount || dataAccounts[0]).id)
+  }, [dataAccounts, selectedDataAccountId])
+
   async function createPackage() {
     const nextPackageId = packageId.trim()
     if (!nextPackageId || selectedCleanIds.length === 0) return
@@ -260,6 +282,35 @@ export default function DataManagePage() {
     setPackageId('')
     clearSelection()
     await load()
+  }
+
+  async function loadDataCreditAccounts() {
+    try {
+      const next = await evoApi.listCreditAccounts()
+      setCreditAccounts(next)
+      setDataCreditMessage('')
+    } catch (error) {
+      setDataCreditMessage(error instanceof Error ? error.message : '数据积分账户加载失败')
+    }
+  }
+
+  async function purchaseDatasetWithCredit(dataset: Dataset) {
+    const account = selectedDataAccount
+    if (!account) {
+      setPurchaseMessage('请选择数据积分账户')
+      return
+    }
+    setPurchasePendingDatasetId(dataset.id)
+    setPurchaseMessage('')
+    try {
+      await evoApi.purchaseDataset(dataset.id, account.id)
+      setPurchaseMessage('购买成功')
+      await Promise.all([load(), loadDataCreditAccounts()])
+    } catch (error) {
+      setPurchaseMessage(error instanceof Error ? error.message : '购买失败')
+    } finally {
+      setPurchasePendingDatasetId('')
+    }
   }
 
   async function uploadPackage(packageItem: DatasetPackage) {
@@ -374,6 +425,30 @@ export default function DataManagePage() {
   return (
     <section className="data-manage-page data-manage-page--current">
       {error && <div className="data-manage-error">{error}</div>}
+      {dataCreditMessage && <div className="data-manage-error">{dataCreditMessage}</div>}
+      {dataAccounts.length > 0 && (
+        <div className="mb-4 rounded-xl border border-bd bg-sf px-4 py-3 shadow-card">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-semibold text-tx">数据积分</span>
+            <select
+              value={selectedDataAccount?.id || ''}
+              onChange={(event) => setSelectedDataAccountId(event.target.value)}
+              className="h-9 min-w-[220px] rounded-lg border border-bd bg-bg px-3 text-tx"
+            >
+              {dataAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.org_id ? '组织账户' : '个人账户'} · 可用 {account.available_balance}
+                </option>
+              ))}
+            </select>
+            {selectedDataAccount && (
+              <span className="text-tx2">
+                可用 {selectedDataAccount.available_balance} · 冻结 {selectedDataAccount.held_balance}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <main className="data-manage-grid">
         <DataManageDashboard
@@ -665,6 +740,12 @@ export default function DataManagePage() {
             onDelete={() => setDeleteTarget({ type: 'dataset', id: drawerDataset.id })}
             onAnalyze={() => openDatasetAnalysis(drawerDataset)}
             onReview={() => openDatasetReview(drawerDataset)}
+            dataAccounts={dataAccounts}
+            selectedDataAccountId={selectedDataAccount?.id || ''}
+            purchasePending={purchasePendingDatasetId === drawerDataset.id}
+            purchaseMessage={purchaseMessage}
+            onSelectDataAccount={setSelectedDataAccountId}
+            onPurchase={() => void purchaseDatasetWithCredit(drawerDataset)}
             onResizeStart={startDrawerResize}
             style={drawerStyle}
           />
@@ -1107,6 +1188,12 @@ function DatasetDrawer({
   onDelete,
   onAnalyze,
   onReview,
+  dataAccounts,
+  selectedDataAccountId,
+  purchasePending,
+  purchaseMessage,
+  onSelectDataAccount,
+  onPurchase,
   onResizeStart,
   style,
 }: {
@@ -1115,10 +1202,22 @@ function DatasetDrawer({
   onDelete: () => void
   onAnalyze: () => void
   onReview: () => void
+  dataAccounts: CreditAccount[]
+  selectedDataAccountId: string
+  purchasePending: boolean
+  purchaseMessage: string
+  onSelectDataAccount: (accountId: string) => void
+  onPurchase: () => void
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void
   style: CSSProperties
 }) {
   const { t } = useI18n()
+  const hasPurchaseFields = dataset.price_credit !== undefined || dataset.has_access !== undefined
+  const purchaseDisabled = purchasePending
+    || dataset.has_access === true
+    || dataset.price_credit === null
+    || dataset.price_credit === undefined
+    || !selectedDataAccountId
   return (
     <aside className="data-manage-drawer" style={style}>
       <DrawerResizeHandle onResizeStart={onResizeStart} />
@@ -1143,6 +1242,38 @@ function DatasetDrawer({
           <KeyValue wide label={t('dataManagePath')} value={dataset.path} />
         </div>
       </DrawerSection>
+      {hasPurchaseFields && (
+        <DrawerSection title="数据购买">
+          <div className="data-manage-kv-grid">
+            <KeyValue label="售价" value={dataset.price_credit == null ? '未设置' : `${dataset.price_credit} 数据积分`} />
+            <KeyValue label="授权状态" value={dataset.has_access ? '已拥有下载权限' : '未购买'} />
+          </div>
+          {!dataset.has_access && (
+            <div className="mt-3 grid gap-3">
+              <select
+                value={selectedDataAccountId}
+                onChange={(event) => onSelectDataAccount(event.target.value)}
+                className="h-10 rounded-lg border border-bd bg-bg px-3 text-sm text-tx"
+              >
+                {dataAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.org_id ? '组织账户' : '个人账户'} · 可用 {account.available_balance}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="data-manage-drawer-action"
+                disabled={purchaseDisabled}
+                onClick={onPurchase}
+              >
+                {purchasePending ? '购买中...' : '购买数据'}
+              </button>
+            </div>
+          )}
+          {purchaseMessage && <div className="mt-3 text-sm text-tx2">{purchaseMessage}</div>}
+        </DrawerSection>
+      )}
       <DrawerSection title={t('dataManageQualitySection')}>
         <DatasetQualityPanel dataset={dataset} onReview={onReview} />
       </DrawerSection>
