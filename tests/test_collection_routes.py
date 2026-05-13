@@ -77,6 +77,8 @@ class FakeCloud:
         self.fail_finish = False
         self.fail_assignments = False
         self.fail_upload = False
+        self.fail_upload_complete = False
+        self.upload_status = "pending"
         self.assignments = [{"id": "assign-1", "task_name": "Task A"}]
 
     async def request(
@@ -145,11 +147,11 @@ class FakeCloud:
                 }
             }
         if path == "/datasets/upload/complete":
-            if self.fail_upload:
+            if self.fail_upload or self.fail_upload_complete:
                 raise CloudApiError(502, "oss down")
             return {"upload_id": json_body["upload_id"], "status": "pending"}
         if path.startswith("/datasets/upload/") and path.endswith("/status"):
-            return {"upload_id": path.split("/")[-2], "status": "pending"}
+            return {"upload_id": path.split("/")[-2], "status": self.upload_status}
         if path == "/collection/admin/tasks":
             return []
         if path.startswith("/collection/admin/tasks/") and method == "DELETE":
@@ -526,6 +528,72 @@ def test_upload_failure_queues_finish_for_retry(tmp_path: Path) -> None:
     assert pending[0]["requires_upload"] is True
     assert "secret-token" not in pending_path.read_text(encoding="utf-8")
     assert not any(item["path"] == "/collection/runs/run-1/finish" for item in cloud.requests)
+    upload_updates = [
+        item["json"]
+        for item in cloud.requests
+        if item["path"] == "/collection/runs/run-1/upload"
+    ]
+    assert upload_updates[-1]["status"] == "failed"
+    assert upload_updates[-1]["error_message"] == "oss down"
+
+
+def test_pending_upload_status_does_not_complete_failed_registration(tmp_path: Path) -> None:
+    app = FastAPI()
+    service = FakeService(tmp_path / "datasets")
+    cloud = FakeCloud()
+
+    async def fake_put(_url: str, _path: Path) -> None:
+        return None
+
+    upload_manager = CollectionUploadManager(
+        cloud=cloud,
+        state_dir=tmp_path / "state" / "uploads",
+        put_object=fake_put,
+    )
+    register_collection_routes(
+        app,
+        service,  # type: ignore[arg-type]
+        collection_config=type(
+            "Config",
+            (),
+            {
+                "api_url": "http://fake",
+                "heartbeat_interval_s": 999,
+                "finish_retry_interval_s": 999,
+                "auto_upload_enabled": False,
+            },
+        )(),
+        cloud_client=cloud,  # type: ignore[arg-type]
+        upload_manager=upload_manager,
+        state_dir=tmp_path / "state",
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    start = client.post(
+        "/api/collection/runs/start",
+        headers={"Authorization": "Bearer secret-token"},
+        json={"assignment_id": "assign-1"},
+    )
+    assert start.status_code == 200
+    dataset = service.datasets.root / "local" / "cloud_dataset" / "meta"
+    dataset.mkdir(parents=True)
+    (dataset / "info.json").write_text(
+        json.dumps({"total_episodes": 1, "total_frames": 40, "fps": 20}),
+        encoding="utf-8",
+    )
+    cloud.fail_upload_complete = True
+    cloud.upload_status = "pending"
+
+    stop = client.post("/api/collection/runs/stop", headers={"Authorization": "Bearer secret-token"})
+
+    assert stop.status_code == 200
+    assert stop.json()["status"] == "pending_cloud_finish"
+    request_paths = [item["path"] for item in cloud.requests]
+    assert "/datasets/upload/run-1/status" in request_paths
+    assert not any(item["path"] == "/collection/runs/run-1/finish" for item in cloud.requests)
+    state = json.loads((tmp_path / "state" / "uploads" / "run-1.json").read_text(encoding="utf-8"))
+    assert state["completed"] is False
+    assert state["last_error"] == "oss down"
     upload_updates = [
         item["json"]
         for item in cloud.requests

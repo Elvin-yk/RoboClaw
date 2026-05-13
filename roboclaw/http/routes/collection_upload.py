@@ -26,6 +26,7 @@ _INVALID_PATH_SEGMENTS = {
     ".gitignore",
     "node_modules",
 }
+_COMPLETED_UPLOAD_STATUSES = {"completed", "complete", "success", "succeeded", "passed"}
 
 
 class CollectionUploadError(RuntimeError):
@@ -241,23 +242,24 @@ class CollectionUploadManager:
                 authorization=authorization,
                 json_body=body,
             )
-        except CloudApiError as exc:
-            if await self._upload_status_exists(state.upload_id, authorization):
+        except CloudApiError:
+            if await self._upload_status_completed(state.upload_id, authorization):
                 state.completed = True
                 return
-            raise exc
+            raise
         state.completed = True
 
-    async def _upload_status_exists(self, upload_id: str, authorization: str) -> bool:
+    async def _upload_status_completed(self, upload_id: str, authorization: str) -> bool:
         try:
-            await self.cloud.request(
+            upload_status = await self.cloud.request(
                 "GET",
                 f"/datasets/upload/{upload_id}/status",
                 authorization=authorization,
             )
         except CloudApiError:
             return False
-        return True
+        status = str(upload_status.get("status") or "").lower()
+        return status in _COMPLETED_UPLOAD_STATUSES
 
     async def _report_run_upload(
         self,
