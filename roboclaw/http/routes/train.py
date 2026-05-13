@@ -45,6 +45,7 @@ class RemoteTrainStartRequest(BaseModel):
     logFreq: int | None = None
     downloadAll: bool | None = None
     downloadList: str | None = None
+    limit: int | None = None
     account_id: str | None = None
     action: str
 
@@ -185,6 +186,24 @@ def register_train_routes(
                 "/train/remote/download/progress",
                 authorization=authorization,
                 params={"downloadId": downloadId},
+            )
+        )
+
+    @app.get("/api/train/remote/loss")
+    async def remote_training_loss(
+        username: str,
+        taskName: str,
+        limit: int = 1000,
+        authorization: str | None = Header(None),
+    ) -> dict[str, Any]:
+        if not authorization:
+            raise HTTPException(401, "未登录")
+        return await _cloud_or_http_exception(
+            cloud.request(
+                "GET",
+                "/train/remote/loss",
+                authorization=authorization,
+                params={"username": username, "taskName": taskName, "limit": str(limit)},
             )
         )
 

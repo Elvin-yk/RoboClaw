@@ -84,14 +84,30 @@ function useChartData(curve: TrainingCurve | null) {
   }, [curve?.points])
 }
 
-export function LossCurvePanel() {
+type LossCurvePanelProps = {
+  curve?: TrainingCurve | null
+  title?: string
+  showJobInput?: boolean
+  className?: string
+  gradientId?: string
+}
+
+export function LossCurvePanel({
+  curve,
+  title,
+  showJobInput = true,
+  className = '',
+  gradientId = 'loss-grad',
+}: LossCurvePanelProps = {}) {
   const { t } = useI18n()
   const trainCurve = useTrainingStore((state) => state.trainCurve)
   const fetchTrainCurve = useTrainingStore((state) => state.fetchTrainCurve)
   const clearTrainCurve = useTrainingStore((state) => state.clearTrainCurve)
   const [jobId, setJobId] = useState('')
+  const activeCurve = curve === undefined ? trainCurve : curve
 
   useEffect(() => {
+    if (!showJobInput) return
     const id = jobId.trim()
     clearTrainCurve()
     if (!id) return
@@ -100,21 +116,19 @@ export function LossCurvePanel() {
       if (document.visibilityState === 'visible') fetchTrainCurve(id)
     }, 10_000)
     return () => clearInterval(timer)
-  }, [jobId])
+  }, [jobId, showJobInput])
 
-  const chart = useChartData(trainCurve)
+  const chart = useChartData(activeCurve)
 
   return (
-    <section className="bg-sf rounded-lg p-4 shadow-card flex flex-col animate-slide-up stagger-5">
+    <section className={`bg-sf rounded-lg p-4 shadow-card flex flex-col animate-slide-up stagger-5 ${className}`}>
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-2xs text-tx3 font-mono uppercase tracking-widest">{t('lossCurve')}</h3>
-        <div className="text-right text-[11px] font-mono text-tx3">
+        <h3 className="text-sm font-bold text-tx uppercase tracking-wide">{title || t('lossCurve')}</h3>
+        <div className="text-right text-xs font-mono text-tx3">
           {chart.has ? (
             <>
-              <div>{t('latestLoss')}: {trainCurve?.last_loss?.toFixed(3)}</div>
-              <div>{t('latestStep')}: {chart.latestStep}</div>
-              <div className="mt-1">{t('bestLoss')}: {trainCurve?.best_loss?.toFixed(3)}</div>
-              <div>{t('bestStep')}: {chart.bestStep}</div>
+              <div>{t('latestLoss')}: {activeCurve?.last_loss?.toFixed(3)} · {t('latestStep')}: {chart.latestStep}</div>
+              <div>{t('bestLoss')}: {activeCurve?.best_loss?.toFixed(3)} · {t('bestStep')}: {chart.bestStep}</div>
             </>
           ) : (
             <div className="px-2 py-1 rounded-full bg-ac/10 text-ac font-semibold">Live</div>
@@ -122,6 +136,7 @@ export function LossCurvePanel() {
         </div>
       </div>
 
+      {showJobInput && (
       <label className="mt-3 flex flex-col gap-1 text-2xs text-tx3 font-mono">
         {t('trainingId')}
         <input
@@ -131,6 +146,7 @@ export function LossCurvePanel() {
           className="bg-sf2 border border-bd text-tx px-3 py-2 rounded-lg text-sm font-mono focus:outline-none focus:border-ac placeholder:text-tx3"
         />
       </label>
+      )}
 
       <div className="mt-4 h-[420px] rounded-xl border border-dashed border-bd2/80 bg-gradient-to-br from-sf2/80 via-white to-ac/5 p-4 max-[900px]:h-[340px]">
         <div className="h-full flex gap-3">
@@ -156,17 +172,17 @@ export function LossCurvePanel() {
 
               <svg className="absolute inset-0 w-full h-full text-ac/70" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <defs>
-                  <linearGradient id="loss-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
                     <stop offset="100%" stopColor="currentColor" stopOpacity="0.9" />
                   </linearGradient>
                 </defs>
                 {chart.has ? (
-                  <polyline points={chart.polyline} fill="none" stroke="url(#loss-grad)"
-                    strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  <polyline points={chart.polyline} fill="none" stroke={`url(#${gradientId})`}
+                    strokeWidth="0.55" strokeLinecap="round" strokeLinejoin="round" />
                 ) : (
                   <path d="M8 78 C18 65, 24 56, 34 54 S50 36, 60 40 S74 24, 92 18"
-                    fill="none" stroke="url(#loss-grad)" strokeWidth="1.6" strokeLinecap="round" />
+                    fill="none" stroke={`url(#${gradientId})`} strokeWidth="0.9" strokeLinecap="round" />
                 )}
               </svg>
 
