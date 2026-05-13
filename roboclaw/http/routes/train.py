@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from roboclaw.config.schema import EvoDataConfig
 from roboclaw.embodied.service import EmbodiedService
 from roboclaw.http.routes.collection import EvoDataCloudClient
+from roboclaw.http.routes.collection_cloud import CloudApiError
 
 
 class TrainStartRequest(BaseModel):
@@ -137,11 +138,13 @@ def register_train_routes(
     ) -> Any:
         if not authorization:
             raise HTTPException(401, "未登录")
-        return await cloud.request(
-            "POST",
-            "/train/remote/start",
-            authorization=authorization,
-            json_body=body.model_dump(exclude_none=True),
+        return await _cloud_or_http_exception(
+            cloud.request(
+                "POST",
+                "/train/remote/start",
+                authorization=authorization,
+                json_body=body.model_dump(exclude_none=True),
+            )
         )
 
     @app.get("/api/train/remote/download", response_model=None)
@@ -176,11 +179,13 @@ def register_train_routes(
     ) -> dict[str, Any]:
         if not authorization:
             raise HTTPException(401, "未登录")
-        return await cloud.request(
-            "GET",
-            "/train/remote/download/progress",
-            authorization=authorization,
-            params={"downloadId": downloadId},
+        return await _cloud_or_http_exception(
+            cloud.request(
+                "GET",
+                "/train/remote/download/progress",
+                authorization=authorization,
+                params={"downloadId": downloadId},
+            )
         )
 
     @app.get("/api/train/current")
@@ -224,13 +229,17 @@ async def _proxy_remote_download(
     params: dict[str, str],
 ) -> StreamingResponse:
     client = httpx.AsyncClient(timeout=None, trust_env=False)
-    request = client.build_request(
-        "GET",
-        f"{api_url.rstrip('/')}/train/remote/download",
-        headers={"Authorization": authorization},
-        params=params,
-    )
-    response = await client.send(request, stream=True)
+    try:
+        request = client.build_request(
+            "GET",
+            f"{api_url.rstrip('/')}/train/remote/download",
+            headers={"Authorization": authorization},
+            params=params,
+        )
+        response = await client.send(request, stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(502, f"evo-data-dev unreachable: {exc}") from exc
     if response.status_code >= 400:
         content = await response.aread()
         await response.aclose()
@@ -255,3 +264,10 @@ async def _proxy_remote_download(
         media_type=response.headers.get("content-type"),
         headers=headers,
     )
+
+
+async def _cloud_or_http_exception(awaitable: Any) -> Any:
+    try:
+        return await awaitable
+    except CloudApiError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
