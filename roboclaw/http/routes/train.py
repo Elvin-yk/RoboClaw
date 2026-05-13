@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import Any
 
@@ -43,6 +44,7 @@ class RemoteTrainStartRequest(BaseModel):
     sleepT: int | None = None
     logFreq: int | None = None
     downloadAll: bool | None = None
+    downloadList: str | None = None
     limit: int | None = None
     account_id: str | None = None
     action: str
@@ -92,6 +94,10 @@ class RemoteDownloadProgress:
             if item is None:
                 return {"downloadId": download_id, "downloadedBytes": 0, "totalBytes": 0, "status": "unknown"}
             return dict(item)
+
+
+def serialize_remote_request(body: RemoteTrainStartRequest) -> bytes:
+    return (json.dumps(body.model_dump(exclude_none=True), ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def register_train_routes(
