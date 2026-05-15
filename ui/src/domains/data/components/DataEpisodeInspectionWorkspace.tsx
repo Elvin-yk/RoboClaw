@@ -1,8 +1,12 @@
 import { asRecord } from '@/domains/data/lib/analysisPayload'
+import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
 import { EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
 
 interface DataEpisodeInspectionWorkspaceProps {
+  source: RobotTrajectorySource
+  dataset: string
+  path?: string
   episode: unknown
   episodeIndex: number
   totalEpisodes: number
@@ -18,6 +22,9 @@ interface DataEpisodeInspectionWorkspaceProps {
 }
 
 export function DataEpisodeInspectionWorkspace({
+  source,
+  dataset,
+  path,
   episode,
   episodeIndex,
   totalEpisodes,
@@ -50,6 +57,9 @@ export function DataEpisodeInspectionWorkspace({
           showTitle={showTitle}
           displayMode={displayMode}
           emptyLabel={emptyLabel}
+          source={source}
+          dataset={dataset}
+          path={path}
         />
       ) : (
         <section className="data-panel data-qc-episode-inspection">

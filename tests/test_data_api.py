@@ -22,6 +22,7 @@ def _create_dataset(
     task_text: str = "",
     zero_episode_lengths: bool = False,
     write_episodes_meta: bool = True,
+    with_robot_trajectory: bool = False,
 ) -> Path:
     dataset_path = root / dataset_id
     meta = dataset_path / "meta"
@@ -41,6 +42,25 @@ def _create_dataset(
     }
     if with_videos:
         info["video_path"] = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+    if with_robot_trajectory:
+        robot_joint_names = [
+            "left_shoulder_pan.pos",
+            "left_shoulder_lift.pos",
+            "left_elbow_flex.pos",
+            "left_wrist_flex.pos",
+            "left_wrist_roll.pos",
+            "left_gripper.pos",
+            "right_shoulder_pan.pos",
+            "right_shoulder_lift.pos",
+            "right_elbow_flex.pos",
+            "right_wrist_flex.pos",
+            "right_wrist_roll.pos",
+            "right_gripper.pos",
+        ]
+        info["features"]["action"]["names"] = robot_joint_names
+        info["features"]["action"]["shape"] = [len(robot_joint_names)]
+        info["features"]["observation.state"]["names"] = robot_joint_names
+        info["features"]["observation.state"]["shape"] = [len(robot_joint_names)]
     (meta / "info.json").write_text(json.dumps(info), encoding="utf-8")
     episode_length = frames // episodes if episodes else 0
     stored_episode_length = 0 if zero_episode_lengths else episode_length
@@ -80,13 +100,17 @@ def _create_dataset(
         data_rows = []
         for frame_index in range(frames):
             episode_index = min(frame_index // episode_length, episodes - 1) if episode_length else 0
-            data_rows.append({
+            row = {
                 "index": frame_index,
                 "episode_index": episode_index,
                 "frame_index": frame_index - episode_index * episode_length,
                 "timestamp": frame_index / 30,
                 "task_index": 0,
-            })
+            }
+            if with_robot_trajectory:
+                row["action"] = [float(frame_index + joint_index) for joint_index in range(12)]
+                row["observation.state"] = [float(100 + frame_index + joint_index) for joint_index in range(12)]
+            data_rows.append(row)
         data_path = dataset_path / "data" / "chunk-000" / "file-000.parquet"
         data_path.parent.mkdir(parents=True)
         pq.write_table(pa.Table.from_pylist(data_rows), data_path)
@@ -290,6 +314,54 @@ def test_local_inspect_episode_uses_video_feature_key_and_clip_window(tmp_path: 
     assert first_video["to_timestamp"] == 10 / 30
     assert second_video["from_timestamp"] == 10 / 30
     assert second_video["to_timestamp"] == 20 / 30
+
+
+def test_robot_model_manifest_uses_local_asset_bundle(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    response = client.get("/api/data/inspect/robot-model/so101")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "so101"
+    assert payload["asset_version"] == "2026.05.15"
+    assert payload["asset_base_url"] == "/api/data/inspect/robot-assets/so101/2026.05.15/"
+    assert payload["urdf_url"] == "/api/data/inspect/robot-assets/so101/2026.05.15/so101_new_calib.urdf"
+    assert payload["joint_order"] == ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+    assert payload["scene"]["left_base_xyz"] == [0.0, 0.115, 0.0]
+    assert len(payload["files"]) == 17
+    assert payload["files"][0]["sha256"]
+
+    urdf = client.get(payload["urdf_url"])
+    assert urdf.status_code == 200
+    assert "public, max-age=31536000, immutable" in urdf.headers["cache-control"]
+    assert "<robot name=\"so101_new_calib\">" in urdf.text
+
+
+def test_episode_robot_trajectory_uses_existing_inspect_dataset(tmp_path: Path) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/robot",
+        episodes=1,
+        frames=4,
+        with_data=True,
+        with_robot_trajectory=True,
+    )
+    client = _client(tmp_path)
+
+    response = client.get(
+        "/api/data/inspect/episode-robot-trajectory",
+        params={"source": "local", "dataset": "local/robot", "episode_index": 0, "signal": "action"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "so101"
+    assert payload["signal"] == "action"
+    assert payload["frame_count"] == 4
+    assert payload["time_s"] == [0, 1 / 30, 2 / 30, 3 / 30]
+    assert payload["arms"]["left"]["joint_degrees"]["shoulder_pan"] == [0, 1, 2, 3]
+    assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [6, 7, 8, 9]
 
 
 def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:

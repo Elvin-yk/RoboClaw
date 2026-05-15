@@ -106,6 +106,36 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
             preview=preview,
         )
 
+    @app.get("/api/data/inspect/robot-model/{model}")
+    async def data_inspect_robot_model(model: str) -> dict[str, Any]:
+        return await service.inspect.robot_model(model=model)
+
+    @app.get("/api/data/inspect/robot-assets/{asset_id}/{version}/{path:path}")
+    async def data_inspect_robot_asset(asset_id: str, version: str, path: str):
+        return service.inspect.robot_asset_file(
+            asset_id=asset_id,
+            version=version,
+            relative_path=path,
+        )
+
+    @app.get("/api/data/inspect/episode-robot-trajectory")
+    async def data_inspect_episode_robot_trajectory(
+        dataset: str | None = None,
+        source: str = "local",
+        path: str | None = None,
+        episode_index: int = 0,
+        signal: str = "action",
+        model: str = "so101",
+    ) -> dict[str, Any]:
+        return await service.inspect.episode_robot_trajectory(
+            dataset=dataset,
+            source=source,
+            path=path,
+            episode_index=episode_index,
+            signal=signal,
+            model=model,
+        )
+
     @app.get("/api/data/inspect/video/{path:path}")
     async def data_inspect_video(
         path: str,

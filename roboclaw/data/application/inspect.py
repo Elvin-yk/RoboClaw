@@ -10,8 +10,12 @@ import httpx
 import pyarrow.parquet as pq
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
-from huggingface_hub.errors import HFValidationError, HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub.errors import HfHubHTTPError, HFValidationError, RepositoryNotFoundError
 
+from roboclaw.data.application.episode_robot_trajectory import (
+    TrajectorySignal,
+    build_episode_robot_trajectory,
+)
 from roboclaw.data.curation.features import (
     build_joint_trajectory_payload,
     extract_action_names,
@@ -37,6 +41,14 @@ from roboclaw.data.explorer.remote import (
     search_remote_datasets,
 )
 from roboclaw.data.infrastructure.filesystem import DataRepository
+from roboclaw.embodied.embodiment.arm.assets import (
+    get_robot_asset_bundle,
+    validate_robot_asset_path,
+)
+from roboclaw.embodied.embodiment.arm.visualization import (
+    RobotVisualizationSpec,
+    get_robot_visualization_spec,
+)
 
 T = TypeVar("T")
 
@@ -131,6 +143,53 @@ class DataInspectService:
             source=resolved_source,
         )
 
+    async def robot_model(self, *, model: str) -> dict[str, Any]:
+        spec = self._robot_visualization_spec(model)
+        return self._robot_model_manifest(spec)
+
+    async def episode_robot_trajectory(
+        self,
+        *,
+        dataset: str | None,
+        source: str,
+        path: str | None,
+        episode_index: int,
+        signal: str,
+        model: str,
+    ) -> dict[str, Any]:
+        spec = self._robot_visualization_spec(model)
+        trajectory_signal = self._normalize_trajectory_signal(signal)
+        resolved_source, dataset_name, dataset_path = self._resolve_context(dataset=dataset, source=source, path=path)
+        if resolved_source == "remote":
+            raise HTTPException(status_code=400, detail="Robot trajectory visualization requires a local dataset")
+        try:
+            return await asyncio.to_thread(
+                build_episode_robot_trajectory,
+                dataset_path,
+                dataset_name,
+                episode_index,
+                source=resolved_source,
+                signal=trajectory_signal,
+                spec=spec,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def robot_asset_file(self, *, asset_id: str, version: str, relative_path: str) -> FileResponse:
+        try:
+            asset_path = validate_robot_asset_path(relative_path)
+            bundle = get_robot_asset_bundle(asset_id, version)
+            asset_file = bundle.resolve_file(asset_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Path traversal not allowed") from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Robot asset file not found") from exc
+        return FileResponse(
+            str(asset_file.local_path),
+            media_type=asset_file.content_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     def video(self, *, relative_path: str, dataset: str | None, source: str, dataset_path: str | None) -> FileResponse:
         resolved_source = self._normalize_source(source)
         if resolved_source == "path":
@@ -153,6 +212,29 @@ class DataInspectService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (HfHubHTTPError, httpx.HTTPError) as exc:
             raise HTTPException(status_code=502, detail=f"Failed to load remote dataset '{dataset_name}'") from exc
+
+    def _robot_model_manifest(self, spec: RobotVisualizationSpec) -> dict[str, Any]:
+        try:
+            bundle = get_robot_asset_bundle(spec.asset_id, spec.asset_version)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail=f"Robot asset bundle '{spec.asset_id}@{spec.asset_version}' not found") from exc
+        base_url = f"/api/data/inspect/robot-assets/{spec.asset_id}/{spec.asset_version}/"
+        return {
+            **spec.to_manifest_fields(),
+            **bundle.to_manifest(base_url),
+        }
+
+    def _robot_visualization_spec(self, model: str) -> RobotVisualizationSpec:
+        try:
+            return get_robot_visualization_spec(model)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Robot model '{model}' is not configured") from exc
+
+    def _normalize_trajectory_signal(self, signal: str) -> TrajectorySignal:
+        normalized = signal.strip().lower()
+        if normalized in {"action", "state"}:
+            return normalized  # type: ignore[return-value]
+        raise HTTPException(status_code=400, detail=f"Unsupported robot trajectory signal '{signal}'")
 
     def _resolve_context(self, *, dataset: str | None, source: str, path: str | None) -> tuple[str, str, Path]:
         resolved_source = self._normalize_source(source)

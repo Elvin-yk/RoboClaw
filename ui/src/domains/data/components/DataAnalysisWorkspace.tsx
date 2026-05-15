@@ -1,10 +1,14 @@
 import { useMemo } from 'react'
 import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
 import { DatasetStatsPanel } from './DatasetStatsPanel'
 import { EpisodePlaybackPanel } from './EpisodePlaybackPanel'
 
 interface DataAnalysisWorkspaceProps {
+  source: RobotTrajectorySource
+  dataset: string
+  path?: string
   summary: unknown
   details: unknown
   episodes: unknown
@@ -20,6 +24,9 @@ interface DataAnalysisWorkspaceProps {
 }
 
 export function DataAnalysisWorkspace({
+  source,
+  dataset,
+  path,
   summary,
   details,
   episodes,
@@ -70,6 +77,9 @@ export function DataAnalysisWorkspace({
           totalEpisodes={totalEpisodes}
           loading={loading}
           canLoadEpisode={canLoadEpisode}
+          source={source}
+          dataset={dataset}
+          path={path}
           onEpisodeIndexChange={onEpisodeIndexChange}
           onLoadEpisode={onLoadEpisode}
         />
