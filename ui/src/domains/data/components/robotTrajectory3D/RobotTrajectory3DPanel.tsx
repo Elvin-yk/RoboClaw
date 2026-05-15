@@ -16,6 +16,7 @@ interface RobotTrajectory3DPanelProps {
   path?: string
   episodeIndex: number
   currentTime: number
+  allowStaticModel?: boolean
 }
 
 export function RobotTrajectory3DPanel({
@@ -24,6 +25,7 @@ export function RobotTrajectory3DPanel({
   path,
   episodeIndex,
   currentTime,
+  allowStaticModel = false,
 }: RobotTrajectory3DPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<RobotTrajectory3DScene | null>(null)
@@ -38,7 +40,7 @@ export function RobotTrajectory3DPanel({
   const [sceneError, setSceneError] = useState('')
   const canLoad = source !== 'remote' && (source === 'path' ? Boolean(path) : Boolean(dataset))
   const loading = modelLoading || trajectoryLoading
-  const error = modelError || trajectoryError || sceneError
+  const error = modelError || sceneError || (allowStaticModel ? '' : trajectoryError)
 
   useEffect(() => {
     currentTimeRef.current = currentTime

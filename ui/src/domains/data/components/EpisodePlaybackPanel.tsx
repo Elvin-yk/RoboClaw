@@ -14,6 +14,7 @@ import {
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
+import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
 interface EpisodeVideo {
@@ -48,6 +49,9 @@ export function EpisodePlaybackPanel({
   path,
   showRobot3D = true,
   showTrajectoryCharts = true,
+  framed = true,
+  sectionCards = true,
+  allowStaticRobot3D = false,
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -65,6 +69,9 @@ export function EpisodePlaybackPanel({
   path?: string
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
+  framed?: boolean
+  sectionCards?: boolean
+  allowStaticRobot3D?: boolean
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
@@ -188,10 +195,13 @@ export function EpisodePlaybackPanel({
   }
 
   const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0 || showRobotTrajectory3D
+  const rootClassName = cn(framed && 'data-panel', 'data-analysis-player', !framed && 'data-analysis-player--inline')
+  const sectionBodyClassName = cn(sectionCards ? 'data-analysis-section-card' : 'data-analysis-section-body')
+  const taskBodyClassName = cn(sectionCards && 'data-analysis-section-card', 'data-analysis-task-card')
 
   if (!hasPlaybackData) {
     return (
-      <section className="data-panel">
+      <section className={cn(framed && 'data-panel')}>
         {showTitle && showEpisodeControls && (
           <div className="data-panel__title data-analysis-player__title">
             <EpisodePicker
@@ -210,7 +220,7 @@ export function EpisodePlaybackPanel({
   }
 
   return (
-    <section className="data-panel data-analysis-player">
+    <section className={rootClassName}>
       {showTitle && (
         <div className="data-panel__title data-analysis-player__title">
           {showEpisodeControls && (
@@ -236,7 +246,7 @@ export function EpisodePlaybackPanel({
       {showTaskDescription && taskDescription && (
         <section className="data-analysis-section">
           <div className="data-analysis-section-title">任务描述</div>
-          <div className="data-analysis-section-card data-analysis-task-card">
+          <div className={taskBodyClassName}>
             {taskDescription}
           </div>
         </section>
@@ -245,7 +255,7 @@ export function EpisodePlaybackPanel({
       {showVideos && visibleVideos.length > 0 && (
         <section className="data-analysis-section">
           <div className="data-analysis-section-title">相机画面</div>
-          <div className="data-analysis-section-card">
+          <div className={sectionBodyClassName}>
             <div className="data-analysis-video-grid">
               {visibleVideos.map((video, index) => (
                 <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
@@ -276,6 +286,7 @@ export function EpisodePlaybackPanel({
           path={path}
           episodeIndex={loadedEpisodeIndex}
           currentTime={playbackTime}
+          allowStaticModel={allowStaticRobot3D}
         />
       )}
 

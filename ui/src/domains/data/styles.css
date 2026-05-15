@@ -1246,6 +1246,9 @@
 .data-qc-review-visuals {
   display: grid;
   gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .data-qc-review-visuals .data-panel {
