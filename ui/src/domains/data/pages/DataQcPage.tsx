@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
@@ -559,84 +559,144 @@ function ReviewInspectionWorkspace({
   const episodePayload = asRecord(episode)
   const taskDescription = readEpisodeTaskDescription(episodePayload)
   const duration = resolveEpisodePlaybackDuration(episodePayload)
+  const [inspectionOpen, setInspectionOpen] = useState(true)
+  const [editOpen, setEditOpen] = useState(true)
+  const inspectionTitle = t('dataReviewInspectionChecklistTitle')
+  const editTitle = t('dataReviewEditSectionTitle')
 
   return (
     <div className="data-review-inspection-groups">
       <section className="data-panel data-review-inspection-checklist">
-        <div className="data-panel__title data-review-inspection-checklist__title">
-          <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
+        <ReviewSectionTitle
+          title={inspectionTitle}
+          open={inspectionOpen}
+          controlsId="data-qc-inspection-items"
+          onToggle={() => setInspectionOpen((current) => !current)}
+          t={t}
+        >
           <div className="data-qc-episode-duration">
             <span>{t('dataAnalysisEpisodeLengths')}</span>
             <strong>{formatSeconds(duration)}</strong>
           </div>
-        </div>
+        </ReviewSectionTitle>
 
-        {taskDescription && (
-          <section className="data-analysis-section data-qc-review-task-summary">
-            <div className="data-analysis-section-title">{t('collectionTaskDescription')}</div>
-            <div className="data-analysis-section-card data-analysis-task-card">
-              {taskDescription}
-            </div>
-          </section>
-        )}
+        {inspectionOpen && (
+          <div id="data-qc-inspection-items" className="data-review-section-body">
+            {taskDescription && (
+              <section className="data-analysis-section data-qc-review-task-summary">
+                <div className="data-analysis-section-title">{t('collectionTaskDescription')}</div>
+                <div className="data-analysis-section-card data-analysis-task-card">
+                  {taskDescription}
+                </div>
+              </section>
+            )}
 
-        <article className="data-review-inspection-item">
-          <div className="data-review-inspection-item__head">
-            <div>
-              <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
+            <article className="data-review-inspection-item">
+              <div className="data-review-inspection-item__head">
+                <div>
+                  <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
+                </div>
+              </div>
+              <FirstLastFrameInspection episode={episode} t={t} />
+            </article>
+
+            <div className="data-qc-review-visuals">
+              <DataEpisodeInspectionWorkspace
+                source={source}
+                dataset={dataset}
+                episode={episode}
+                episodeIndex={episodeIndex}
+                totalEpisodes={totalEpisodes}
+                loading={loading}
+                canLoadEpisode={canLoadEpisode}
+                error={error}
+                emptyLabel={t('dataQcReviewVisualsLoading')}
+                showEpisodeControls={false}
+                showTitle={false}
+                displayMode="full"
+                showRobot3D
+                allowStaticRobot3D
+                showTrajectoryCharts={false}
+                showTaskDescription={false}
+                chrome="plain"
+                summaryMode="duration"
+                onEpisodeIndexChange={onEpisodeIndexChange}
+                onLoadEpisode={onLoadEpisode}
+              />
             </div>
           </div>
-          <FirstLastFrameInspection episode={episode} t={t} />
-        </article>
-
-        <div className="data-qc-review-visuals">
-          <DataEpisodeInspectionWorkspace
-            source={source}
-            dataset={dataset}
-            episode={episode}
-            episodeIndex={episodeIndex}
-            totalEpisodes={totalEpisodes}
-            loading={loading}
-            canLoadEpisode={canLoadEpisode}
-            error={error}
-            emptyLabel={t('dataQcReviewVisualsLoading')}
-            showEpisodeControls={false}
-            showTitle={false}
-            displayMode="full"
-            showRobot3D
-            allowStaticRobot3D
-            showTrajectoryCharts={false}
-            showTaskDescription={false}
-            chrome="plain"
-            summaryMode="duration"
-            onEpisodeIndexChange={onEpisodeIndexChange}
-            onLoadEpisode={onLoadEpisode}
-          />
-        </div>
+        )}
       </section>
 
       <section className="data-panel data-review-edit-items">
-        <div className="data-panel__title">
-          <h2>{t('dataReviewEditSectionTitle')}</h2>
-        </div>
-        <article className="data-review-inspection-item">
-          <div className="data-review-inspection-item__head">
-            <div>
-              <strong>{t('dataReviewTaskDraft')}</strong>
-              <em>{t('dataReviewInspectionDatasetScope')}</em>
-            </div>
+        <ReviewSectionTitle
+          title={editTitle}
+          open={editOpen}
+          controlsId="data-qc-edit-items"
+          onToggle={() => setEditOpen((current) => !current)}
+          t={t}
+        />
+        {editOpen && (
+          <div id="data-qc-edit-items" className="data-review-section-body">
+            <article className="data-review-inspection-item">
+              <div className="data-review-inspection-item__head">
+                <div>
+                  <strong>{t('dataReviewTaskDraft')}</strong>
+                  <em>{t('dataReviewInspectionDatasetScope')}</em>
+                </div>
+              </div>
+              <TaskDescriptionInspection
+                datasetTask={datasetTask}
+                draftTaskDescription={draftTaskDescription}
+                saving={saving}
+                reviewLoading={reviewLoading}
+                onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+                onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+                t={t}
+              />
+            </article>
           </div>
-          <TaskDescriptionInspection
-            datasetTask={datasetTask}
-            draftTaskDescription={draftTaskDescription}
-            saving={saving}
-            reviewLoading={reviewLoading}
-            onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
-            onSaveDraftTaskDescription={onSaveDraftTaskDescription}
-            t={t}
-          />
-        </article>
+        )}
       </section>
+    </div>
+  )
+}
+
+function ReviewSectionTitle({
+  title,
+  open,
+  controlsId,
+  onToggle,
+  t,
+  children,
+}: {
+  title: string
+  open: boolean
+  controlsId: string
+  onToggle: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+  children?: ReactNode
+}) {
+  return (
+    <div className="data-panel__title data-review-section-title">
+      <button
+        type="button"
+        className="data-review-section-toggle"
+        aria-expanded={open}
+        aria-controls={controlsId}
+        aria-label={t(open ? 'dataReviewCollapseSection' : 'dataReviewExpandSection', { title })}
+        onClick={onToggle}
+      >
+        <span className="data-review-section-toggle__chevron" aria-hidden="true">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="data-review-section-toggle__text">{title}</span>
+      </button>
+      {children && (
+        <div className="data-review-section-title__aside">
+          {children}
+        </div>
+      )}
     </div>
   )
 }

@@ -230,7 +230,7 @@
     transform 0.16s ease;
 }
 
-.data-page button:not(:disabled):not(.data-analysis-secondary-button):not(.data-analysis-icon-button):not(.data-analysis-play-button):not(.data-analysis-group-chart__plot):not(.data-analysis-return):not(.data-review-sequence__item):not(.data-review-pass-button):not(.data-review-fail-button):not(.data-review-submit-fail-button):not(.data-qc-review-item):not(.data-qc-copy-icon-button):not(.data-review-check-option):hover {
+.data-page button:not(:disabled):not(.data-analysis-secondary-button):not(.data-analysis-icon-button):not(.data-analysis-play-button):not(.data-analysis-group-chart__plot):not(.data-analysis-return):not(.data-review-sequence__item):not(.data-review-pass-button):not(.data-review-fail-button):not(.data-review-submit-fail-button):not(.data-qc-review-item):not(.data-qc-copy-icon-button):not(.data-review-check-option):not(.data-review-section-toggle):hover {
   border-color: #006adc;
   background: #006adc;
   box-shadow: 0 3px 10px rgba(0, 122, 255, 0.22);
@@ -957,8 +957,54 @@
   gap: 14px;
 }
 
-.data-review-inspection-checklist__title {
+.data-review-section-title {
   align-items: center;
+  margin-bottom: 0;
+}
+
+.data-review-section-body {
+  display: grid;
+  gap: 14px;
+}
+
+.data-page .data-review-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #101828;
+  padding: 0 6px 0 0;
+  box-shadow: none;
+}
+
+.data-page .data-review-section-toggle:not(:disabled):hover {
+  border: 0;
+  background: transparent;
+  color: #007aff;
+  box-shadow: none;
+}
+
+.data-review-section-toggle__chevron {
+  display: inline-block;
+  width: 18px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.data-review-section-toggle__text {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-review-section-title__aside {
+  margin-left: auto;
 }
 
 .data-qc-episode-duration {

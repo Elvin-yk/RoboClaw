@@ -729,6 +729,8 @@ export const inlineEn = {
         dataReviewReviewedCount: '{reviewed} / {total} reviewed',
         dataReviewEpisodeSequence: 'Episode sequence',
         dataReviewNoEpisodes: 'This Dataset has no reviewable episodes.',
+        dataReviewExpandSection: 'Expand {title}',
+        dataReviewCollapseSection: 'Collapse {title}',
         dataReviewEditSectionTitle: 'Edit Items',
         dataReviewInspectionChecklistTitle: 'Inspection Items',
         dataReviewInspectionDatasetScope: 'Dataset-level check; this choice applies to every episode',
