@@ -19,8 +19,6 @@ interface DataEpisodeInspectionWorkspaceProps {
   displayMode?: EpisodePlaybackDisplayMode
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
-  framed?: boolean
-  sectionCards?: boolean
   allowStaticRobot3D?: boolean
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
@@ -42,8 +40,6 @@ export function DataEpisodeInspectionWorkspace({
   displayMode = 'full',
   showRobot3D = true,
   showTrajectoryCharts = true,
-  framed = true,
-  sectionCards = true,
   allowStaticRobot3D = false,
   onEpisodeIndexChange,
   onLoadEpisode,
@@ -72,8 +68,6 @@ export function DataEpisodeInspectionWorkspace({
           path={path}
           showRobot3D={showRobot3D}
           showTrajectoryCharts={showTrajectoryCharts}
-          framed={framed}
-          sectionCards={sectionCards}
           allowStaticRobot3D={allowStaticRobot3D}
         />
       ) : (

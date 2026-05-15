@@ -1251,15 +1251,6 @@
   padding: 0;
 }
 
-.data-qc-review-visuals .data-panel {
-  border-color: #eef2f7;
-  box-shadow: none;
-}
-
-.data-qc-review-visuals .data-analysis-video-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
 .data-qc-review-visuals .data-analysis-timeline {
   position: static;
   right: auto;
@@ -1275,20 +1266,6 @@
 .data-qc-review-visuals .data-page .data-analysis-timeline button,
 .data-qc-review-visuals .data-analysis-timeline button {
   min-height: 34px;
-}
-
-.data-qc-review-visuals .data-page .data-analysis-group-chart__plot,
-.data-qc-review-visuals .data-analysis-group-chart__plot {
-  min-height: 260px;
-}
-
-.data-qc-review-visuals .data-analysis-group-chart__plot svg {
-  height: 250px;
-}
-
-.data-qc-review-visuals .data-robot-trajectory3d__viewport {
-  height: 360px;
-  min-height: 300px;
 }
 
 .data-qc-review-actions {

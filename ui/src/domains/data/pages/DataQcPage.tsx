@@ -560,12 +560,7 @@ function ReviewInspectionWorkspace({
         <div className="data-panel__title">
           <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
         </div>
-        <article className="data-review-inspection-item data-qc-review-visuals">
-          <div className="data-review-inspection-item__head">
-            <div>
-              <strong>{t('dataQcEpisodeInspectionTitle')}</strong>
-            </div>
-          </div>
+        <div className="data-qc-review-visuals">
           <DataEpisodeInspectionWorkspace
             source={source}
             dataset={dataset}
@@ -577,17 +572,14 @@ function ReviewInspectionWorkspace({
             error={error}
             emptyLabel={t('dataQcReviewVisualsLoading')}
             showEpisodeControls={false}
-            showTitle={false}
             displayMode="full"
-            framed={false}
-            sectionCards={false}
             showRobot3D
             allowStaticRobot3D
             showTrajectoryCharts={false}
             onEpisodeIndexChange={onEpisodeIndexChange}
             onLoadEpisode={onLoadEpisode}
           />
-        </article>
+        </div>
 
         <article className="data-review-inspection-item">
           <div className="data-review-inspection-item__head">
