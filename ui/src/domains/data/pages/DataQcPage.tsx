@@ -560,6 +560,16 @@ function ReviewInspectionWorkspace({
         <div className="data-panel__title">
           <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
         </div>
+
+        <article className="data-review-inspection-item">
+          <div className="data-review-inspection-item__head">
+            <div>
+              <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
+            </div>
+          </div>
+          <FirstLastFrameInspection episode={episode} t={t} />
+        </article>
+
         <div className="data-qc-review-visuals">
           <DataEpisodeInspectionWorkspace
             source={source}
@@ -576,19 +586,12 @@ function ReviewInspectionWorkspace({
             showRobot3D
             allowStaticRobot3D
             showTrajectoryCharts={false}
+            chrome="plain"
+            summaryMode="duration"
             onEpisodeIndexChange={onEpisodeIndexChange}
             onLoadEpisode={onLoadEpisode}
           />
         </div>
-
-        <article className="data-review-inspection-item">
-          <div className="data-review-inspection-item__head">
-            <div>
-              <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
-            </div>
-          </div>
-          <FirstLastFrameInspection episode={episode} t={t} />
-        </article>
       </section>
 
       <section className="data-panel data-review-edit-items">
@@ -669,7 +672,6 @@ function FirstLastFrameInspection({
   }
   return (
     <div className="data-review-first-last-frame">
-      <span>{t('dataReviewFirstLastFrameTitle')}</span>
       <div className="data-review-first-last-frame__grid">
         {videos.map((video, index) => (
           <div key={`${video.path}-${index}`} className="data-review-first-last-frame__stream">

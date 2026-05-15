@@ -14,6 +14,7 @@ import {
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
+import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
 interface EpisodeVideo {
@@ -25,6 +26,8 @@ interface EpisodeVideo {
 }
 
 export type EpisodePlaybackDisplayMode = 'full' | 'video' | 'trajectory'
+export type EpisodePlaybackChrome = 'panel' | 'plain'
+export type EpisodePlaybackSummaryMode = 'full' | 'duration'
 
 const VIDEO_SYNC_TOLERANCE = 0.15
 const LOOP_EPSILON = 0.05
@@ -49,6 +52,8 @@ export function EpisodePlaybackPanel({
   showRobot3D = true,
   showTrajectoryCharts = true,
   allowStaticRobot3D = false,
+  chrome = 'panel',
+  summaryMode = 'full',
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -67,6 +72,8 @@ export function EpisodePlaybackPanel({
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
   allowStaticRobot3D?: boolean
+  chrome?: EpisodePlaybackChrome
+  summaryMode?: EpisodePlaybackSummaryMode
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
@@ -190,10 +197,15 @@ export function EpisodePlaybackPanel({
   }
 
   const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0 || showRobotTrajectory3D
+  const rootClassName = cn(
+    chrome === 'panel' && 'data-panel',
+    'data-analysis-player',
+    chrome === 'plain' && 'data-analysis-player--plain',
+  )
 
   if (!hasPlaybackData) {
     return (
-      <section className="data-panel">
+      <section className={rootClassName}>
         {showTitle && showEpisodeControls && (
           <div className="data-panel__title data-analysis-player__title">
             <EpisodePicker
@@ -212,7 +224,7 @@ export function EpisodePlaybackPanel({
   }
 
   return (
-    <section className="data-panel data-analysis-player">
+    <section className={rootClassName}>
       {showTitle && (
         <div className="data-panel__title data-analysis-player__title">
           {showEpisodeControls && (
@@ -226,9 +238,11 @@ export function EpisodePlaybackPanel({
             />
           )}
           <div className="data-analysis-player__summary">
-            <span>Episode #{loadedEpisodeIndex}</span>
+            {summaryMode === 'full' && <span>Episode #{loadedEpisodeIndex}</span>}
             <span>{formatSeconds(duration)}</span>
-            {showVideos && <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>}
+            {summaryMode === 'full' && showVideos && (
+              <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>
+            )}
           </div>
         </div>
       )}

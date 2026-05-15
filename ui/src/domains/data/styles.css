@@ -1061,13 +1061,6 @@
   gap: 10px;
 }
 
-.data-review-first-last-frame > span {
-  margin: 0;
-  color: #344054;
-  font-size: 12px;
-  font-weight: 850;
-}
-
 .data-review-first-last-frame__grid {
   display: grid;
   gap: 12px;
@@ -1856,6 +1849,14 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.data-analysis-player--plain {
+  min-width: 0;
+}
+
+.data-analysis-player--plain .data-analysis-player__title {
+  margin-bottom: 0;
 }
 
 .data-analysis-player__summary {

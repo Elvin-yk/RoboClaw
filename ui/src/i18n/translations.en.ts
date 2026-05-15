@@ -734,7 +734,7 @@ export const inlineEn = {
         dataReviewInspectionChecklistTitle: 'Inspection Items',
         dataReviewInspectionDatasetScope: 'Dataset-level check; this choice applies to every episode',
         dataReviewInspectionTaskDescription: 'Task description check',
-        dataReviewInspectionFirstLastFrame: 'First / last frame check',
+        dataReviewInspectionFirstLastFrame: 'First / last frames',
         dataReviewInspectionAction: 'Action check',
         dataReviewInspectionVideo: 'Video check',
         dataReviewInspectionStep: 'Step {current} / {total}',

@@ -1,7 +1,13 @@
 import { asRecord } from '@/domains/data/lib/analysisPayload'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
-import { EpisodePicker, EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
+import {
+  EpisodePicker,
+  EpisodePlaybackPanel,
+  type EpisodePlaybackChrome,
+  type EpisodePlaybackDisplayMode,
+  type EpisodePlaybackSummaryMode,
+} from './EpisodePlaybackPanel'
 
 interface DataEpisodeInspectionWorkspaceProps {
   source: RobotTrajectorySource
@@ -20,6 +26,8 @@ interface DataEpisodeInspectionWorkspaceProps {
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
   allowStaticRobot3D?: boolean
+  chrome?: EpisodePlaybackChrome
+  summaryMode?: EpisodePlaybackSummaryMode
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
 }
@@ -41,6 +49,8 @@ export function DataEpisodeInspectionWorkspace({
   showRobot3D = true,
   showTrajectoryCharts = true,
   allowStaticRobot3D = false,
+  chrome = 'panel',
+  summaryMode = 'full',
   onEpisodeIndexChange,
   onLoadEpisode,
 }: DataEpisodeInspectionWorkspaceProps) {
@@ -69,9 +79,11 @@ export function DataEpisodeInspectionWorkspace({
           showRobot3D={showRobot3D}
           showTrajectoryCharts={showTrajectoryCharts}
           allowStaticRobot3D={allowStaticRobot3D}
+          chrome={chrome}
+          summaryMode={summaryMode}
         />
       ) : (
-        <section className="data-panel data-qc-episode-inspection">
+        <section className={chrome === 'panel' ? 'data-panel data-qc-episode-inspection' : 'data-qc-episode-inspection'}>
           {showTitle && (
             <div className="data-panel__title">
               {showEpisodeControls && (

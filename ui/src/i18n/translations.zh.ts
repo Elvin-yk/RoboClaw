@@ -735,7 +735,7 @@ export const inlineZh = {
         dataReviewInspectionChecklistTitle: '检查项',
         dataReviewInspectionDatasetScope: 'Dataset 级检查，选择后对全部 Episode 生效',
         dataReviewInspectionTaskDescription: '任务描述检查',
-        dataReviewInspectionFirstLastFrame: '首尾帧检查',
+        dataReviewInspectionFirstLastFrame: '首尾帧',
         dataReviewInspectionAction: 'Action 检查',
         dataReviewInspectionVideo: '视频检查',
         dataReviewInspectionStep: '第 {current} / {total} 项',
