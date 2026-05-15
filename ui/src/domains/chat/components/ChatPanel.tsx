@@ -1,12 +1,4 @@
-import {
-  type CSSProperties,
-  type RefObject,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useChatSocket } from '@/domains/chat/store/useChatSocket'
@@ -16,207 +8,6 @@ import { cn } from '@/shared/lib/cn'
 
 type ChatPanelVariant = 'page' | 'widget'
 
-type LiquidGlassStyle = CSSProperties & {
-  '--chat-liquid-glass-filter': string
-}
-
-type LiquidGlassTexture = {
-  x: number
-  y: number
-}
-
-type LiquidGlassShaderMap = {
-  dataUrl: string
-  scale: number
-  width: number
-  height: number
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
-
-function smoothStep(edge0: number, edge1: number, value: number): number {
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
-  return t * t * (3 - 2 * t)
-}
-
-function length(x: number, y: number): number {
-  return Math.sqrt(x * x + y * y)
-}
-
-function roundedRectSDF(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-): number {
-  const qx = Math.abs(x) - width + radius
-  const qy = Math.abs(y) - height + radius
-  return Math.min(Math.max(qx, qy), 0) + length(Math.max(qx, 0), Math.max(qy, 0)) - radius
-}
-
-function texture(x: number, y: number): LiquidGlassTexture {
-  return { x, y }
-}
-
-function createLiquidGlassShaderMap(width: number, height: number): LiquidGlassShaderMap | null {
-  if (typeof document === 'undefined') return null
-
-  const canvas = document.createElement('canvas')
-  const canvasDPI = 1
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d')
-  if (!context) return null
-
-  const data = new Uint8ClampedArray(width * height * 4)
-  const rawValues: number[] = []
-  let maxScale = 0
-
-  for (let index = 0; index < data.length; index += 4) {
-    const x = (index / 4) % width
-    const y = Math.floor(index / 4 / width)
-    const uv = { x: x / width, y: y / height }
-    const ix = uv.x - 0.5
-    const iy = uv.y - 0.5
-    const distanceToEdge = roundedRectSDF(ix, iy, 0.3, 0.2, 0.6)
-    const displacement = smoothStep(0.8, 0, distanceToEdge - 0.15)
-    const scaled = smoothStep(0, 1, displacement)
-    const position = texture(ix * scaled + 0.5, iy * scaled + 0.5)
-    const dx = position.x * width - x
-    const dy = position.y * height - y
-
-    maxScale = Math.max(maxScale, Math.abs(dx), Math.abs(dy))
-    rawValues.push(dx, dy)
-  }
-
-  maxScale *= 0.5
-  const mapScale = maxScale || 1
-  let rawIndex = 0
-  for (let index = 0; index < data.length; index += 4) {
-    const red = rawValues[rawIndex++] / mapScale + 0.5
-    const green = rawValues[rawIndex++] / mapScale + 0.5
-    data[index] = Math.round(clamp(red, 0, 1) * 255)
-    data[index + 1] = Math.round(clamp(green, 0, 1) * 255)
-    data[index + 2] = 0
-    data[index + 3] = 255
-  }
-
-  context.putImageData(new ImageData(data, width, height), 0, 0)
-  return {
-    dataUrl: canvas.toDataURL('image/png'),
-    scale: maxScale / canvasDPI,
-    width,
-    height,
-  }
-}
-
-function LiquidGlassFilter({
-  filterId,
-  targetRef,
-}: {
-  filterId: string
-  targetRef: RefObject<HTMLElement>
-}) {
-  const [shaderMap, setShaderMap] = useState<LiquidGlassShaderMap | null>(null)
-
-  useLayoutEffect(() => {
-    let disposed = false
-    let frameId = 0
-    let retryFrameId = 0
-    let removeResizeListener: (() => void) | null = null
-    let resizeObserver: ResizeObserver | null = null
-    let lastWidth = 0
-    let lastHeight = 0
-
-    function refreshShaderMap(observedElement: HTMLElement): void {
-      const rect = observedElement.getBoundingClientRect()
-      const width = Math.max(1, Math.round(rect.width))
-      const height = Math.max(1, Math.round(rect.height))
-
-      if (width === lastWidth && height === lastHeight) return
-
-      lastWidth = width
-      lastHeight = height
-      setShaderMap(createLiquidGlassShaderMap(width, height))
-    }
-
-    function updateShaderMap(observedElement: HTMLElement): void {
-      window.cancelAnimationFrame(frameId)
-      frameId = window.requestAnimationFrame(() => refreshShaderMap(observedElement))
-    }
-
-    function connectFilter(): void {
-      if (disposed) return
-
-      const observedElement = targetRef.current
-      if (!observedElement) {
-        retryFrameId = window.requestAnimationFrame(connectFilter)
-        return
-      }
-
-      const handleResize = () => updateShaderMap(observedElement)
-      resizeObserver = new ResizeObserver(handleResize)
-      resizeObserver.observe(observedElement)
-      window.addEventListener('resize', handleResize)
-      removeResizeListener = () => window.removeEventListener('resize', handleResize)
-      refreshShaderMap(observedElement)
-    }
-
-    connectFilter()
-
-    return () => {
-      disposed = true
-      window.cancelAnimationFrame(frameId)
-      window.cancelAnimationFrame(retryFrameId)
-      resizeObserver?.disconnect()
-      removeResizeListener?.()
-    }
-  }, [targetRef])
-
-  return (
-    <svg
-      className="liquid-glass-filter"
-      width="0"
-      height="0"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <defs>
-        <filter
-          id={`${filterId}_filter`}
-          filterUnits="userSpaceOnUse"
-          x="0"
-          y="0"
-          width={shaderMap?.width ?? 1}
-          height={shaderMap?.height ?? 1}
-          colorInterpolationFilters="sRGB"
-        >
-          <feImage
-            id={`${filterId}_map`}
-            href={shaderMap?.dataUrl ?? ''}
-            x="0"
-            y="0"
-            width={shaderMap?.width ?? 1}
-            height={shaderMap?.height ?? 1}
-            preserveAspectRatio="none"
-            result={`${filterId}_map`}
-          />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2={`${filterId}_map`}
-            scale={shaderMap?.scale ?? 0}
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-      </defs>
-    </svg>
-  )
-}
-
 export default function ChatPanel({
   variant = 'page',
   onClose,
@@ -225,17 +16,11 @@ export default function ChatPanel({
   onClose?: () => void
 }) {
   const compact = variant === 'widget'
-  const filterId = `roboclaw-liquid-glass-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
-  const liquidGlassStyle = {
-    '--chat-liquid-glass-filter': `url(#${filterId}_filter) blur(0.25px) contrast(1.2) brightness(1.05) saturate(1.1)`,
-  } as LiquidGlassStyle
   const [input, setInput] = useState('')
   const [providerConfigured, setProviderConfigured] = useState(true)
   const { messages, sendMessage, connected, sessionId } = useChatSocket()
   const conversationRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const pagePanelRef = useRef<HTMLElement>(null)
-  const widgetSurfaceRef = useRef<HTMLElement>(null)
   const { t } = useI18n()
 
   function scrollToLatestMessage(behavior: ScrollBehavior = 'smooth'): void {
@@ -302,14 +87,7 @@ export default function ChatPanel({
 
   if (compact) {
     return (
-      <>
-        <LiquidGlassFilter filterId={filterId} targetRef={widgetSurfaceRef} />
-        <section
-          ref={widgetSurfaceRef}
-          className="chat-widget__surface"
-          style={liquidGlassStyle}
-          aria-label="RoboClaw AI chat"
-        >
+      <section className="chat-widget__surface" aria-label="RoboClaw AI chat">
           <button
             type="button"
             className="chat-widget__minimize"
@@ -384,14 +162,12 @@ export default function ChatPanel({
               <span aria-hidden="true" />
             </button>
           </form>
-        </section>
-      </>
+      </section>
     )
   }
 
   return (
-    <section ref={pagePanelRef} className="chat-panel liquid-glass-panel" style={liquidGlassStyle}>
-      <LiquidGlassFilter filterId={filterId} targetRef={pagePanelRef} />
+    <section className="chat-panel">
       <header className="chat-panel__header">
         <div className="chat-panel__identity">
           <span className="chat-panel__avatar" aria-hidden="true">AI</span>

@@ -29,7 +29,6 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.42);
   padding: 8px 12px 8px 14px;
-  backdrop-filter: blur(14px);
 }
 
 .control-device-label {
