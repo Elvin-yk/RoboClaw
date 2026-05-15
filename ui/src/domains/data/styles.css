@@ -1272,10 +1272,6 @@
   min-height: 34px;
 }
 
-.data-qc-review-visuals .data-analysis-group-chart-list {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .data-qc-review-visuals .data-page .data-analysis-group-chart__plot,
 .data-qc-review-visuals .data-analysis-group-chart__plot {
   min-height: 260px;
@@ -1966,6 +1962,17 @@
   box-shadow: none;
 }
 
+.data-analysis-section {
+  display: grid;
+  gap: 10px;
+}
+
+.data-analysis-section-title {
+  color: #101828;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .data-analysis-video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -2198,51 +2205,9 @@
   gap: 12px;
 }
 
-.data-analysis-group-chart__titlebar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.data-analysis-chart-modes {
-  display: inline-flex;
-  margin-left: auto;
-  gap: 6px;
-}
-
-.data-page .data-analysis-chart-modes button {
-  min-height: 32px;
-  border-color: #d0d5dd;
-  border-radius: 8px;
-  background: #fff;
-  color: #344054;
-  padding: 6px 10px;
-  box-shadow: none;
-}
-
-.data-page .data-analysis-chart-modes button:not(:disabled):hover {
-  border-color: #98a2b3;
-  background: #f8fafc;
-  color: #101828;
-  box-shadow: none;
-}
-
-.data-page .data-analysis-chart-modes button.is-active {
-  border-color: #98a2b3;
-  background: #e4e7ec;
-  color: #101828;
-}
-
-.data-analysis-group-chart-list,
 .data-analysis-combined-chart-list {
   display: grid;
   gap: 16px;
-}
-
-.data-analysis-group-chart-list {
-  grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
 }
 
 .data-analysis-combined-chart-list {
@@ -2261,16 +2226,6 @@
 
 .data-analysis-group-chart--combined {
   padding-bottom: 18px;
-}
-
-.data-analysis-group-chart__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #344054;
-  font-size: 15px;
-  font-weight: 760;
 }
 
 .data-page .data-analysis-group-chart__plot {
@@ -4395,10 +4350,6 @@
     border-left: 0;
     padding-top: 18px;
     padding-left: 0;
-  }
-
-  .data-analysis-group-chart-list {
-    grid-template-columns: 1fr;
   }
 
   .data-analysis-length-summary {

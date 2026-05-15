@@ -132,7 +132,7 @@ export function RobotTrajectory3DPanel({
   return (
     <section className="data-robot-trajectory3d">
       <div className="data-robot-trajectory3d__head">
-        <h3>3D</h3>
+        <h3>机械臂 3D 轨迹</h3>
       </div>
       <div className="data-robot-trajectory3d__viewport" ref={containerRef}>
         {loading && <div className="data-robot-trajectory3d__overlay">加载 3D</div>}

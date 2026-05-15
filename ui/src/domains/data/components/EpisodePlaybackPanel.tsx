@@ -238,26 +238,29 @@ export function EpisodePlaybackPanel({
         </div>
       )}
 
-      {showVideos && (
-        <div className="data-analysis-video-grid">
-          {visibleVideos.map((video, index) => (
-            <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
-              <video
-                ref={(node) => {
-                  videoRefs.current[index] = node
-                }}
-                src={video.url}
-                muted
-                playsInline
-                preload="metadata"
-                onClick={() => setIsPlaying((current) => !current)}
-                onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
-                onTimeUpdate={() => handleLeaderTimeUpdate(index)}
-              />
-              <figcaption>{video.stream || video.path}</figcaption>
-            </figure>
-          ))}
-        </div>
+      {showVideos && visibleVideos.length > 0 && (
+        <section className="data-analysis-section">
+          <div className="data-analysis-section-title">相机画面</div>
+          <div className="data-analysis-video-grid">
+            {visibleVideos.map((video, index) => (
+              <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
+                <video
+                  ref={(node) => {
+                    videoRefs.current[index] = node
+                  }}
+                  src={video.url}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  onClick={() => setIsPlaying((current) => !current)}
+                  onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+                  onTimeUpdate={() => handleLeaderTimeUpdate(index)}
+                />
+                <figcaption>{video.stream || video.path}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
       )}
 
       {showRobotTrajectory3D && (
