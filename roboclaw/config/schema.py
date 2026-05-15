@@ -178,9 +178,8 @@ class ControlCenterConfig(Base):
 
 
 class EvoDataConfig(Base):
-    """Cloud evo-data backend used by local collection-task flows."""
+    """Cloud evo-data backend used by local account, collection, and training flows."""
 
-    auth_api_url: str = "https://api.evomind-tech.com"
     api_url: str = "http://8.136.130.234/dev-api"
     remote_training_host: str = "8.136.130.234"
     remote_training_port: int = 9000

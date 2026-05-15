@@ -233,11 +233,10 @@ def test_assignments_returns_cloud_error_without_500(client: TestClient, app: Fa
     assert resp.json()["detail"] == "用户不存在"
 
 
-def test_evo_auth_proxy_uses_auth_cloud_not_collection_cloud(tmp_path: Path) -> None:
+def test_evo_proxy_uses_unified_cloud(tmp_path: Path) -> None:
     app = FastAPI()
     service = FakeService(tmp_path / "datasets")
-    collection_cloud = FakeCloud("collection")
-    auth_cloud = FakeCloud("auth")
+    cloud = FakeCloud("evo")
     register_collection_routes(
         app,
         service,  # type: ignore[arg-type]
@@ -245,15 +244,13 @@ def test_evo_auth_proxy_uses_auth_cloud_not_collection_cloud(tmp_path: Path) -> 
             "Config",
             (),
             {
-                "auth_api_url": "https://api.evomind-tech.com",
                 "api_url": "http://8.136.130.234/dev-api",
                 "heartbeat_interval_s": 999,
                 "finish_retry_interval_s": 999,
                 "auto_upload_enabled": False,
             },
         )(),
-        cloud_client=collection_cloud,  # type: ignore[arg-type]
-        auth_client=auth_cloud,  # type: ignore[arg-type]
+        cloud_client=cloud,  # type: ignore[arg-type]
         state_dir=tmp_path / "state",
     )
     client = TestClient(app, raise_server_exceptions=False)
@@ -261,9 +258,8 @@ def test_evo_auth_proxy_uses_auth_cloud_not_collection_cloud(tmp_path: Path) -> 
     resp = client.get("/api/evo/auth/me", headers={"Authorization": "Bearer prod-token"})
 
     assert resp.status_code == 200
-    assert resp.json() == {"source": "auth", "path": "/auth/me"}
-    assert auth_cloud.proxy_requests[-1]["authorization"] == "Bearer prod-token"
-    assert collection_cloud.proxy_requests == []
+    assert resp.json() == {"source": "evo", "path": "/auth/me"}
+    assert cloud.proxy_requests[-1]["authorization"] == "Bearer prod-token"
 
 
 def test_start_uses_cloud_task_params_not_browser_params(client: TestClient, app: FastAPI) -> None:
