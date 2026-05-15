@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from roboclaw.embodied.embodiment.arm.registry import get_runtime_spec
+
 
 @dataclass(frozen=True)
 class RobotSceneSpec:
@@ -20,7 +22,7 @@ class RobotSceneSpec:
 class RobotVisualizationSpec:
     model: str
     asset_id: str
-    asset_version: str
+    urdf_path: str
     joint_order: tuple[str, ...]
     ee_link: str
     scene: RobotSceneSpec
@@ -29,7 +31,6 @@ class RobotVisualizationSpec:
     def to_manifest_fields(self) -> dict[str, Any]:
         return {
             "model": self.model,
-            "asset_version": self.asset_version,
             "joint_order": list(self.joint_order),
             "ee_link": self.ee_link,
             "scene": self.scene.to_dict(),
@@ -40,15 +41,8 @@ class RobotVisualizationSpec:
 SO101_VISUALIZATION_SPEC = RobotVisualizationSpec(
     model="so101",
     asset_id="so101",
-    asset_version="2026.05.15",
-    joint_order=(
-        "shoulder_pan",
-        "shoulder_lift",
-        "elbow_flex",
-        "wrist_flex",
-        "wrist_roll",
-        "gripper",
-    ),
+    urdf_path="so101_new_calib.urdf",
+    joint_order=get_runtime_spec("so101").default_joint_names,
     ee_link="gripper",
     scene=RobotSceneSpec(
         left_base_xyz=(0.0, 0.115, 0.0),

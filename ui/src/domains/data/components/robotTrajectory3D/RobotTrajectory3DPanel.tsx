@@ -33,48 +33,71 @@ export function RobotTrajectory3DPanel({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<RobotTrajectory3DScene | null>(null)
   const currentTimeRef = useRef(currentTime)
+  const trajectoryRef = useRef<EpisodeRobotTrajectory | null>(null)
   const [model, setModel] = useState<RobotModelManifest | null>(null)
   const [trajectory, setTrajectory] = useState<EpisodeRobotTrajectory | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [modelLoading, setModelLoading] = useState(false)
+  const [trajectoryLoading, setTrajectoryLoading] = useState(false)
+  const [modelError, setModelError] = useState('')
+  const [trajectoryError, setTrajectoryError] = useState('')
+  const [sceneError, setSceneError] = useState('')
   const canLoad = source !== 'remote' && (source === 'path' ? Boolean(path) : Boolean(dataset))
+  const loading = modelLoading || trajectoryLoading
+  const error = modelError || trajectoryError || sceneError
 
   useEffect(() => {
     currentTimeRef.current = currentTime
   }, [currentTime])
 
   useEffect(() => {
-    if (!canLoad) {
-      setModel(null)
-      setTrajectory(null)
-      setLoading(false)
-      setError('')
-      return undefined
-    }
+    trajectoryRef.current = trajectory
+  }, [trajectory])
+
+  useEffect(() => {
     let active = true
-    setLoading(true)
-    setError('')
-    void Promise.all([
-      dataApi.robotModel(ROBOT_MODEL),
-      dataApi.episodeRobotTrajectory({
-        dataset: dataset || undefined,
-        source,
-        path,
-        episode_index: episodeIndex,
-        signal,
-        model: ROBOT_MODEL,
-      }),
-    ]).then(([nextModel, nextTrajectory]) => {
+    setModelLoading(true)
+    setModelError('')
+    void dataApi.robotModel(ROBOT_MODEL).then((nextModel) => {
       if (!active) return
       setModel(nextModel)
-      setTrajectory(nextTrajectory)
-      setLoading(false)
+      setModelLoading(false)
     }).catch((loadError: unknown) => {
       if (!active) return
       setModel(null)
+      setModelError(loadError instanceof Error ? loadError.message : String(loadError))
+      setModelLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!canLoad) {
       setTrajectory(null)
-      setError(loadError instanceof Error ? loadError.message : String(loadError))
-      setLoading(false)
+      setTrajectoryLoading(false)
+      setTrajectoryError('')
+      return undefined
+    }
+    let active = true
+    setTrajectoryLoading(true)
+    setTrajectoryError('')
+    void dataApi.episodeRobotTrajectory({
+      dataset: dataset || undefined,
+      source,
+      path,
+      episode_index: episodeIndex,
+      signal,
+      model: ROBOT_MODEL,
+    }).then((nextTrajectory) => {
+      if (!active) return
+      setTrajectory(nextTrajectory)
+      setTrajectoryLoading(false)
+    }).catch((loadError: unknown) => {
+      if (!active) return
+      setTrajectory(null)
+      setTrajectoryError(loadError instanceof Error ? loadError.message : String(loadError))
+      setTrajectoryLoading(false)
     })
     return () => {
       active = false
@@ -83,24 +106,26 @@ export function RobotTrajectory3DPanel({
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container || !model || !trajectory) return undefined
+    if (!container || !model) return undefined
     let active = true
     const scene = new RobotTrajectory3DScene(container)
     sceneRef.current = scene
-    setError('')
+    setSceneError('')
     void scene.loadArms(model).then(() => {
       if (!active) return
-      scene.applyTime(trajectory, model, currentTimeRef.current)
+      if (trajectoryRef.current) {
+        scene.applyTime(trajectoryRef.current, model, currentTimeRef.current)
+      }
     }).catch((sceneError: unknown) => {
       if (!active) return
-      setError(sceneError instanceof Error ? sceneError.message : String(sceneError))
+      setSceneError(sceneError instanceof Error ? sceneError.message : String(sceneError))
     })
     return () => {
       active = false
       sceneRef.current = null
       scene.dispose()
     }
-  }, [model, trajectory])
+  }, [model])
 
   useEffect(() => {
     if (!sceneRef.current || !model || !trajectory) return

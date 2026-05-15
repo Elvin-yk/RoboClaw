@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { URDFRobot } from 'urdf-loader'
+import { clamp, relativeTimeValues } from '@/domains/data/lib/analysisPayload'
 import type { EpisodeRobotTrajectory, RobotArmSide, RobotModelManifest } from '@/domains/data/model/types'
 import { loadRobotUrdf } from './urdf'
 
@@ -15,6 +16,11 @@ interface ArmInstance {
   robot: URDFRobot
 }
 
+interface TrajectoryFrameCache {
+  payload: EpisodeRobotTrajectory
+  times: number[]
+}
+
 export class RobotTrajectory3DScene {
   private readonly scene = new THREE.Scene()
   private readonly camera: THREE.PerspectiveCamera
@@ -22,6 +28,7 @@ export class RobotTrajectory3DScene {
   private readonly controls: OrbitControls
   private readonly resizeObserver: ResizeObserver
   private readonly arms = new Map<RobotArmSide, ArmInstance>()
+  private frameCache: TrajectoryFrameCache | null = null
   private disposed = false
 
   constructor(private readonly container: HTMLDivElement) {
@@ -61,7 +68,7 @@ export class RobotTrajectory3DScene {
 
   applyTime(payload: EpisodeRobotTrajectory, model: RobotModelManifest, currentTime: number): void {
     if (!this.arms.size || payload.frame_count <= 0) return
-    const frame = frameForTime(payload, currentTime)
+    const frame = frameForTime(this.relativeTimes(payload), currentTime)
     for (const side of ['left', 'right'] as const) {
       const arm = this.arms.get(side)
       if (!arm) continue
@@ -113,30 +120,40 @@ export class RobotTrajectory3DScene {
     this.controls.update()
     this.renderer.render(this.scene, this.camera)
   }
+
+  private relativeTimes(payload: EpisodeRobotTrajectory): number[] {
+    if (this.frameCache?.payload !== payload) {
+      this.frameCache = {
+        payload,
+        times: relativeTimeValues(payload.time_s),
+      }
+    }
+    return this.frameCache.times
+  }
 }
 
-function frameForTime(payload: EpisodeRobotTrajectory, currentTime: number): {
+function frameForTime(times: number[], currentTime: number): {
   index: number
   nextIndex: number
   alpha: number
 } {
-  const times = relativeTimes(payload.time_s)
   if (!times.length || currentTime <= times[0]) return { index: 0, nextIndex: 0, alpha: 0 }
   const lastIndex = times.length - 1
   if (currentTime >= times[lastIndex]) return { index: lastIndex, nextIndex: lastIndex, alpha: 0 }
-  for (let index = 1; index < times.length; index += 1) {
-    if (currentTime > times[index]) continue
-    const previous = times[index - 1]
-    const next = times[index]
-    const span = Math.max(next - previous, Number.EPSILON)
-    return { index: index - 1, nextIndex: index, alpha: (currentTime - previous) / span }
+  let low = 1
+  let high = lastIndex
+  while (low < high) {
+    const midpoint = Math.floor((low + high) / 2)
+    if (currentTime > times[midpoint]) {
+      low = midpoint + 1
+    } else {
+      high = midpoint
+    }
   }
-  return { index: lastIndex, nextIndex: lastIndex, alpha: 0 }
-}
-
-function relativeTimes(values: number[]): number[] {
-  const start = values[0] ?? 0
-  return values.map((value, index) => Number.isFinite(value) ? value - start : index)
+  const previous = times[low - 1]
+  const next = times[low]
+  const span = Math.max(next - previous, Number.EPSILON)
+  return { index: low - 1, nextIndex: low, alpha: clamp((currentTime - previous) / span, 0, 1) }
 }
 
 function interpolatedValue(
@@ -149,7 +166,7 @@ function interpolatedValue(
   if (current == null) return null
   const next = values[nextIndex]
   if (next == null || nextIndex === index) return current
-  return current + (next - current) * Math.max(0, Math.min(1, alpha))
+  return current + (next - current) * clamp(alpha, 0, 1)
 }
 
 function buildLights(): THREE.Group {

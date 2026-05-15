@@ -164,7 +164,6 @@ export type RobotArmSide = 'left' | 'right'
 export interface RobotModelManifest {
   model: string
   asset_id: string
-  asset_version: string
   asset_base_url: string
   urdf_path: string
   urdf_url: string

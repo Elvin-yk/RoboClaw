@@ -110,11 +110,10 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
     async def data_inspect_robot_model(model: str) -> dict[str, Any]:
         return await service.inspect.robot_model(model=model)
 
-    @app.get("/api/data/inspect/robot-assets/{asset_id}/{version}/{path:path}")
-    async def data_inspect_robot_asset(asset_id: str, version: str, path: str):
+    @app.get("/api/data/inspect/robot-assets/{asset_id}/{path:path}")
+    async def data_inspect_robot_asset(asset_id: str, path: str):
         return service.inspect.robot_asset_file(
             asset_id=asset_id,
-            version=version,
             relative_path=path,
         )
 

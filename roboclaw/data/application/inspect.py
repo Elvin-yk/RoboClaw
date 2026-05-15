@@ -175,10 +175,10 @@ class DataInspectService:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def robot_asset_file(self, *, asset_id: str, version: str, relative_path: str) -> FileResponse:
+    def robot_asset_file(self, *, asset_id: str, relative_path: str) -> FileResponse:
         try:
             asset_path = validate_robot_asset_path(relative_path)
-            bundle = get_robot_asset_bundle(asset_id, version)
+            bundle = get_robot_asset_bundle(asset_id)
             asset_file = bundle.resolve_file(asset_path)
         except ValueError as exc:
             raise HTTPException(status_code=403, detail="Path traversal not allowed") from exc
@@ -215,13 +215,13 @@ class DataInspectService:
 
     def _robot_model_manifest(self, spec: RobotVisualizationSpec) -> dict[str, Any]:
         try:
-            bundle = get_robot_asset_bundle(spec.asset_id, spec.asset_version)
+            bundle = get_robot_asset_bundle(spec.asset_id)
         except (ValueError, FileNotFoundError) as exc:
-            raise HTTPException(status_code=404, detail=f"Robot asset bundle '{spec.asset_id}@{spec.asset_version}' not found") from exc
-        base_url = f"/api/data/inspect/robot-assets/{spec.asset_id}/{spec.asset_version}/"
+            raise HTTPException(status_code=404, detail=f"Robot asset bundle '{spec.asset_id}' not found") from exc
+        base_url = f"/api/data/inspect/robot-assets/{spec.asset_id}/"
         return {
             **spec.to_manifest_fields(),
-            **bundle.to_manifest(base_url),
+            **bundle.to_manifest(base_url, spec.urdf_path),
         }
 
     def _robot_visualization_spec(self, model: str) -> RobotVisualizationSpec:

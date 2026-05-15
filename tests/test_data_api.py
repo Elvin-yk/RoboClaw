@@ -324,9 +324,9 @@ def test_robot_model_manifest_uses_local_asset_bundle(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["model"] == "so101"
-    assert payload["asset_version"] == "2026.05.15"
-    assert payload["asset_base_url"] == "/api/data/inspect/robot-assets/so101/2026.05.15/"
-    assert payload["urdf_url"] == "/api/data/inspect/robot-assets/so101/2026.05.15/so101_new_calib.urdf"
+    assert "asset_version" not in payload
+    assert payload["asset_base_url"] == "/api/data/inspect/robot-assets/so101/"
+    assert payload["urdf_url"] == "/api/data/inspect/robot-assets/so101/so101_new_calib.urdf"
     assert payload["joint_order"] == ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
     assert payload["scene"]["left_base_xyz"] == [0.0, 0.115, 0.0]
     assert len(payload["files"]) == 17

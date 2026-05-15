@@ -56,5 +56,7 @@ export function clamp(value: number, min: number, max: number): number {
 export function relativeTimeValues(timeValues: number[]): number[] {
   if (!timeValues.length) return []
   const start = timeValues[0]
-  return timeValues.map((time) => Math.max(time - start, 0))
+  return timeValues.map((time, index) => (
+    Number.isFinite(time) && Number.isFinite(start) ? Math.max(time - start, 0) : index
+  ))
 }
