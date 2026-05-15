@@ -454,7 +454,11 @@ export default function AppShell() {
       </aside>
 
       <div className="app-shell__main">
-        <AppHeader />
+        <AppHeader
+          onOpenSystemActions={() => {
+            if (!compactNav) setSidebarCollapsed(true)
+          }}
+        />
         <main className="app-shell__content">
           <Outlet />
         </main>
