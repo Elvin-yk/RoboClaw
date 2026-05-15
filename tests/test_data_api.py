@@ -23,6 +23,7 @@ def _create_dataset(
     zero_episode_lengths: bool = False,
     write_episodes_meta: bool = True,
     with_robot_trajectory: bool = False,
+    nested_robot_trajectory_names: bool = False,
 ) -> Path:
     dataset_path = root / dataset_id
     meta = dataset_path / "meta"
@@ -57,9 +58,10 @@ def _create_dataset(
             "right_wrist_roll.pos",
             "right_gripper.pos",
         ]
-        info["features"]["action"]["names"] = robot_joint_names
+        robot_feature_names = {"axes": robot_joint_names} if nested_robot_trajectory_names else robot_joint_names
+        info["features"]["action"]["names"] = robot_feature_names
         info["features"]["action"]["shape"] = [len(robot_joint_names)]
-        info["features"]["observation.state"]["names"] = robot_joint_names
+        info["features"]["observation.state"]["names"] = robot_feature_names
         info["features"]["observation.state"]["shape"] = [len(robot_joint_names)]
     (meta / "info.json").write_text(json.dumps(info), encoding="utf-8")
     episode_length = frames // episodes if episodes else 0
@@ -362,6 +364,30 @@ def test_episode_robot_trajectory_uses_existing_inspect_dataset(tmp_path: Path) 
     assert payload["time_s"] == [0, 1 / 30, 2 / 30, 3 / 30]
     assert payload["arms"]["left"]["joint_degrees"]["shoulder_pan"] == [0, 1, 2, 3]
     assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [6, 7, 8, 9]
+
+
+def test_episode_robot_trajectory_accepts_nested_feature_names(tmp_path: Path) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/robot",
+        episodes=1,
+        frames=4,
+        with_data=True,
+        with_robot_trajectory=True,
+        nested_robot_trajectory_names=True,
+    )
+    client = _client(tmp_path)
+
+    response = client.get(
+        "/api/data/inspect/episode-robot-trajectory",
+        params={"source": "local", "dataset": "local/robot", "episode_index": 0, "signal": "state"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["signal"] == "state"
+    assert payload["arms"]["left"]["joint_degrees"]["shoulder_pan"] == [100, 101, 102, 103]
+    assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [106, 107, 108, 109]
 
 
 def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
