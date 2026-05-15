@@ -153,7 +153,7 @@ function TrajectoryGroupChart({
   return (
     <section className={combined ? 'data-analysis-group-chart data-analysis-group-chart--combined' : 'data-analysis-group-chart'}>
       <div className="data-analysis-group-chart__titlebar">
-        <div className="data-analysis-group-chart__title" title={title}>{title}</div>
+        {!combined && <div className="data-analysis-group-chart__title" title={title}>{title}</div>}
         {controls}
       </div>
       <button
