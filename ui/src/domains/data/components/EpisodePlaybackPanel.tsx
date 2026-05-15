@@ -13,17 +13,16 @@ import {
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
+import {
+  getAbsoluteClipTime,
+  getClipEnd,
+  getClipStart,
+  readEpisodeVideos,
+  type EpisodeVideo,
+} from '@/domains/data/lib/episodeMedia'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
-
-interface EpisodeVideo {
-  path: string
-  url: string
-  stream: string
-  from_timestamp: number | null
-  to_timestamp: number | null
-}
 
 export type EpisodePlaybackDisplayMode = 'full' | 'video' | 'trajectory'
 export type EpisodePlaybackChrome = 'panel' | 'plain'
@@ -79,11 +78,15 @@ export function EpisodePlaybackPanel({
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
-  const videos = useMemo(() => readVideos(episode), [episode])
-  const trajectory = useMemo(() => readTrajectory(episode), [episode])
   const taskDescription = useMemo(() => readEpisodeTaskDescription(episode), [episode])
   const showVideos = displayMode === 'full' || displayMode === 'video'
   const showTrajectory = displayMode === 'full' || displayMode === 'trajectory'
+  const shouldReadTrajectory = showTrajectory && showTrajectoryCharts
+  const videos = useMemo(() => readEpisodeVideos(episode), [episode])
+  const trajectory = useMemo(
+    () => (shouldReadTrajectory ? readTrajectory(episode) : EMPTY_TRAJECTORY),
+    [episode, shouldReadTrajectory],
+  )
   const showRobotTrajectory3D = displayMode === 'full'
     && showRobot3D
     && source !== 'remote'
@@ -111,7 +114,7 @@ export function EpisodePlaybackPanel({
     syncLockRef.current = true
     videoRefs.current.forEach((video, index) => {
       if (!video || index === skipIndex || video.readyState === 0) return
-      const targetTime = getAbsoluteTime(visibleVideos[index], relativeTime, video.duration)
+      const targetTime = getAbsoluteClipTime(visibleVideos[index], relativeTime, video.duration)
       if (forceSeek || Math.abs(video.currentTime - targetTime) > VIDEO_SYNC_TOLERANCE) {
         video.currentTime = targetTime
       }
@@ -522,16 +525,6 @@ function ResetIcon() {
   )
 }
 
-function readVideos(episode: AnyRecord): EpisodeVideo[] {
-  return asArray(episode.videos).map(asRecord).map((video) => ({
-    path: textValue(video.path),
-    url: textValue(video.url),
-    stream: textValue(video.stream) || textValue(video.path),
-    from_timestamp: numberValue(video.from_timestamp),
-    to_timestamp: numberValue(video.to_timestamp),
-  })).filter((video) => Boolean(video.url))
-}
-
 export function readEpisodeTaskDescription(episode: AnyRecord): string {
   const summary = asRecord(episode.summary)
   const candidates = [
@@ -553,9 +546,13 @@ export function readEpisodeTaskDescription(episode: AnyRecord): string {
   return ''
 }
 
-export function resolveEpisodePlaybackDuration(episode: AnyRecord): number {
+export function resolveEpisodePlaybackDuration(
+  episode: AnyRecord,
+  options: { includeTrajectory?: boolean } = {},
+): number {
   const summary = asRecord(episode.summary)
-  return resolvePlaybackDuration(summary, readVideos(episode), readTrajectory(episode))
+  const trajectory = options.includeTrajectory === false ? EMPTY_TRAJECTORY : readTrajectory(episode)
+  return resolvePlaybackDuration(summary, readEpisodeVideos(episode), trajectory)
 }
 
 function readTrajectory(episode: AnyRecord): TrajectoryPayload {
@@ -599,21 +596,4 @@ function resolvePlaybackDuration(
   const trajectoryTimes = relativeTimeValues(trajectory.timeValues)
   const trajectoryDuration = trajectoryTimes[trajectoryTimes.length - 1] ?? 0
   return Math.max(summaryDuration, rowDuration, videoDuration, trajectoryDuration, 0)
-}
-
-function getClipStart(video: EpisodeVideo | null | undefined): number {
-  return video?.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
-}
-
-function getClipEnd(video: EpisodeVideo | null | undefined, mediaDuration: number): number | null {
-  if (video?.to_timestamp != null && Number.isFinite(video.to_timestamp)) return video.to_timestamp
-  if (Number.isFinite(mediaDuration) && mediaDuration > 0) return mediaDuration
-  return null
-}
-
-function getAbsoluteTime(video: EpisodeVideo | null | undefined, relativeTime: number, mediaDuration: number): number {
-  const start = getClipStart(video)
-  const end = getClipEnd(video, mediaDuration)
-  const maxRelative = end == null ? Number.POSITIVE_INFINITY : Math.max(end - start, 0)
-  return start + clamp(relativeTime, 0, maxRelative)
 }

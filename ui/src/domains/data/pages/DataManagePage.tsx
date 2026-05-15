@@ -17,6 +17,7 @@ import {
   qcReviewStatus,
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
+import { isMarketApplicationSubmitted } from '@/domains/data/model/marketListing'
 import { isTerminalDataJobPhase, type DataGate, type DataJob, type DataQcRun, type Dataset, type DatasetPackage } from '@/domains/data/model/types'
 import { useDataJobStore } from '@/domains/data/store/jobStore'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
@@ -285,7 +286,7 @@ export default function DataManagePage() {
   }
 
   async function applyPackageToMarket(packageItem: DatasetPackage) {
-    if (packageMarketApplicationPending(packageItem)) return
+    if (isMarketApplicationSubmitted(packageItem)) return
     setApplyingMarketPackageId(packageItem.id)
     try {
       await dataApi.applyPackageMarketListing(packageItem.id)
@@ -723,7 +724,7 @@ export default function DataManagePage() {
             onClose={() => setDrawerTarget(null)}
             onUpload={() => void uploadPackage(drawerPackage)}
             marketApplicationBusy={applyingMarketPackageId === drawerPackage.id}
-            marketApplicationPending={packageMarketApplicationPending(drawerPackage)}
+            marketApplicationPending={isMarketApplicationSubmitted(drawerPackage)}
             onApplyMarket={() => void applyPackageToMarket(drawerPackage)}
             onDelete={() => setDeleteTarget({ type: 'package', id: drawerPackage.id })}
             onOpenGate={(gateKey) => openPackageGate(drawerPackage, gateKey)}
@@ -1906,13 +1907,6 @@ function stringValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return ''
-}
-
-function packageMarketApplicationPending(packageItem: DatasetPackage): boolean {
-  const summary = asRecord(packageItem.evaluation_summary)
-  const listing = asRecord(summary.market_listing)
-  const status = stringValue(listing.status).toLowerCase()
-  return ['applied', 'pending', 'reviewing', 'approved', 'listed', 'published', 'active', 'on_sale'].includes(status)
 }
 
 function readSectionOpenState(): SectionOpenState {

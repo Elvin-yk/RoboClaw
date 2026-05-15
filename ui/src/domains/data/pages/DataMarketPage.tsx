@@ -1,33 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
-import type { DatasetPackage } from '@/domains/data/model/types'
+import {
+  isMarketPackageListing,
+  isPurchasableListing,
+  matchesMarketCategory,
+  packageMarketListing,
+  type MarketCategory,
+  type MarketPackageListing,
+  type MarketSort,
+} from '@/domains/data/model/marketListing'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { evoApi, type CreditAccount } from '@/shared/api/evoClient'
 import { useI18n, type TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 
-type MarketSort = 'recommended' | 'newest' | 'price_asc' | 'scale_desc'
-type MarketCategory = 'all' | 'priced' | 'owned' | 'free' | string
-
-interface MarketPackageListing {
-  id: string
-  packageItem: DatasetPackage
-  title: string
-  description: string
-  robotType: string
-  task: string
-  priceCredit: number | null
-  hasAccess: boolean
-  status: string
-  storage: string
-  updatedAt: string
-}
-
 export default function DataMarketPage() {
   const { t } = useI18n()
   const user = useAuthStore((state) => state.user)
-  const { packages, error, load } = useDataLibraryStore()
+  const { packages, error, loadPackages } = useDataLibraryStore()
   const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([])
   const [selectedDataAccountId, setSelectedDataAccountId] = useState('')
   const [creditMessage, setCreditMessage] = useState('')
@@ -44,25 +34,31 @@ export default function DataMarketPage() {
   )
   const selectedAccount = dataAccounts.find((account) => account.id === selectedDataAccountId) || dataAccounts[0] || null
   const marketListings = useMemo(() => packages.map(packageMarketListing).filter(isMarketPackageListing), [packages])
+  const marketListingsById = useMemo(
+    () => new Map(marketListings.map((listing) => [listing.id, listing])),
+    [marketListings],
+  )
   const categories = useMemo(() => buildMarketCategories(marketListings, t), [marketListings, t])
   const visibleListings = useMemo(() => {
     const queryText = query.trim().toLowerCase()
     return marketListings
-      .filter((listing) => matchesCategory(listing, category))
+      .filter((listing) => matchesMarketCategory(listing, category))
       .filter((listing) => matchesMarketQuery(listing, queryText))
       .sort((left, right) => compareMarketListings(left, right, sort))
   }, [category, marketListings, query, sort])
-  const demandListings = demandList
-    .map((listingId) => marketListings.find((listing) => listing.id === listingId))
-    .filter(isMarketPackageListing)
+  const demandListings = useMemo(
+    () => demandList.map((listingId) => marketListingsById.get(listingId)).filter(isMarketPackageListing),
+    [demandList, marketListingsById],
+  )
+  const purchasableDemandListings = demandListings.filter(isPurchasableListing)
   const demandTotalCredit = demandListings.reduce((total, listing) => total + (listing.priceCredit ?? 0), 0)
   const purchasableCount = marketListings.filter((listing) => isPurchasableListing(listing)).length
   const ownedCount = marketListings.filter((listing) => listing.hasAccess).length
   const totalEpisodes = marketListings.reduce((total, listing) => total + listing.packageItem.stats.total_episodes, 0)
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void loadPackages()
+  }, [loadPackages])
 
   useEffect(() => {
     if (!user) return
@@ -85,6 +81,20 @@ export default function DataMarketPage() {
     }
   }
 
+  async function refreshMarketData() {
+    await Promise.all([loadPackages(), loadDataCreditAccounts()])
+  }
+
+  async function purchaseMarketListing(listing: MarketPackageListing, accountId: string) {
+    await evoApi.purchaseDataset(listing.id, accountId)
+  }
+
+  async function completePurchasedListings(listingIds: string[]) {
+    const purchasedIds = new Set(listingIds)
+    setDemandList((current) => current.filter((listingId) => !purchasedIds.has(listingId)))
+    await refreshMarketData()
+  }
+
   async function purchaseListing(listing: MarketPackageListing) {
     if (!selectedAccount) {
       setPurchaseMessage(t('dataMarketSelectAccount'))
@@ -94,10 +104,9 @@ export default function DataMarketPage() {
     setPendingListingId(listing.id)
     setPurchaseMessage('')
     try {
-      await evoApi.purchaseDataset(listing.id, selectedAccount.id)
+      await purchaseMarketListing(listing, selectedAccount.id)
       setPurchaseMessage(t('dataMarketPurchaseSuccess'))
-      setDemandList((current) => current.filter((listingId) => listingId !== listing.id))
-      await Promise.all([load(), loadDataCreditAccounts()])
+      await completePurchasedListings([listing.id])
     } catch (error) {
       setPurchaseMessage(error instanceof Error ? error.message : t('dataMarketPurchaseFailed'))
     } finally {
@@ -106,9 +115,29 @@ export default function DataMarketPage() {
   }
 
   async function purchaseDemandList() {
-    const purchasableDemand = demandListings.filter(isPurchasableListing)
-    for (const listing of purchasableDemand) {
-      await purchaseListing(listing)
+    if (!selectedAccount) {
+      setPurchaseMessage(t('dataMarketSelectAccount'))
+      return
+    }
+    if (!purchasableDemandListings.length) return
+    const purchasedListingIds: string[] = []
+    setPurchaseMessage('')
+    try {
+      for (const listing of purchasableDemandListings) {
+        setPendingListingId(listing.id)
+        await purchaseMarketListing(listing, selectedAccount.id)
+        purchasedListingIds.push(listing.id)
+      }
+      setPurchaseMessage(t('dataMarketPurchaseSuccess'))
+    } catch (error) {
+      setPurchaseMessage(error instanceof Error ? error.message : t('dataMarketPurchaseFailed'))
+    }
+    try {
+      if (purchasedListingIds.length) await completePurchasedListings(purchasedListingIds)
+    } catch (error) {
+      setPurchaseMessage(error instanceof Error ? error.message : t('dataMarketPurchaseFailed'))
+    } finally {
+      setPendingListingId('')
     }
   }
 
@@ -232,7 +261,7 @@ export default function DataMarketPage() {
               <button
                 type="button"
                 className="data-market-buy-button"
-                disabled={!selectedAccount || demandListings.filter(isPurchasableListing).length === 0 || Boolean(pendingListingId)}
+                disabled={!selectedAccount || purchasableDemandListings.length === 0 || Boolean(pendingListingId)}
                 onClick={() => void purchaseDemandList()}
               >
                 {pendingListingId ? t('dataMarketPurchasing') : t('dataMarketBuyDemand')}
@@ -337,59 +366,8 @@ function buildMarketCategories(
     { value: 'priced', label: t('dataMarketCategoryPriced') },
     { value: 'owned', label: t('dataMarketCategoryOwned') },
     { value: 'free', label: t('dataMarketCategoryFree') },
-    ...robotTypes.map((robotType) => ({ value: `robot:${robotType}`, label: robotType })),
+    ...robotTypes.map((robotType) => ({ value: `robot:${robotType}` as MarketCategory, label: robotType })),
   ]
-}
-
-function packageMarketListing(packageItem: DatasetPackage): MarketPackageListing | null {
-  const packageRecord = packageItem as unknown as Record<string, unknown>
-  const summary = asRecord(packageItem.evaluation_summary)
-  const packageListing = asRecord(packageRecord.market_listing)
-  const summaryListing = asRecord(summary.market_listing)
-  const listing = Object.keys(packageListing).length ? packageListing : summaryListing
-  const status = textValue(listing.status ?? packageRecord.market_status ?? summary.market_status).toLowerCase()
-  const priceCredit = numberValue(listing.price_credit ?? listing.price_credits ?? packageRecord.price_credit ?? summary.price_credit)
-  const hasAccessValue = listing.has_access ?? listing.owned ?? packageRecord.has_access ?? summary.has_access
-  const hasAccess = hasAccessValue === true || hasAccessValue === 'true'
-  const storage = textValue(
-    listing.storage_url
-      ?? listing.oss_url
-      ?? listing.download_url
-      ?? packageRecord.market_storage_url
-      ?? summary.oss_url,
-  )
-  const listed = ['listed', 'published', 'active', 'on_sale'].includes(status)
-  const hasExplicitListing = listed || priceCredit !== null || hasAccessValue !== undefined || storage.length > 0
-  if (!hasExplicitListing) return null
-  const task = textValue(listing.task ?? listing.task_description ?? summary.task_description ?? packageItem.stats.task_description)
-  const title = textValue(listing.title ?? listing.name) || task || packageItem.label || packageItem.id
-  const description = textValue(listing.description) || task || packageItem.path
-  return {
-    id: textValue(listing.id) || packageItem.id,
-    packageItem,
-    title,
-    description,
-    robotType: textValue(listing.robot_type) || packageItem.stats.robot_type,
-    task,
-    priceCredit,
-    hasAccess,
-    status,
-    storage,
-    updatedAt: textValue(listing.updated_at) || packageItem.updated_at,
-  }
-}
-
-function isPurchasableListing(listing: MarketPackageListing): boolean {
-  return !listing.hasAccess && listing.priceCredit !== null
-}
-
-function matchesCategory(listing: MarketPackageListing, category: MarketCategory): boolean {
-  if (category === 'all') return true
-  if (category === 'priced') return isPurchasableListing(listing)
-  if (category === 'owned') return listing.hasAccess
-  if (category === 'free') return listing.priceCredit === 0
-  if (category.startsWith('robot:')) return listing.robotType === category.slice('robot:'.length)
-  return true
 }
 
 function matchesMarketQuery(listing: MarketPackageListing, query: string): boolean {
@@ -420,8 +398,4 @@ function formatListingPrice(
   if (listing.priceCredit === null) return t('dataMarketPriceTbd')
   if (listing.priceCredit === 0) return t('dataMarketFree')
   return `${listing.priceCredit} ${t('dataMarketCreditUnit')}`
-}
-
-function isMarketPackageListing(value: MarketPackageListing | null | undefined): value is MarketPackageListing {
-  return Boolean(value)
 }

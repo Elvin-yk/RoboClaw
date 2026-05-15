@@ -6,7 +6,8 @@ import {
   readEpisodeTaskDescription,
   resolveEpisodePlaybackDuration,
 } from '@/domains/data/components/EpisodePlaybackPanel'
-import { asArray, asRecord, formatSeconds, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import { asRecord, formatSeconds } from '@/domains/data/lib/analysisPayload'
+import { framePreviewTime, readEpisodeVideos, type EpisodeVideo } from '@/domains/data/lib/episodeMedia'
 import { clearReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   buildDatasetQualityView,
@@ -46,14 +47,6 @@ interface QcSequenceSummary {
   reviewable: number
   percent: number
   nextRecord: QcDatasetRecord | null
-}
-
-interface QcFrameVideo {
-  path: string
-  url: string
-  stream: string
-  from_timestamp: number | null
-  to_timestamp: number | null
 }
 
 const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }> = [
@@ -591,7 +584,7 @@ function ReviewInspectionWorkspace({
 }) {
   const episodePayload = asRecord(episode)
   const taskDescription = readEpisodeTaskDescription(episodePayload)
-  const duration = resolveEpisodePlaybackDuration(episodePayload)
+  const duration = resolveEpisodePlaybackDuration(episodePayload, { includeTrajectory: false })
   const [inspectionOpen, setInspectionOpen] = useState(true)
   const [editOpen, setEditOpen] = useState(true)
   const inspectionTitle = t('dataReviewInspectionChecklistTitle')
@@ -780,7 +773,7 @@ function FirstLastFrameInspection({
   episode: unknown
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
-  const videos = useMemo(() => readQcFrameVideos(episode), [episode])
+  const videos = useMemo(() => readEpisodeVideos(episode), [episode])
   if (!videos.length) {
     return <div className="data-empty">{t('dataReviewFirstLastFrameEmpty')}</div>
   }
@@ -806,7 +799,7 @@ function FramePreviewVideo({
   label,
   position,
 }: {
-  video: QcFrameVideo
+  video: EpisodeVideo
   label: string
   position: 'first' | 'last'
 }) {
@@ -1014,29 +1007,6 @@ function nextReviewDatasetId(records: QcDatasetRecord[], currentDatasetId: strin
   if (currentIndex < 0) return ids[0] || ''
   const after = records.slice(currentIndex + 1).find((record) => record.id !== currentDatasetId)
   return after?.id || ids[0] || ''
-}
-
-function readQcFrameVideos(episode: unknown): QcFrameVideo[] {
-  const episodePayload = asRecord(episode)
-  return asArray(episodePayload.videos).map(asRecord).map((video) => ({
-    path: textValue(video.path),
-    url: textValue(video.url),
-    stream: textValue(video.stream) || textValue(video.path),
-    from_timestamp: numberValue(video.from_timestamp),
-    to_timestamp: numberValue(video.to_timestamp),
-  })).filter((video) => Boolean(video.url))
-}
-
-function framePreviewTime(video: QcFrameVideo, position: 'first' | 'last', duration: number | null): number {
-  const start = video.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
-  const end = video.to_timestamp != null && Number.isFinite(video.to_timestamp)
-    ? video.to_timestamp
-    : duration
-  const target = position === 'first'
-    ? start
-    : Math.max((end ?? duration ?? 0) - 0.05, start)
-  if (duration == null || duration <= 0) return Math.max(target, 0)
-  return Math.min(Math.max(target, 0), Math.max(duration - 0.05, 0))
 }
 
 function workspaceRecordFallback(dataset: Dataset): QcDatasetRecord {
