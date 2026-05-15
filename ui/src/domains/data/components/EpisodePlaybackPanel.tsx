@@ -51,6 +51,7 @@ export function EpisodePlaybackPanel({
   path,
   showRobot3D = true,
   showTrajectoryCharts = true,
+  showTaskDescription = true,
   allowStaticRobot3D = false,
   chrome = 'panel',
   summaryMode = 'full',
@@ -71,6 +72,7 @@ export function EpisodePlaybackPanel({
   path?: string
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
+  showTaskDescription?: boolean
   allowStaticRobot3D?: boolean
   chrome?: EpisodePlaybackChrome
   summaryMode?: EpisodePlaybackSummaryMode
@@ -79,14 +81,14 @@ export function EpisodePlaybackPanel({
   const summary = asRecord(episode.summary)
   const videos = useMemo(() => readVideos(episode), [episode])
   const trajectory = useMemo(() => readTrajectory(episode), [episode])
-  const taskDescription = useMemo(() => readTaskDescription(episode), [episode])
+  const taskDescription = useMemo(() => readEpisodeTaskDescription(episode), [episode])
   const showVideos = displayMode === 'full' || displayMode === 'video'
   const showTrajectory = displayMode === 'full' || displayMode === 'trajectory'
   const showRobotTrajectory3D = displayMode === 'full'
     && showRobot3D
     && source !== 'remote'
     && (source === 'path' ? Boolean(path) : Boolean(dataset))
-  const showTaskDescription = displayMode === 'full'
+  const shouldShowTaskDescription = displayMode === 'full' && showTaskDescription
   const visibleVideos = showVideos ? videos : EMPTY_VIDEOS
   const visibleTrajectory = showTrajectory ? trajectory : EMPTY_TRAJECTORY
   const duration = useMemo(
@@ -249,7 +251,7 @@ export function EpisodePlaybackPanel({
 
       {playbackError && <div className="data-alert">{playbackError}</div>}
 
-      {showTaskDescription && taskDescription && (
+      {shouldShowTaskDescription && taskDescription && (
         <section className="data-analysis-section">
           <div className="data-analysis-section-title">任务描述</div>
           <div className="data-analysis-section-card data-analysis-task-card">
@@ -530,7 +532,7 @@ function readVideos(episode: AnyRecord): EpisodeVideo[] {
   })).filter((video) => Boolean(video.url))
 }
 
-function readTaskDescription(episode: AnyRecord): string {
+export function readEpisodeTaskDescription(episode: AnyRecord): string {
   const summary = asRecord(episode.summary)
   const candidates = [
     episode.task_description,
@@ -549,6 +551,11 @@ function readTaskDescription(episode: AnyRecord): string {
     if (text) return text
   }
   return ''
+}
+
+export function resolveEpisodePlaybackDuration(episode: AnyRecord): number {
+  const summary = asRecord(episode.summary)
+  return resolvePlaybackDuration(summary, readVideos(episode), readTrajectory(episode))
 }
 
 function readTrajectory(episode: AnyRecord): TrajectoryPayload {

@@ -957,6 +957,35 @@
   gap: 14px;
 }
 
+.data-review-inspection-checklist__title {
+  align-items: center;
+}
+
+.data-qc-episode-duration {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 108px;
+}
+
+.data-qc-episode-duration span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.data-qc-episode-duration strong {
+  color: #101828;
+  font-size: 24px;
+  font-weight: 920;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-qc-review-task-summary {
+  margin-bottom: 2px;
+}
+
 .data-review-inspection-item {
   display: grid;
   gap: 14px;

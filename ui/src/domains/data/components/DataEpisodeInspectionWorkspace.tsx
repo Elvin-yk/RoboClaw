@@ -25,6 +25,7 @@ interface DataEpisodeInspectionWorkspaceProps {
   displayMode?: EpisodePlaybackDisplayMode
   showRobot3D?: boolean
   showTrajectoryCharts?: boolean
+  showTaskDescription?: boolean
   allowStaticRobot3D?: boolean
   chrome?: EpisodePlaybackChrome
   summaryMode?: EpisodePlaybackSummaryMode
@@ -48,6 +49,7 @@ export function DataEpisodeInspectionWorkspace({
   displayMode = 'full',
   showRobot3D = true,
   showTrajectoryCharts = true,
+  showTaskDescription = true,
   allowStaticRobot3D = false,
   chrome = 'panel',
   summaryMode = 'full',
@@ -78,6 +80,7 @@ export function DataEpisodeInspectionWorkspace({
           path={path}
           showRobot3D={showRobot3D}
           showTrajectoryCharts={showTrajectoryCharts}
+          showTaskDescription={showTaskDescription}
           allowStaticRobot3D={allowStaticRobot3D}
           chrome={chrome}
           summaryMode={summaryMode}

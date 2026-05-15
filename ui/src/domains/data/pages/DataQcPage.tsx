@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
-import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import {
+  readEpisodeTaskDescription,
+  resolveEpisodePlaybackDuration,
+} from '@/domains/data/components/EpisodePlaybackPanel'
+import { asArray, asRecord, formatSeconds, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
@@ -481,12 +485,10 @@ function ReviewLedger({
 }) {
   const reviewedCount = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)]).length
   const total = workspace.episode_indices.length
-  const currentPosition = Math.max(0, workspace.episode_indices.indexOf(episodeIndex))
   const progress = total ? Math.round((reviewedCount / total) * 100) : 0
   return (
     <div className="data-qc-review-ledger">
       <div className="data-qc-review-ledger__head">
-        <span>{t('dataReviewEpisodeProgress', { current: currentPosition + 1, total: Math.max(total, 1) })}</span>
         <span>{t('dataReviewReviewedCount', { reviewed: reviewedCount, total })}</span>
         <span>{t('dataQcRemaining')}: {Math.max(total - reviewedCount, 0)}</span>
       </div>
@@ -554,12 +556,29 @@ function ReviewInspectionWorkspace({
   onSaveDraftTaskDescription: () => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
+  const episodePayload = asRecord(episode)
+  const taskDescription = readEpisodeTaskDescription(episodePayload)
+  const duration = resolveEpisodePlaybackDuration(episodePayload)
+
   return (
     <div className="data-review-inspection-groups">
       <section className="data-panel data-review-inspection-checklist">
-        <div className="data-panel__title">
+        <div className="data-panel__title data-review-inspection-checklist__title">
           <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
+          <div className="data-qc-episode-duration">
+            <span>{t('dataAnalysisEpisodeLengths')}</span>
+            <strong>{formatSeconds(duration)}</strong>
+          </div>
         </div>
+
+        {taskDescription && (
+          <section className="data-analysis-section data-qc-review-task-summary">
+            <div className="data-analysis-section-title">{t('collectionTaskDescription')}</div>
+            <div className="data-analysis-section-card data-analysis-task-card">
+              {taskDescription}
+            </div>
+          </section>
+        )}
 
         <article className="data-review-inspection-item">
           <div className="data-review-inspection-item__head">
@@ -582,10 +601,12 @@ function ReviewInspectionWorkspace({
             error={error}
             emptyLabel={t('dataQcReviewVisualsLoading')}
             showEpisodeControls={false}
+            showTitle={false}
             displayMode="full"
             showRobot3D
             allowStaticRobot3D
             showTrajectoryCharts={false}
+            showTaskDescription={false}
             chrome="plain"
             summaryMode="duration"
             onEpisodeIndexChange={onEpisodeIndexChange}
