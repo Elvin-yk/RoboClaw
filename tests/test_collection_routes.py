@@ -244,7 +244,7 @@ def test_evo_proxy_uses_unified_cloud(tmp_path: Path) -> None:
             "Config",
             (),
             {
-                "api_url": "http://8.136.130.234/dev-api",
+                "api_url": "https://api.evomind-tech.com",
                 "heartbeat_interval_s": 999,
                 "finish_retry_interval_s": 999,
                 "auto_upload_enabled": False,

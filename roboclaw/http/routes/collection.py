@@ -566,7 +566,7 @@ def register_collection_routes(
     upload_manager: CollectionUploadManager | None = None,
     state_dir: Path | None = None,
 ) -> None:
-    api_url = getattr(collection_config, "api_url", "http://8.136.130.234/dev-api")
+    api_url = getattr(collection_config, "api_url", "https://api.evomind-tech.com")
     heartbeat_interval_s = int(getattr(collection_config, "heartbeat_interval_s", 30))
     finish_retry_interval_s = int(getattr(collection_config, "finish_retry_interval_s", 60))
     auto_upload_enabled = bool(getattr(collection_config, "auto_upload_enabled", True))
