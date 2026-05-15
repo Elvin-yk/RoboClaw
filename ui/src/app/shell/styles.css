@@ -1,6 +1,12 @@
 .app-shell {
+  --app-sidebar-current-width: 204px;
+
   display: flex;
   min-height: 100vh;
+}
+
+.app-shell--sidebar-collapsed {
+  --app-sidebar-current-width: 56px;
 }
 
 .app-shell__main {
@@ -1051,6 +1057,8 @@
 
 @media (max-width: 900px) {
   .app-shell {
+    --app-sidebar-current-width: 0px;
+
     flex-direction: column;
   }
 

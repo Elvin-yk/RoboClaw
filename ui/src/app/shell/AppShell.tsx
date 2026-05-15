@@ -413,7 +413,12 @@ export default function AppShell() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={cn(
+        'app-shell',
+        sidebarCollapsed && 'app-shell--sidebar-collapsed',
+      )}
+    >
       <aside
         className={cn(
           'app-sidebar',

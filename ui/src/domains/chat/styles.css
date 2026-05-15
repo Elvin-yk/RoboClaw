@@ -1,7 +1,4 @@
 .chat-widget {
-  --chat-widget-open-offset: clamp(28px, 5vh, 56px);
-  --chat-glass-edge-width: clamp(10px, 1.2vw, 16px);
-
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -17,14 +14,14 @@
   top: 0;
   right: 0;
   bottom: 0;
-  left: 0;
+  left: var(--app-sidebar-current-width, 0px);
   align-items: center;
   box-sizing: border-box;
-  width: 100vw;
+  width: calc(100vw - var(--app-sidebar-current-width, 0px));
   height: 100vh;
   flex-direction: row;
   justify-content: center;
-  padding: clamp(24px, 5vw, 56px);
+  padding: clamp(18px, 4vw, 44px);
 }
 
 .chat-widget__surface {
@@ -33,96 +30,77 @@
   pointer-events: auto;
   display: flex;
   width: min(760px, calc(100vw - 56px));
-  height: min(680px, calc(100vh - 84px - var(--chat-widget-open-offset)));
+  height: min(640px, calc(100vh - 56px));
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.56);
-  border-radius: 22px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.38), rgba(236, 244, 252, 0.12) 46%, rgba(203, 221, 240, 0.08)),
-    rgba(248, 252, 255, 0.14);
-  box-shadow:
-    0 18px 48px rgba(47, 111, 228, 0.08),
-    inset 0 1px 1px rgba(255, 255, 255, 0.72);
-  padding: 13px;
-  translate: 0 var(--chat-widget-open-offset);
+  border: 1px solid rgba(47, 111, 228, 0.13);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 20px 52px rgba(27, 37, 55, 0.16);
+  padding: 12px;
   animation: chat-composer-enter 0.22s ease-out both;
 }
 
 .chat-widget__surface::before {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(238, 246, 255, 0.46) 46%, rgba(255, 255, 255, 0.28)),
-    rgba(250, 253, 255, 0.5);
-  content: "";
-  filter: none;
-  pointer-events: none;
-  opacity: 0.96;
+  display: none;
 }
 
 .chat-widget__surface::after {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  border-radius: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.5), transparent 18%, transparent 78%, rgba(255, 255, 255, 0.08)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent 20%, transparent 76%, rgba(255, 255, 255, 0.06));
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-    inset 0 0 20px rgba(255, 255, 255, 0.08);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  padding: var(--chat-glass-edge-width);
-  content: "";
-  opacity: 0.9;
-  pointer-events: none;
+  display: none;
 }
 
 .chat-widget__surface > * {
   position: relative;
-  z-index: 3;
+  z-index: 1;
+}
+
+.chat-widget__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 10px 2px;
+}
+
+.chat-widget__title {
+  min-width: 0;
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-widget__minimize {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 3;
+  position: relative;
+  z-index: 2;
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(31, 41, 55, 0.045);
-  border-radius: 999px;
-  background: rgba(110, 116, 126, 0.07);
-  color: rgba(17, 24, 39, 0.72);
+  flex: 0 0 auto;
+  border: 1px solid rgba(31, 41, 55, 0.14);
+  border-radius: 10px;
+  background: #f6f8fb;
+  color: #111827;
   cursor: pointer;
   transition: background-color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 
 .chat-widget__minimize span {
   display: block;
-  font-size: 18px;
-  font-weight: 520;
+  font-size: 15px;
+  font-weight: 760;
   line-height: 1;
-  transform: translateY(-1px);
 }
 
 .chat-widget__minimize:hover {
-  border-color: rgba(31, 41, 55, 0.22);
-  background: rgba(100, 106, 116, 0.12);
+  border-color: rgba(47, 111, 228, 0.34);
+  background: #eef4ff;
   transform: translateY(-1px);
 }
 
@@ -222,27 +200,21 @@
   flex: 1;
   flex-direction: column;
   overflow: hidden auto;
-  border: 0;
-  border-radius: 13px 13px 6px 6px;
-  background: rgba(96, 102, 112, 0.002);
-  box-shadow: inset 0 -1px 0 rgba(31, 41, 55, 0.008);
-  padding: 12px 34px 12px 12px;
+  border: 1px solid rgba(47, 111, 228, 0.1);
+  border-radius: 14px 14px 8px 8px;
+  background: #f8fbff;
+  padding: 16px;
   scrollbar-color: rgba(31, 41, 55, 0.18) transparent;
   scrollbar-width: thin;
 }
 
 .chat-widget__conversation::before {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.01), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.004), transparent 46%);
-  content: "";
-  mix-blend-mode: screen;
-  opacity: 0.05;
-  pointer-events: none;
+  display: none;
+}
+
+.chat-widget__conversation:has(.chat-widget__empty),
+.chat-widget__conversation:has(.chat-widget__notice) {
+  justify-content: center;
 }
 
 .chat-widget__conversation::-webkit-scrollbar {
@@ -258,10 +230,7 @@
 .chat-widget__notice {
   position: relative;
   z-index: 1;
-  display: flex;
   min-height: 92px;
-  align-items: center;
-  justify-content: center;
   color: rgba(31, 41, 55, 0.72);
   font-size: 13px;
   font-weight: 680;
@@ -270,11 +239,17 @@
 }
 
 .chat-widget__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
 }
 
 .chat-widget__notice {
-  padding: 4px 10px;
+  display: block;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 4px 0;
 }
 
 .chat-widget__notice-link {
@@ -906,8 +881,6 @@
 
 @media (max-width: 560px) {
   .chat-widget {
-    --chat-widget-open-offset: clamp(14px, 4vh, 24px);
-
     right: 12px;
     bottom: max(16px, env(safe-area-inset-bottom));
   }
@@ -918,7 +891,7 @@
 
   .chat-widget__surface {
     width: calc(100vw - 24px);
-    height: calc(100vh - 32px - var(--chat-widget-open-offset));
+    height: calc(100vh - 32px);
   }
 
   .chat-composer {

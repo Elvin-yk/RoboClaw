@@ -88,80 +88,83 @@ export default function ChatPanel({
   if (compact) {
     return (
       <section className="chat-widget__surface" aria-label="RoboClaw AI chat">
+        <header className="chat-widget__header">
+          <div className="chat-widget__title">RoboClaw AI</div>
           <button
             type="button"
             className="chat-widget__minimize"
             onClick={onClose}
             aria-label="Minimize RoboClaw AI chat"
           >
-            <span aria-hidden="true">-</span>
+            <span aria-hidden="true">x</span>
           </button>
+        </header>
 
-          <div ref={conversationRef} className="chat-widget__conversation" aria-live="polite">
-            {!providerConfigured ? (
-              <div className="chat-widget__notice">
-                {t('providerWarning')}{' '}
-                <Link to="/settings/provider" className="chat-widget__notice-link">
-                  {t('settingsPage')}
-                </Link>{' '}
-                {t('providerWarningEnd')}
-              </div>
-            ) : messages.length === 0 ? (
-              <div className="chat-widget__empty">
-                <span
-                  className={cn('chat-widget__status', connected && 'chat-widget__status--live')}
-                  aria-hidden="true"
-                />
-                <span>RoboClaw AI</span>
-              </div>
-            ) : (
-              <div className="chat-widget__message-stack">
-                {messages.map((message, index) => {
-                  const isUser = message.role === 'user'
-                  return (
-                    <article
-                      key={message.id}
-                      className={cn('chat-message', isUser && 'chat-message--user')}
-                      style={{ animationDelay: `${Math.min(index * 28, 180)}ms` }}
-                    >
-                      <ReactMarkdown className="chat-markdown">
-                        {message.content}
-                      </ReactMarkdown>
-                      <time className="chat-message__time" dateTime={new Date(message.timestamp).toISOString()}>
-                        {new Date(message.timestamp).toLocaleTimeString()}
-                      </time>
-                    </article>
-                  )
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
+        <div ref={conversationRef} className="chat-widget__conversation" aria-live="polite">
+          {!providerConfigured ? (
+            <div className="chat-widget__notice">
+              {t('providerWarning')}{' '}
+              <Link to="/settings/provider" className="chat-widget__notice-link">
+                {t('settingsPage')}
+              </Link>{' '}
+              {t('providerWarningEnd')}
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="chat-widget__empty">
+              <span
+                className={cn('chat-widget__status', connected && 'chat-widget__status--live')}
+                aria-hidden="true"
+              />
+              <span>RoboClaw AI</span>
+            </div>
+          ) : (
+            <div className="chat-widget__message-stack">
+              {messages.map((message, index) => {
+                const isUser = message.role === 'user'
+                return (
+                  <article
+                    key={message.id}
+                    className={cn('chat-message', isUser && 'chat-message--user')}
+                    style={{ animationDelay: `${Math.min(index * 28, 180)}ms` }}
+                  >
+                    <ReactMarkdown className="chat-markdown">
+                      {message.content}
+                    </ReactMarkdown>
+                    <time className="chat-message__time" dateTime={new Date(message.timestamp).toISOString()}>
+                      {new Date(message.timestamp).toLocaleTimeString()}
+                    </time>
+                  </article>
+                )
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
 
-          <form onSubmit={handleSubmit} className="chat-composer" aria-label="RoboClaw AI message">
-            <textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  submitCurrentMessage()
-                }
-              }}
-              placeholder={connected ? t('inputPlaceholder') : t('waitingConnection')}
-              disabled={!connected}
-              rows={1}
-              className="chat-composer__input"
-            />
-            <button
-              type="submit"
-              disabled={!connected || !input.trim()}
-              className="chat-composer__send"
-              aria-label={t('send')}
-            >
-              <span aria-hidden="true" />
-            </button>
-          </form>
+        <form onSubmit={handleSubmit} className="chat-composer" aria-label="RoboClaw AI message">
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                submitCurrentMessage()
+              }
+            }}
+            placeholder={connected ? t('inputPlaceholder') : t('waitingConnection')}
+            disabled={!connected}
+            rows={1}
+            className="chat-composer__input"
+          />
+          <button
+            type="submit"
+            disabled={!connected || !input.trim()}
+            className="chat-composer__send"
+            aria-label={t('send')}
+          >
+            <span aria-hidden="true" />
+          </button>
+        </form>
       </section>
     )
   }
