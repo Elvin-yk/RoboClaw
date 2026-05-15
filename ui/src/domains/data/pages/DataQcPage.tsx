@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
 import {
@@ -64,6 +64,7 @@ const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }>
 ]
 
 export default function DataQcPage() {
+  const navigate = useNavigate()
   const { t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((state) => state.user)
@@ -89,12 +90,18 @@ export default function DataQcPage() {
   const [datasetIdCopied, setDatasetIdCopied] = useState(false)
   const reviewLoadRequestRef = useRef(0)
   const inspectionLoadRequestRef = useRef(0)
+  const datasetQuery = searchParams.get('dataset') || ''
   const reviewerId = currentReviewerId(user)
   const reviewerLabel = currentReviewerLabel(user)
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (datasetQuery || activeDatasetId || reviewLoading) return
+    navigate('/data/manage', { replace: true })
+  }, [activeDatasetId, datasetQuery, navigate, reviewLoading])
 
   useEffect(() => {
     const datasetId = searchParams.get('dataset') || ''
@@ -296,10 +303,26 @@ export default function DataQcPage() {
     setSearchParams(new URLSearchParams())
   }
 
+  function returnToManage() {
+    const targetParams = new URLSearchParams()
+    if (activeDatasetId) targetParams.set('dataset', activeDatasetId)
+    const reviewQuery = searchParams.toString()
+    if (reviewQuery) targetParams.set('returnQc', reviewQuery)
+    const query = targetParams.toString()
+    navigate(`/data/manage${query ? `?${query}` : ''}`)
+  }
+
   return (
     <section className="data-page data-qc-page">
       {error && <div className="data-alert">{error}</div>}
       {reviewError && <div className="data-alert">{reviewError}</div>}
+      {hasReviewSelection && (
+        <div className="data-analysis-toolbar">
+          <button type="button" className="data-analysis-return" onClick={returnToManage}>
+            {t('dataQcBackToManage')}
+          </button>
+        </div>
+      )}
 
       <div className="data-qc-review-workspace">
         <section className="data-panel data-qc-review-list-panel">

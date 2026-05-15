@@ -32,8 +32,13 @@ export default function DataAnalysisPage() {
   const returnTo = searchParams.get('returnTo') || ''
   const manageDataset = searchParams.get('manageDataset') || datasetFromQuery
   const qcDataset = searchParams.get('qcDataset') || datasetFromQuery
+  const packageFromQuery = searchParams.get('package') || ''
 
   useEffect(() => {
+    if (!datasetFromQuery && !packageFromQuery) {
+      navigate('/data/manage', { replace: true })
+      return
+    }
     if (!datasetFromQuery) {
       if (loadedDatasetFromQuery.current) {
         loadedDatasetFromQuery.current = ''
@@ -54,7 +59,7 @@ export default function DataAnalysisPage() {
       setEpisodeIndex(0)
       await loadEpisode(0)
     })()
-  }, [datasetFromQuery, inspect, loadEpisode, reset, setDataset, setSource])
+  }, [datasetFromQuery, inspect, loadEpisode, navigate, packageFromQuery, reset, setDataset, setSource])
 
   async function inspectThenLoad(nextEpisodeIndex = 0) {
     if (!dataset.trim()) return
