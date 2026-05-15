@@ -731,7 +731,7 @@ export const inlineZh = {
         dataReviewReviewedCount: '已检阅 {reviewed} / {total}',
         dataReviewEpisodeSequence: 'Episode 序列',
         dataReviewNoEpisodes: '这个 Dataset 没有可检阅的 Episode',
-        dataReviewEditSectionTitle: '待修改内容',
+        dataReviewEditSectionTitle: '修改项',
         dataReviewInspectionChecklistTitle: '检查项',
         dataReviewInspectionDatasetScope: 'Dataset 级检查，选择后对全部 Episode 生效',
         dataReviewInspectionTaskDescription: '任务描述检查',

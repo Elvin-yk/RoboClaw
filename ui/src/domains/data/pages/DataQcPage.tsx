@@ -558,63 +558,70 @@ function ReviewInspectionWorkspace({
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
   return (
-    <section className="data-panel data-review-inspection-checklist">
-      <div className="data-panel__title">
-        <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
-      </div>
-      <article className="data-review-inspection-item">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataReviewInspectionTaskDescription')}</strong>
-            <em>{t('dataReviewInspectionDatasetScope')}</em>
-          </div>
+    <div className="data-review-inspection-groups">
+      <section className="data-panel data-review-inspection-checklist">
+        <div className="data-panel__title">
+          <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
         </div>
-        <TaskDescriptionInspection
-          datasetTask={datasetTask}
-          draftTaskDescription={draftTaskDescription}
-          saving={saving}
-          reviewLoading={reviewLoading}
-          onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
-          onSaveDraftTaskDescription={onSaveDraftTaskDescription}
-          t={t}
-        />
-      </article>
+        <article className="data-review-inspection-item data-qc-review-visuals">
+          <div className="data-review-inspection-item__head">
+            <div>
+              <strong>{t('dataQcEpisodeInspectionTitle')}</strong>
+            </div>
+          </div>
+          <DataEpisodeInspectionWorkspace
+            source={source}
+            dataset={dataset}
+            episode={episode}
+            episodeIndex={episodeIndex}
+            totalEpisodes={totalEpisodes}
+            loading={loading}
+            canLoadEpisode={canLoadEpisode}
+            error={error}
+            emptyLabel={t('dataQcReviewVisualsLoading')}
+            showEpisodeControls={false}
+            showTitle={false}
+            displayMode="full"
+            showRobot3D={showRobot3D}
+            showTrajectoryCharts={false}
+            onEpisodeIndexChange={onEpisodeIndexChange}
+            onLoadEpisode={onLoadEpisode}
+          />
+        </article>
 
-      <article className="data-review-inspection-item data-qc-review-visuals">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataQcEpisodeInspectionTitle')}</strong>
+        <article className="data-review-inspection-item">
+          <div className="data-review-inspection-item__head">
+            <div>
+              <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
+            </div>
           </div>
-        </div>
-        <DataEpisodeInspectionWorkspace
-          source={source}
-          dataset={dataset}
-          episode={episode}
-          episodeIndex={episodeIndex}
-          totalEpisodes={totalEpisodes}
-          loading={loading}
-          canLoadEpisode={canLoadEpisode}
-          error={error}
-          emptyLabel={t('dataQcReviewVisualsLoading')}
-          showEpisodeControls={false}
-          showTitle={false}
-          displayMode="full"
-          showRobot3D={showRobot3D}
-          showTrajectoryCharts={false}
-          onEpisodeIndexChange={onEpisodeIndexChange}
-          onLoadEpisode={onLoadEpisode}
-        />
-      </article>
+          <FirstLastFrameInspection episode={episode} t={t} />
+        </article>
+      </section>
 
-      <article className="data-review-inspection-item">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
-          </div>
+      <section className="data-panel data-review-edit-items">
+        <div className="data-panel__title">
+          <h2>{t('dataReviewEditSectionTitle')}</h2>
         </div>
-        <FirstLastFrameInspection episode={episode} t={t} />
-      </article>
-    </section>
+        <article className="data-review-inspection-item">
+          <div className="data-review-inspection-item__head">
+            <div>
+              <strong>{t('dataReviewTaskDraft')}</strong>
+              <em>{t('dataReviewInspectionDatasetScope')}</em>
+            </div>
+          </div>
+          <TaskDescriptionInspection
+            datasetTask={datasetTask}
+            draftTaskDescription={draftTaskDescription}
+            saving={saving}
+            reviewLoading={reviewLoading}
+            onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+            onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+            t={t}
+          />
+        </article>
+      </section>
+    </div>
   )
 }
 

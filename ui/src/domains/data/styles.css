@@ -950,7 +950,9 @@
   gap: 12px;
 }
 
-.data-review-inspection-checklist {
+.data-review-inspection-groups,
+.data-review-inspection-checklist,
+.data-review-edit-items {
   display: grid;
   gap: 14px;
 }
