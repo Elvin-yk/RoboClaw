@@ -11,7 +11,7 @@ const ARM_COLORS: Record<RobotArmSide, string> = {
   left: '#4f8fbd',
   right: '#d0892b',
 }
-const DEFAULT_CAMERA_POSITION = [1.05, 0, 0.44] as const
+const DEFAULT_CAMERA_POSITION = [-1.05, 0, 0.44] as const
 const DEFAULT_CAMERA_TARGET = [0, 0, -0.08] as const
 
 interface ArmInstance {
