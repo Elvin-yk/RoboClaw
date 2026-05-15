@@ -1,7 +1,7 @@
 import { asRecord } from '@/domains/data/lib/analysisPayload'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
-import { EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
+import { EpisodePicker, EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
 
 interface DataEpisodeInspectionWorkspaceProps {
   source: RobotTrajectorySource
@@ -65,13 +65,15 @@ export function DataEpisodeInspectionWorkspace({
         <section className="data-panel data-qc-episode-inspection">
           {showTitle && (
             <div className="data-panel__title">
-              <h2>{t('dataQcEpisodeInspectionTitle')}</h2>
               {showEpisodeControls && (
-                <div className="data-analysis-player__summary">
-                  <button type="button" onClick={() => onLoadEpisode(episodeIndex)} disabled={loading || !canLoadEpisode}>
-                    {t('dataAnalysisLoadEpisode', { index: episodeIndex })}
-                  </button>
-                </div>
+                <EpisodePicker
+                  value={episodeIndex}
+                  totalEpisodes={totalEpisodes}
+                  loading={loading}
+                  canLoadEpisode={canLoadEpisode}
+                  onChange={onEpisodeIndexChange}
+                  onLoad={onLoadEpisode}
+                />
               )}
             </div>
           )}

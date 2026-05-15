@@ -3,13 +3,12 @@ import { dataApi } from '@/domains/data/api/dataApi'
 import type {
   EpisodeRobotTrajectory,
   RobotModelManifest,
-  RobotTrajectorySignal,
   RobotTrajectorySource,
 } from '@/domains/data/model/types'
-import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DScene } from './scene'
 
 const ROBOT_MODEL = 'so101'
+const ROBOT_TRAJECTORY_SIGNAL = 'action'
 
 interface RobotTrajectory3DPanelProps {
   source: RobotTrajectorySource
@@ -17,8 +16,6 @@ interface RobotTrajectory3DPanelProps {
   path?: string
   episodeIndex: number
   currentTime: number
-  signal: RobotTrajectorySignal
-  onSignalChange: (signal: RobotTrajectorySignal) => void
 }
 
 export function RobotTrajectory3DPanel({
@@ -27,8 +24,6 @@ export function RobotTrajectory3DPanel({
   path,
   episodeIndex,
   currentTime,
-  signal,
-  onSignalChange,
 }: RobotTrajectory3DPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<RobotTrajectory3DScene | null>(null)
@@ -87,7 +82,7 @@ export function RobotTrajectory3DPanel({
       source,
       path,
       episode_index: episodeIndex,
-      signal,
+      signal: ROBOT_TRAJECTORY_SIGNAL,
       model: ROBOT_MODEL,
     }).then((nextTrajectory) => {
       if (!active) return
@@ -102,7 +97,7 @@ export function RobotTrajectory3DPanel({
     return () => {
       active = false
     }
-  }, [canLoad, dataset, episodeIndex, path, signal, source])
+  }, [canLoad, dataset, episodeIndex, path, source])
 
   useEffect(() => {
     const container = containerRef.current
@@ -138,22 +133,6 @@ export function RobotTrajectory3DPanel({
     <section className="data-robot-trajectory3d">
       <div className="data-robot-trajectory3d__head">
         <h3>3D</h3>
-        <div className="data-robot-trajectory3d__signals" role="group" aria-label="3D trajectory signal">
-          <button
-            type="button"
-            className={cn(signal === 'action' && 'is-active')}
-            onClick={() => onSignalChange('action')}
-          >
-            Action
-          </button>
-          <button
-            type="button"
-            className={cn(signal === 'state' && 'is-active')}
-            onClick={() => onSignalChange('state')}
-          >
-            State
-          </button>
-        </div>
       </div>
       <div className="data-robot-trajectory3d__viewport" ref={containerRef}>
         {loading && <div className="data-robot-trajectory3d__overlay">加载 3D</div>}

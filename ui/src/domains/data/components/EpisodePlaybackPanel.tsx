@@ -13,7 +13,7 @@ import {
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
-import type { RobotTrajectorySignal, RobotTrajectorySource } from '@/domains/data/model/types'
+import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
 interface EpisodeVideo {
@@ -85,7 +85,6 @@ export function EpisodePlaybackPanel({
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackError, setPlaybackError] = useState('')
-  const [robotSignal, setRobotSignal] = useState<RobotTrajectorySignal>('action')
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
   const syncLockRef = useRef(false)
   const playbackTimeRef = useRef(0)
@@ -191,7 +190,18 @@ export function EpisodePlaybackPanel({
   if (!hasPlaybackData) {
     return (
       <section className="data-panel">
-        {showTitle && <div className="data-panel__title"><h2>Episode 可视化</h2></div>}
+        {showTitle && showEpisodeControls && (
+          <div className="data-panel__title data-analysis-player__title">
+            <EpisodePicker
+              value={episodeIndex}
+              totalEpisodes={totalEpisodes}
+              loading={loading}
+              canLoadEpisode={canLoadEpisode}
+              onChange={onEpisodeIndexChange}
+              onLoad={onLoadEpisode}
+            />
+          </div>
+        )}
         <div className="data-empty">{emptyLabel || '加载 episode 后显示视频和 action / observation 曲线'}</div>
       </section>
     )
@@ -200,23 +210,22 @@ export function EpisodePlaybackPanel({
   return (
     <section className="data-panel data-analysis-player">
       {showTitle && (
-        <div className="data-panel__title">
-          <h2>Episode 可视化</h2>
+        <div className="data-panel__title data-analysis-player__title">
           {showEpisodeControls && (
-            <div className="data-analysis-player__summary">
-              <EpisodePicker
-                value={episodeIndex}
-                totalEpisodes={totalEpisodes}
-                loading={loading}
-                canLoadEpisode={canLoadEpisode}
-                onChange={onEpisodeIndexChange}
-                onLoad={onLoadEpisode}
-              />
-              <span>Episode #{loadedEpisodeIndex}</span>
-              <span>{formatSeconds(duration)}</span>
-              {showVideos && <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>}
-            </div>
+            <EpisodePicker
+              value={episodeIndex}
+              totalEpisodes={totalEpisodes}
+              loading={loading}
+              canLoadEpisode={canLoadEpisode}
+              onChange={onEpisodeIndexChange}
+              onLoad={onLoadEpisode}
+            />
           )}
+          <div className="data-analysis-player__summary">
+            <span>Episode #{loadedEpisodeIndex}</span>
+            <span>{formatSeconds(duration)}</span>
+            {showVideos && <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>}
+          </div>
         </div>
       )}
 
@@ -224,7 +233,7 @@ export function EpisodePlaybackPanel({
 
       {showTaskDescription && taskDescription && (
         <div className="data-analysis-task-strip">
-          <span>Task</span>
+          <span>任务描述</span>
           <strong>{taskDescription}</strong>
         </div>
       )}
@@ -258,8 +267,6 @@ export function EpisodePlaybackPanel({
           path={path}
           episodeIndex={loadedEpisodeIndex}
           currentTime={playbackTime}
-          signal={robotSignal}
-          onSignalChange={setRobotSignal}
         />
       )}
 
@@ -290,7 +297,7 @@ export function EpisodePlaybackPanel({
   )
 }
 
-function EpisodePicker({
+export function EpisodePicker({
   value,
   totalEpisodes,
   loading,
@@ -312,7 +319,17 @@ function EpisodePicker({
   function updateValue(rawValue: string) {
     const nextValue = Number(rawValue)
     if (!Number.isFinite(nextValue)) return
-    onChange(clamp(Math.trunc(nextValue), 0, maxEpisodeIndex))
+    const nextEpisodeIndex = clamp(Math.trunc(nextValue), 0, maxEpisodeIndex)
+    onChange(nextEpisodeIndex)
+    if (!loading && canLoadEpisode) {
+      onLoad(nextEpisodeIndex)
+    }
+  }
+
+  function loadEpisode(nextEpisodeIndex: number) {
+    const normalizedEpisodeIndex = clamp(nextEpisodeIndex, 0, maxEpisodeIndex)
+    onChange(normalizedEpisodeIndex)
+    onLoad(normalizedEpisodeIndex)
   }
 
   return (
@@ -320,7 +337,7 @@ function EpisodePicker({
       <button
         type="button"
         className="data-analysis-secondary-button"
-        onClick={() => onLoad(Math.max(0, normalizedValue - 1))}
+        onClick={() => loadEpisode(normalizedValue - 1)}
         disabled={loading || !canLoadEpisode || normalizedValue <= 0}
         title="上一个 episode"
       >
@@ -333,21 +350,14 @@ function EpisodePicker({
           min={0}
           max={hasUpperBound ? maxEpisodeIndex : undefined}
           value={normalizedValue}
+          disabled={loading || !canLoadEpisode}
           onChange={(event) => updateValue(event.target.value)}
         />
       </label>
       <button
         type="button"
         className="data-analysis-secondary-button"
-        onClick={() => onLoad(normalizedValue)}
-        disabled={loading || !canLoadEpisode}
-      >
-        Load
-      </button>
-      <button
-        type="button"
-        className="data-analysis-secondary-button"
-        onClick={() => onLoad(normalizedValue + 1)}
+        onClick={() => loadEpisode(normalizedValue + 1)}
         disabled={loading || !canLoadEpisode || (hasUpperBound && normalizedValue >= maxEpisodeIndex)}
         title="下一个 episode"
       >

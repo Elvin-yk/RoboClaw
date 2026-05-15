@@ -27,10 +27,9 @@
   flex-direction: column;
   gap: 16px;
   border-right: 1px solid rgba(47, 111, 228, 0.10);
-  background: rgba(255, 255, 255, 0.68);
+  background: #fbfdff;
   padding: 16px 12px;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(12px);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -1176,8 +1175,7 @@
   .app-sidebar {
     top: 0;
     gap: 16px;
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(18px);
+    background: #fbfdff;
   }
 
   .app-sidebar__header {
