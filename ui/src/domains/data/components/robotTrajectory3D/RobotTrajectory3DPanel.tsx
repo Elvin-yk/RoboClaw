@@ -130,13 +130,13 @@ export function RobotTrajectory3DPanel({
   if (!canLoad) return null
 
   return (
-    <section className="data-robot-trajectory3d">
-      <div className="data-robot-trajectory3d__head">
-        <h3>机械臂 3D 轨迹</h3>
-      </div>
-      <div className="data-robot-trajectory3d__viewport" ref={containerRef}>
-        {loading && <div className="data-robot-trajectory3d__overlay">加载 3D</div>}
-        {error && <div className="data-robot-trajectory3d__overlay is-error">3D 资源不可用</div>}
+    <section className="data-analysis-section">
+      <div className="data-analysis-section-title">机械臂 3D 轨迹</div>
+      <div className="data-robot-trajectory3d">
+        <div className="data-robot-trajectory3d__viewport" ref={containerRef}>
+          {loading && <div className="data-robot-trajectory3d__overlay">加载 3D</div>}
+          {error && <div className="data-robot-trajectory3d__overlay is-error">3D 资源不可用</div>}
+        </div>
       </div>
     </section>
   )

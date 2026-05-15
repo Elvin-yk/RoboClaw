@@ -1999,23 +1999,6 @@
   background: #f8fafc;
 }
 
-.data-robot-trajectory3d__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
-  padding: 10px 12px;
-}
-
-.data-robot-trajectory3d__head h3 {
-  margin: 0;
-  color: #101828;
-  font-size: 13px;
-  font-weight: 900;
-}
-
 .data-robot-trajectory3d__viewport {
   position: relative;
   height: min(52vh, 520px);
