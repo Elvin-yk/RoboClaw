@@ -362,6 +362,7 @@ export default function DataQcPage() {
                 canLoadEpisode={Boolean(activeDatasetId)}
                 error={inspectError}
                 datasetTask={datasetTaskDescription(activeDataset)}
+                showRobot3D={supportsBimanualSo101Trajectory(activeDataset)}
                 draftTaskDescription={draftTaskDescription}
                 saving={reviewSaving}
                 reviewLoading={reviewLoading}
@@ -527,6 +528,7 @@ function ReviewInspectionWorkspace({
   canLoadEpisode,
   error,
   datasetTask,
+  showRobot3D,
   draftTaskDescription,
   saving,
   reviewLoading,
@@ -545,6 +547,7 @@ function ReviewInspectionWorkspace({
   canLoadEpisode: boolean
   error?: string
   datasetTask: string
+  showRobot3D: boolean
   draftTaskDescription: string
   saving: boolean
   reviewLoading: boolean
@@ -596,6 +599,8 @@ function ReviewInspectionWorkspace({
           showEpisodeControls={false}
           showTitle={false}
           displayMode="full"
+          showRobot3D={showRobot3D}
+          showTrajectoryCharts={false}
           onEpisodeIndexChange={onEpisodeIndexChange}
           onLoadEpisode={onLoadEpisode}
         />
@@ -822,6 +827,10 @@ function datasetReviewStatus(dataset: Dataset, autoCleanStatus: QualityStatus): 
   }
   if (autoCleanStatus === 'failed' || autoCleanStatus === 'running') return 'blocked'
   return 'pending'
+}
+
+function supportsBimanualSo101Trajectory(dataset: Dataset): boolean {
+  return dataset.stats.robot_type.trim().toLowerCase() === 'bi_so_follower'
 }
 
 function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {

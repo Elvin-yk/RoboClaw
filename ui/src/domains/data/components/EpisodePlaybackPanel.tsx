@@ -47,6 +47,7 @@ export function EpisodePlaybackPanel({
   dataset,
   path,
   showRobot3D = true,
+  showTrajectoryCharts = true,
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -63,6 +64,7 @@ export function EpisodePlaybackPanel({
   dataset?: string
   path?: string
   showRobot3D?: boolean
+  showTrajectoryCharts?: boolean
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
@@ -292,7 +294,7 @@ export function EpisodePlaybackPanel({
         }}
       />
 
-      {showTrajectory && (
+      {showTrajectory && showTrajectoryCharts && (
         <TrajectoryCharts
           trajectory={visibleTrajectory}
           currentTime={playbackTime}

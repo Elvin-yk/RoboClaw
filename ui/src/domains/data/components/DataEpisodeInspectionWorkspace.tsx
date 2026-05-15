@@ -17,6 +17,8 @@ interface DataEpisodeInspectionWorkspaceProps {
   showEpisodeControls?: boolean
   showTitle?: boolean
   displayMode?: EpisodePlaybackDisplayMode
+  showRobot3D?: boolean
+  showTrajectoryCharts?: boolean
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
 }
@@ -35,6 +37,8 @@ export function DataEpisodeInspectionWorkspace({
   showEpisodeControls = true,
   showTitle = true,
   displayMode = 'full',
+  showRobot3D = true,
+  showTrajectoryCharts = true,
   onEpisodeIndexChange,
   onLoadEpisode,
 }: DataEpisodeInspectionWorkspaceProps) {
@@ -60,6 +64,8 @@ export function DataEpisodeInspectionWorkspace({
           source={source}
           dataset={dataset}
           path={path}
+          showRobot3D={showRobot3D}
+          showTrajectoryCharts={showTrajectoryCharts}
         />
       ) : (
         <section className="data-panel data-qc-episode-inspection">
