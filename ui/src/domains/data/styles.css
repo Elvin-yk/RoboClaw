@@ -1887,32 +1887,6 @@
   font-size: 12px;
 }
 
-.data-analysis-task-strip {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
-  align-items: baseline;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fbfcfe;
-  padding: 12px 14px;
-}
-
-.data-analysis-task-strip span {
-  color: #667085;
-  font-size: 11px;
-  font-weight: 780;
-  text-transform: uppercase;
-}
-
-.data-analysis-task-strip strong {
-  min-width: 0;
-  color: #101828;
-  font-size: 14px;
-  font-weight: 680;
-  line-height: 1.45;
-}
-
 .data-analysis-episode-picker {
   display: inline-flex;
   align-items: center;
@@ -1971,6 +1945,20 @@
   color: #101828;
   font-size: 13px;
   font-weight: 900;
+}
+
+.data-analysis-section-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.data-analysis-task-card {
+  color: #101828;
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.45;
 }
 
 .data-analysis-video-grid {

@@ -232,33 +232,37 @@ export function EpisodePlaybackPanel({
       {playbackError && <div className="data-alert">{playbackError}</div>}
 
       {showTaskDescription && taskDescription && (
-        <div className="data-analysis-task-strip">
-          <span>任务描述</span>
-          <strong>{taskDescription}</strong>
-        </div>
+        <section className="data-analysis-section">
+          <div className="data-analysis-section-title">任务描述</div>
+          <div className="data-analysis-section-card data-analysis-task-card">
+            {taskDescription}
+          </div>
+        </section>
       )}
 
       {showVideos && visibleVideos.length > 0 && (
         <section className="data-analysis-section">
           <div className="data-analysis-section-title">相机画面</div>
-          <div className="data-analysis-video-grid">
-            {visibleVideos.map((video, index) => (
-              <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
-                <video
-                  ref={(node) => {
-                    videoRefs.current[index] = node
-                  }}
-                  src={video.url}
-                  muted
-                  playsInline
-                  preload="metadata"
-                  onClick={() => setIsPlaying((current) => !current)}
-                  onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
-                  onTimeUpdate={() => handleLeaderTimeUpdate(index)}
-                />
-                <figcaption>{video.stream || video.path}</figcaption>
-              </figure>
-            ))}
+          <div className="data-analysis-section-card">
+            <div className="data-analysis-video-grid">
+              {visibleVideos.map((video, index) => (
+                <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
+                  <video
+                    ref={(node) => {
+                      videoRefs.current[index] = node
+                    }}
+                    src={video.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    onClick={() => setIsPlaying((current) => !current)}
+                    onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+                    onTimeUpdate={() => handleLeaderTimeUpdate(index)}
+                  />
+                  <figcaption>{video.stream || video.path}</figcaption>
+                </figure>
+              ))}
+            </div>
           </div>
         </section>
       )}
