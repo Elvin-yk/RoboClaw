@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { clamp, formatSeconds, relativeTimeValues } from '@/domains/data/lib/analysisPayload'
 
 export interface TrajectoryItem {
@@ -51,7 +51,7 @@ export function TrajectoryCharts({
   duration: number
   onSeek: (seconds: number) => void
 }) {
-  const [mode, setMode] = useState<ChartMode>('grouped')
+  const [mode, setMode] = useState<ChartMode>('combined')
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const relativeTimes = useMemo(() => relativeTimeValues(trajectory.timeValues), [trajectory.timeValues])
   const chartDuration = duration || relativeTimes[relativeTimes.length - 1] || 0
@@ -76,32 +76,33 @@ export function TrajectoryCharts({
     })
   }
 
+  const chartModeControls = (
+    <div className="data-analysis-chart-modes" role="group" aria-label="Chart display mode">
+      <button
+        type="button"
+        className={mode === 'grouped' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
+        onClick={() => setMode('grouped')}
+      >
+        Split
+      </button>
+      <button
+        type="button"
+        className={mode === 'combined' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
+        onClick={() => setMode('combined')}
+      >
+        Combine all
+      </button>
+    </div>
+  )
+
   return (
     <div className="data-analysis-charts">
-      <div className="data-analysis-charts__head">
-        <div className="data-analysis-chart-modes" role="group" aria-label="Chart display mode">
-          <button
-            type="button"
-            className={mode === 'grouped' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
-            onClick={() => setMode('grouped')}
-          >
-            Split
-          </button>
-          <button
-            type="button"
-            className={mode === 'combined' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
-            onClick={() => setMode('combined')}
-          >
-            Combine all
-          </button>
-        </div>
-      </div>
-
       <div className={mode === 'combined' ? 'data-analysis-combined-chart-list' : 'data-analysis-group-chart-list'}>
         {groups.map((group, index) => (
           <TrajectoryGroupChart
             key={`${mode}-${index}`}
             series={group}
+            controls={index === 0 ? chartModeControls : null}
             hiddenSeries={hiddenSeries}
             relativeTimes={relativeTimes}
             currentTime={currentTime}
@@ -119,6 +120,7 @@ export function TrajectoryCharts({
 
 function TrajectoryGroupChart({
   series,
+  controls,
   hiddenSeries,
   relativeTimes,
   currentTime,
@@ -129,6 +131,7 @@ function TrajectoryGroupChart({
   onToggleSeries,
 }: {
   series: TrajectorySeries[]
+  controls: ReactNode
   hiddenSeries: Set<string>
   relativeTimes: number[]
   currentTime: number
@@ -149,7 +152,10 @@ function TrajectoryGroupChart({
 
   return (
     <section className={combined ? 'data-analysis-group-chart data-analysis-group-chart--combined' : 'data-analysis-group-chart'}>
-      <div className="data-analysis-group-chart__title" title={title}>{title}</div>
+      <div className="data-analysis-group-chart__titlebar">
+        <div className="data-analysis-group-chart__title" title={title}>{title}</div>
+        {controls}
+      </div>
       <button
         type="button"
         className="data-analysis-group-chart__plot"
