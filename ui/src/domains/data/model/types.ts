@@ -156,3 +156,45 @@ export interface InspectSummary {
   dataset: string
   summary: Record<string, unknown>
 }
+
+export type RobotTrajectorySource = 'remote' | 'local' | 'path'
+export type RobotTrajectorySignal = 'action' | 'state'
+export type RobotArmSide = 'left' | 'right'
+
+export interface RobotModelManifest {
+  model: string
+  asset_id: string
+  asset_base_url: string
+  urdf_path: string
+  urdf_url: string
+  joint_order: string[]
+  ee_link: string
+  trajectory_schema: string
+  scene: {
+    left_base_xyz: [number, number, number]
+    right_base_xyz: [number, number, number]
+  }
+  files: Array<{
+    path: string
+    size: number
+    sha256: string
+    content_type: string
+  }>
+}
+
+export interface EpisodeRobotTrajectory {
+  model: string
+  dataset: string
+  source: RobotTrajectorySource
+  episode_index: number
+  signal: RobotTrajectorySignal
+  fps: number
+  frame_count: number
+  duration_s: number
+  time_s: number[]
+  frame_index: number[]
+  joint_order: string[]
+  arms: Record<RobotArmSide, {
+    joint_degrees: Record<string, Array<number | null>>
+  }>
+}

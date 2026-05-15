@@ -13,6 +13,8 @@ import {
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
+import type { RobotTrajectorySignal, RobotTrajectorySource } from '@/domains/data/model/types'
+import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
 interface EpisodeVideo {
   path: string
@@ -41,6 +43,10 @@ export function EpisodePlaybackPanel({
   showTitle = true,
   displayMode = 'full',
   emptyLabel,
+  source = 'local',
+  dataset,
+  path,
+  showRobot3D = true,
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -53,6 +59,10 @@ export function EpisodePlaybackPanel({
   showTitle?: boolean
   displayMode?: EpisodePlaybackDisplayMode
   emptyLabel?: string
+  source?: RobotTrajectorySource
+  dataset?: string
+  path?: string
+  showRobot3D?: boolean
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
@@ -61,6 +71,10 @@ export function EpisodePlaybackPanel({
   const taskDescription = useMemo(() => readTaskDescription(episode), [episode])
   const showVideos = displayMode === 'full' || displayMode === 'video'
   const showTrajectory = displayMode === 'full' || displayMode === 'trajectory'
+  const showRobotTrajectory3D = displayMode === 'full'
+    && showRobot3D
+    && source !== 'remote'
+    && (source === 'path' ? Boolean(path) : Boolean(dataset))
   const showTaskDescription = displayMode === 'full'
   const visibleVideos = showVideos ? videos : EMPTY_VIDEOS
   const visibleTrajectory = showTrajectory ? trajectory : EMPTY_TRAJECTORY
@@ -71,6 +85,7 @@ export function EpisodePlaybackPanel({
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackError, setPlaybackError] = useState('')
+  const [robotSignal, setRobotSignal] = useState<RobotTrajectorySignal>('action')
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
   const syncLockRef = useRef(false)
   const playbackTimeRef = useRef(0)
@@ -131,6 +146,26 @@ export function EpisodePlaybackPanel({
     })
   }, [isPlaying, syncVideosTo, visibleVideos])
 
+  useEffect(() => {
+    if (!isPlaying || visibleVideos.length > 0 || duration <= 0) return undefined
+    const startedAt = performance.now()
+    const startTime = playbackTimeRef.current
+    let animationFrame = 0
+    const tick = (now: number) => {
+      const elapsed = (now - startedAt) / 1000
+      const nextTime = startTime + elapsed
+      if (nextTime >= duration - LOOP_EPSILON) {
+        seekTo(0)
+        setIsPlaying(false)
+        return
+      }
+      seekTo(nextTime, false)
+      animationFrame = window.requestAnimationFrame(tick)
+    }
+    animationFrame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [duration, isPlaying, seekTo, visibleVideos.length])
+
   const handleLeaderTimeUpdate = (index: number) => {
     if (syncLockRef.current || index !== 0) return
     const video = videoRefs.current[index]
@@ -151,7 +186,7 @@ export function EpisodePlaybackPanel({
     syncVideosTo(nextTime, false, index)
   }
 
-  const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0
+  const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0 || showRobotTrajectory3D
 
   if (!hasPlaybackData) {
     return (
@@ -214,6 +249,18 @@ export function EpisodePlaybackPanel({
             </figure>
           ))}
         </div>
+      )}
+
+      {showRobotTrajectory3D && (
+        <RobotTrajectory3DPanel
+          source={source}
+          dataset={dataset}
+          path={path}
+          episodeIndex={loadedEpisodeIndex}
+          currentTime={playbackTime}
+          signal={robotSignal}
+          onSignalChange={setRobotSignal}
+        />
       )}
 
       <PlaybackTimeline

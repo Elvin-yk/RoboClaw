@@ -1,5 +1,18 @@
 import { api, deleteApi, patchJson, postJson } from '@/shared/api/client'
-import type { DataJob, DataOverview, DataQcRun, DataReviewWorkspace, Dataset, DatasetPackage, InspectSuggestion, InspectSummary } from '@/domains/data/model/types'
+import type {
+  DataJob,
+  DataOverview,
+  DataQcRun,
+  DataReviewWorkspace,
+  Dataset,
+  DatasetPackage,
+  EpisodeRobotTrajectory,
+  InspectSuggestion,
+  InspectSummary,
+  RobotModelManifest,
+  RobotTrajectorySignal,
+  RobotTrajectorySource,
+} from '@/domains/data/model/types'
 
 const DATA_API = '/api/data'
 
@@ -24,6 +37,15 @@ export const dataApi = {
   inspectDetails: (params: { dataset?: string; source: string; path?: string }) => api<Record<string, unknown>>(`${DATA_API}/inspect/details${query(params)}`),
   inspectEpisodes: (params: { dataset?: string; source: string; path?: string; page?: number; page_size?: number }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episodes${query(params)}`),
   inspectEpisode: (params: { dataset?: string; source: string; path?: string; episode_index?: number; preview?: boolean }) => api<Record<string, unknown>>(`${DATA_API}/inspect/episode${query(params)}`),
+  robotModel: (model: string) => api<RobotModelManifest>(`${DATA_API}/inspect/robot-model/${encodeURIComponent(model)}`),
+  episodeRobotTrajectory: (params: {
+    dataset?: string
+    source: RobotTrajectorySource
+    path?: string
+    episode_index: number
+    signal: RobotTrajectorySignal
+    model?: string
+  }) => api<EpisodeRobotTrajectory>(`${DATA_API}/inspect/episode-robot-trajectory${query(params)}`),
   startDiagnosisRun: (body: { dataset_ids: string[] }) => postJson<DataJob>(`${DATA_API}/qc/diagnosis-runs`, body),
   startAutoCleanRun: (body: { dataset_ids: string[]; chain_id?: string; force?: boolean }) => postJson<DataJob>(`${DATA_API}/qc/auto-clean-runs`, body),
   qcRun: (params: { dataset_id: string; run_id: string }) => api<DataQcRun>(`${DATA_API}/qc/run-details${query(params)}`),

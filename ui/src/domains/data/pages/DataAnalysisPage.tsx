@@ -126,6 +126,8 @@ export default function DataAnalysisPage() {
       </section>
 
       <DataAnalysisWorkspace
+        source={source}
+        dataset={dataset}
         summary={summary}
         details={details}
         episodes={episodes}

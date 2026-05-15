@@ -563,18 +563,15 @@ def register_collection_routes(
     *,
     collection_config: Any | None = None,
     cloud_client: EvoDataCloudClient | None = None,
-    auth_client: EvoDataCloudClient | None = None,
     upload_manager: CollectionUploadManager | None = None,
     state_dir: Path | None = None,
 ) -> None:
-    api_url = getattr(collection_config, "api_url", "http://8.136.130.234/dev-api")
-    auth_api_url = getattr(collection_config, "auth_api_url", "https://api.evomind-tech.com")
+    api_url = getattr(collection_config, "api_url", "https://api.evomind-tech.com")
     heartbeat_interval_s = int(getattr(collection_config, "heartbeat_interval_s", 30))
     finish_retry_interval_s = int(getattr(collection_config, "finish_retry_interval_s", 60))
     auto_upload_enabled = bool(getattr(collection_config, "auto_upload_enabled", True))
     upload_batch_size = int(getattr(collection_config, "upload_batch_size", 100))
     cloud = cloud_client or EvoDataCloudClient(api_url)
-    auth_cloud = auth_client or EvoDataCloudClient(auth_api_url)
     local_state_dir = state_dir or service.datasets.root.parent / "collection_state"
     local_upload_manager = upload_manager
     if local_upload_manager is None and auto_upload_enabled:
@@ -592,7 +589,6 @@ def register_collection_routes(
         upload_manager=local_upload_manager,
     )
     app.state.collection_coordinator = coordinator
-    app.state.evo_auth_api_url = auth_cloud.api_url
 
     @app.api_route("/api/evo/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"])
     async def evo_proxy(
@@ -600,7 +596,7 @@ def register_collection_routes(
         request: Request,
         authorization: str | None = Header(None),
     ) -> Response:
-        return await auth_cloud.proxy_raw(request, f"/{path}", authorization)
+        return await cloud.proxy_raw(request, f"/{path}", authorization)
 
     @app.get("/api/collection/status")
     async def collection_status() -> dict[str, Any]:
