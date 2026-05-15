@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataDateRangeFilter, isDateInFilter, type DateFilterValue } from '@/domains/data/components/DataDateRangeFilter'
 import { asRecord } from '@/domains/data/lib/analysisPayload'
+import { readReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   dataGateLabelKey,
   dataGateMessageLabelKey,
@@ -135,6 +136,8 @@ export default function DataManagePage() {
   const [drawerWidth, setDrawerWidth] = useState(560)
   const [reloadedJobSignatures, setReloadedJobSignatures] = useState<string[]>([])
   const [autoCleanDialogJobId, setAutoCleanDialogJobId] = useState<string | null>(null)
+  const [storedReturnQcQuery, setStoredReturnQcQuery] = useState(() => readReviewQueueReturn())
+  const [applyingMarketPackageId, setApplyingMarketPackageId] = useState('')
   const loadedDrawerDatasetFromQuery = useRef('')
   const drawerDatasetFromQuery = searchParams.get('dataset') || ''
 
@@ -223,7 +226,8 @@ export default function DataManagePage() {
     .map((job) => `${job.job_id}:${job.phase}:${job.updated_at}`)
     .sort()
   const terminalJobSignature = terminalJobSignatures[terminalJobSignatures.length - 1] ?? ''
-  const returnQcQuery = searchParams.get('returnQc') || ''
+  const returnQcQueryFromUrl = searchParams.get('returnQc') || ''
+  const returnQcQuery = returnQcQueryFromUrl || storedReturnQcQuery
 
   useEffect(() => {
     setRawPage((current) => clampPage(current, pageCount(rawDatasets.length, pageSize)))
@@ -234,6 +238,12 @@ export default function DataManagePage() {
   useEffect(() => {
     window.localStorage.setItem(MANAGE_SECTION_STORAGE_KEY, JSON.stringify(sectionOpen))
   }, [sectionOpen])
+
+  useEffect(() => {
+    if (!returnQcQueryFromUrl) return
+    writeReviewQueueReturn(returnQcQueryFromUrl)
+    setStoredReturnQcQuery(returnQcQueryFromUrl)
+  }, [returnQcQueryFromUrl])
 
   useEffect(() => {
     if (!terminalJobSignature || reloadedJobSignatures.includes(terminalJobSignature)) return
@@ -272,6 +282,17 @@ export default function DataManagePage() {
       private: uploadPrivate,
     })
     attach(job)
+  }
+
+  async function applyPackageToMarket(packageItem: DatasetPackage) {
+    if (packageMarketApplicationPending(packageItem)) return
+    setApplyingMarketPackageId(packageItem.id)
+    try {
+      await dataApi.applyPackageMarketListing(packageItem.id)
+      await load()
+    } finally {
+      setApplyingMarketPackageId('')
+    }
   }
 
   async function startSelectedAutoClean() {
@@ -701,6 +722,9 @@ export default function DataManagePage() {
             onPrivateChange={setUploadPrivate}
             onClose={() => setDrawerTarget(null)}
             onUpload={() => void uploadPackage(drawerPackage)}
+            marketApplicationBusy={applyingMarketPackageId === drawerPackage.id}
+            marketApplicationPending={packageMarketApplicationPending(drawerPackage)}
+            onApplyMarket={() => void applyPackageToMarket(drawerPackage)}
             onDelete={() => setDeleteTarget({ type: 'package', id: drawerPackage.id })}
             onOpenGate={(gateKey) => openPackageGate(drawerPackage, gateKey)}
             onResizeStart={startDrawerResize}
@@ -1346,6 +1370,9 @@ function PackageDrawer({
   onPrivateChange,
   onClose,
   onUpload,
+  marketApplicationBusy,
+  marketApplicationPending,
+  onApplyMarket,
   onDelete,
   onOpenGate,
   onResizeStart,
@@ -1360,6 +1387,9 @@ function PackageDrawer({
   onPrivateChange: (value: boolean) => void
   onClose: () => void
   onUpload: () => void
+  marketApplicationBusy: boolean
+  marketApplicationPending: boolean
+  onApplyMarket: () => void
   onDelete: () => void
   onOpenGate: (gateKey: string) => void
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void
@@ -1386,6 +1416,23 @@ function PackageDrawer({
           </label>
           <button type="button" onClick={onUpload} disabled={!repoId.trim()}>{t('dataManageUploadPackage')}</button>
         </div>
+      </DrawerSection>
+      <DrawerSection
+        title={t('dataManageMarketListingSection')}
+        action={(
+          <button
+            type="button"
+            className="data-manage-drawer-action"
+            onClick={onApplyMarket}
+            disabled={marketApplicationBusy || marketApplicationPending}
+          >
+            {marketApplicationBusy
+              ? t('dataManageMarketApplying')
+              : marketApplicationPending ? t('dataManageMarketApplyPending') : t('dataManageApplyMarket')}
+          </button>
+        )}
+      >
+        <p className="data-manage-market-note">{t('dataManageMarketListingHint')}</p>
       </DrawerSection>
       <DrawerSection title={t('dataManageStatsSection')}>
         <div className="data-manage-kv-grid">
@@ -1859,6 +1906,13 @@ function stringValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return ''
+}
+
+function packageMarketApplicationPending(packageItem: DatasetPackage): boolean {
+  const summary = asRecord(packageItem.evaluation_summary)
+  const listing = asRecord(summary.market_listing)
+  const status = stringValue(listing.status).toLowerCase()
+  return ['applied', 'pending', 'reviewing', 'approved', 'listed', 'published', 'active', 'on_sale'].includes(status)
 }
 
 function readSectionOpenState(): SectionOpenState {

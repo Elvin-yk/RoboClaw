@@ -7,6 +7,7 @@ import {
   resolveEpisodePlaybackDuration,
 } from '@/domains/data/components/EpisodePlaybackPanel'
 import { asArray, asRecord, formatSeconds, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import { clearReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
@@ -102,6 +103,11 @@ export default function DataQcPage() {
     if (datasetQuery || activeDatasetId || reviewLoading) return
     navigate('/data/manage', { replace: true })
   }, [activeDatasetId, datasetQuery, navigate, reviewLoading])
+
+  useEffect(() => {
+    const reviewQuery = searchParams.toString()
+    if (datasetQuery && reviewQuery) writeReviewQueueReturn(reviewQuery)
+  }, [datasetQuery, searchParams])
 
   useEffect(() => {
     const datasetId = searchParams.get('dataset') || ''
@@ -291,6 +297,7 @@ export default function DataQcPage() {
   function clearReviewSequence() {
     reviewLoadRequestRef.current += 1
     inspectionLoadRequestRef.current += 1
+    clearReviewQueueReturn()
     setActiveDatasetId('')
     setReviewWorkspace(null)
     setReviewLoading(false)
@@ -307,7 +314,10 @@ export default function DataQcPage() {
     const targetParams = new URLSearchParams()
     if (activeDatasetId) targetParams.set('dataset', activeDatasetId)
     const reviewQuery = searchParams.toString()
-    if (reviewQuery) targetParams.set('returnQc', reviewQuery)
+    if (reviewQuery) {
+      writeReviewQueueReturn(reviewQuery)
+      targetParams.set('returnQc', reviewQuery)
+    }
     const query = targetParams.toString()
     navigate(`/data/manage${query ? `?${query}` : ''}`)
   }

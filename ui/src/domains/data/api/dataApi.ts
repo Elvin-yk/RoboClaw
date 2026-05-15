@@ -68,6 +68,7 @@ export const dataApi = {
   deletePackage: (packageId: string) => deleteApi<{ status: string; package_id: string }>(`${DATA_API}/packages/${encodeURIComponent(packageId)}`),
   createPackage: (body: { package_id: string; dataset_ids: string[]; groups?: Record<string, string[]>; force?: boolean }) => postJson<DatasetPackage>(`${DATA_API}/packages`, body),
   uploadPackage: (packageId: string, body: { repo_id: string; token?: string; private?: boolean }) => postJson<DataJob>(`${DATA_API}/packages/${encodeURIComponent(packageId)}/uploads`, body),
+  applyPackageMarketListing: (packageId: string) => postJson<DatasetPackage>(`${DATA_API}/packages/${encodeURIComponent(packageId)}/market-listing-applications`, {}),
   startEvaluationRun: (body: { package_id: string; selected_validators: string[]; episode_indices?: number[]; threshold_overrides?: Record<string, number> }) => postJson<DataJob>(`${DATA_API}/evaluation/runs`, body),
   evaluationDefaults: (packageId: string) => api<Record<string, unknown>>(`${DATA_API}/evaluation/defaults${query({ package_id: packageId })}`),
   evaluationResults: (packageId: string) => api<Record<string, unknown>>(`${DATA_API}/evaluation/results${query({ package_id: packageId })}`),

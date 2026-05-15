@@ -1620,12 +1620,16 @@
 
 .data-market-card__tags span,
 .data-market-card__metrics span {
+  max-width: 100%;
+  overflow: hidden;
   border-radius: 999px;
   background: #f2f4f7;
   color: #475467;
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .data-market-card__footer {
@@ -4657,6 +4661,18 @@
   color: var(--text-secondary, #667085);
   font-size: 12px;
   font-weight: 800;
+}
+
+.data-manage-market-note {
+  margin: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.45;
 }
 
 .data-manage-source-list {

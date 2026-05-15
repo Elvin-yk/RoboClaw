@@ -207,8 +207,8 @@ export default function AppShell() {
     { path: '/training/remote', label: t('remoteTraining') },
   ]
   const dataChildren = [
-    { path: '/data/manage', label: t('dataManageNav') },
     { path: '/data/market', label: t('dataMarketNav') },
+    { path: '/data/manage', label: t('dataManageNav') },
     { path: '/data/annotation', label: t('dataAnnotationNav') },
   ]
   const settingsChildren = [

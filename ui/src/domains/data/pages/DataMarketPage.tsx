@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { buildDatasetQualityView, datasetTaskDescription, qualityStatusLabelKey } from '@/domains/data/model/datasetQuality'
-import type { Dataset } from '@/domains/data/model/types'
+import { asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import type { DatasetPackage } from '@/domains/data/model/types'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
 import { useAuthStore } from '@/shared/lib/authStore'
 import { evoApi, type CreditAccount } from '@/shared/api/evoClient'
@@ -10,15 +10,29 @@ import { cn } from '@/shared/lib/cn'
 type MarketSort = 'recommended' | 'newest' | 'price_asc' | 'scale_desc'
 type MarketCategory = 'all' | 'priced' | 'owned' | 'free' | string
 
+interface MarketPackageListing {
+  id: string
+  packageItem: DatasetPackage
+  title: string
+  description: string
+  robotType: string
+  task: string
+  priceCredit: number | null
+  hasAccess: boolean
+  status: string
+  storage: string
+  updatedAt: string
+}
+
 export default function DataMarketPage() {
   const { t } = useI18n()
   const user = useAuthStore((state) => state.user)
-  const { datasets, error, load } = useDataLibraryStore()
+  const { packages, error, load } = useDataLibraryStore()
   const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([])
   const [selectedDataAccountId, setSelectedDataAccountId] = useState('')
   const [creditMessage, setCreditMessage] = useState('')
   const [purchaseMessage, setPurchaseMessage] = useState('')
-  const [pendingDatasetId, setPendingDatasetId] = useState('')
+  const [pendingListingId, setPendingListingId] = useState('')
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<MarketCategory>('all')
   const [sort, setSort] = useState<MarketSort>('recommended')
@@ -29,22 +43,22 @@ export default function DataMarketPage() {
     [creditAccounts],
   )
   const selectedAccount = dataAccounts.find((account) => account.id === selectedDataAccountId) || dataAccounts[0] || null
-  const marketDatasets = useMemo(() => datasets.filter(isMarketDataset), [datasets])
-  const categories = useMemo(() => buildMarketCategories(marketDatasets, t), [marketDatasets, t])
-  const visibleDatasets = useMemo(() => {
+  const marketListings = useMemo(() => packages.map(packageMarketListing).filter(isMarketPackageListing), [packages])
+  const categories = useMemo(() => buildMarketCategories(marketListings, t), [marketListings, t])
+  const visibleListings = useMemo(() => {
     const queryText = query.trim().toLowerCase()
-    return marketDatasets
-      .filter((dataset) => matchesCategory(dataset, category))
-      .filter((dataset) => matchesMarketQuery(dataset, queryText))
-      .sort((left, right) => compareMarketDatasets(left, right, sort))
-  }, [category, marketDatasets, query, sort])
-  const demandDatasets = demandList
-    .map((datasetId) => marketDatasets.find((dataset) => dataset.id === datasetId))
-    .filter(isDataset)
-  const demandTotalCredit = demandDatasets.reduce((total, dataset) => total + (dataset.price_credit ?? 0), 0)
-  const purchasableCount = marketDatasets.filter((dataset) => isPurchasableDataset(dataset)).length
-  const ownedCount = marketDatasets.filter((dataset) => dataset.has_access === true).length
-  const totalEpisodes = marketDatasets.reduce((total, dataset) => total + dataset.stats.total_episodes, 0)
+    return marketListings
+      .filter((listing) => matchesCategory(listing, category))
+      .filter((listing) => matchesMarketQuery(listing, queryText))
+      .sort((left, right) => compareMarketListings(left, right, sort))
+  }, [category, marketListings, query, sort])
+  const demandListings = demandList
+    .map((listingId) => marketListings.find((listing) => listing.id === listingId))
+    .filter(isMarketPackageListing)
+  const demandTotalCredit = demandListings.reduce((total, listing) => total + (listing.priceCredit ?? 0), 0)
+  const purchasableCount = marketListings.filter((listing) => isPurchasableListing(listing)).length
+  const ownedCount = marketListings.filter((listing) => listing.hasAccess).length
+  const totalEpisodes = marketListings.reduce((total, listing) => total + listing.packageItem.stats.total_episodes, 0)
 
   useEffect(() => {
     void load()
@@ -71,38 +85,38 @@ export default function DataMarketPage() {
     }
   }
 
-  async function purchaseDataset(dataset: Dataset) {
+  async function purchaseListing(listing: MarketPackageListing) {
     if (!selectedAccount) {
       setPurchaseMessage(t('dataMarketSelectAccount'))
       return
     }
-    if (!isPurchasableDataset(dataset)) return
-    setPendingDatasetId(dataset.id)
+    if (!isPurchasableListing(listing)) return
+    setPendingListingId(listing.id)
     setPurchaseMessage('')
     try {
-      await evoApi.purchaseDataset(dataset.id, selectedAccount.id)
+      await evoApi.purchaseDataset(listing.id, selectedAccount.id)
       setPurchaseMessage(t('dataMarketPurchaseSuccess'))
-      setDemandList((current) => current.filter((datasetId) => datasetId !== dataset.id))
+      setDemandList((current) => current.filter((listingId) => listingId !== listing.id))
       await Promise.all([load(), loadDataCreditAccounts()])
     } catch (error) {
       setPurchaseMessage(error instanceof Error ? error.message : t('dataMarketPurchaseFailed'))
     } finally {
-      setPendingDatasetId('')
+      setPendingListingId('')
     }
   }
 
   async function purchaseDemandList() {
-    const purchasableDemand = demandDatasets.filter(isPurchasableDataset)
-    for (const dataset of purchasableDemand) {
-      await purchaseDataset(dataset)
+    const purchasableDemand = demandListings.filter(isPurchasableListing)
+    for (const listing of purchasableDemand) {
+      await purchaseListing(listing)
     }
   }
 
-  function toggleDemandItem(dataset: Dataset) {
+  function toggleDemandItem(listing: MarketPackageListing) {
     setDemandList((current) => (
-      current.includes(dataset.id)
-        ? current.filter((datasetId) => datasetId !== dataset.id)
-        : [...current, dataset.id]
+      current.includes(listing.id)
+        ? current.filter((listingId) => listingId !== listing.id)
+        : [...current, listing.id]
     ))
   }
 
@@ -139,7 +153,7 @@ export default function DataMarketPage() {
         </section>
 
         <section className="data-market-stats">
-          <MarketStat label={t('dataMarketSkuCount')} value={String(marketDatasets.length)} />
+          <MarketStat label={t('dataMarketSkuCount')} value={String(marketListings.length)} />
           <MarketStat label={t('dataMarketPurchasable')} value={String(purchasableCount)} />
           <MarketStat label={t('dataMarketOwned')} value={String(ownedCount)} />
           <MarketStat label={t('dataMarketTotalEpisodes')} value={String(totalEpisodes)} />
@@ -176,18 +190,18 @@ export default function DataMarketPage() {
             </section>
 
             <section className="data-market-grid" aria-label={t('dataMarketListing')}>
-              {visibleDatasets.map((dataset) => (
-                <MarketDatasetCard
-                  key={dataset.id}
-                  dataset={dataset}
-                  inDemandList={demandList.includes(dataset.id)}
+              {visibleListings.map((listing) => (
+                <MarketPackageCard
+                  key={listing.id}
+                  listing={listing}
+                  inDemandList={demandList.includes(listing.id)}
                   selectedAccount={selectedAccount}
-                  pending={pendingDatasetId === dataset.id}
-                  onToggleDemand={() => toggleDemandItem(dataset)}
-                  onPurchase={() => void purchaseDataset(dataset)}
+                  pending={pendingListingId === listing.id}
+                  onToggleDemand={() => toggleDemandItem(listing)}
+                  onPurchase={() => void purchaseListing(listing)}
                 />
               ))}
-              {!visibleDatasets.length && (
+              {!visibleListings.length && (
                 <div className="data-panel data-market-empty">
                   <strong>{t('dataMarketEmptyTitle')}</strong>
                   <span>{t('dataMarketEmptyDesc')}</span>
@@ -200,16 +214,16 @@ export default function DataMarketPage() {
             <section className="data-panel data-market-demand">
               <div className="data-market-side__title">
                 <h2>{t('dataMarketDemandList')}</h2>
-                <span>{t('dataMarketDemandCount', { count: demandDatasets.length })}</span>
+                <span>{t('dataMarketDemandCount', { count: demandListings.length })}</span>
               </div>
               <div className="data-market-demand__items">
-                {demandDatasets.map((dataset) => (
-                  <button key={dataset.id} type="button" onClick={() => toggleDemandItem(dataset)}>
-                    <span>{datasetTaskDescription(dataset) || dataset.label}</span>
-                    <strong>{formatDatasetPrice(dataset, t)}</strong>
+                {demandListings.map((listing) => (
+                  <button key={listing.id} type="button" onClick={() => toggleDemandItem(listing)}>
+                    <span>{listing.title}</span>
+                    <strong>{formatListingPrice(listing, t)}</strong>
                   </button>
                 ))}
-                {!demandDatasets.length && <p>{t('dataMarketDemandEmpty')}</p>}
+                {!demandListings.length && <p>{t('dataMarketDemandEmpty')}</p>}
               </div>
               <div className="data-market-demand__total">
                 <span>{t('dataMarketDemandTotal')}</span>
@@ -218,10 +232,10 @@ export default function DataMarketPage() {
               <button
                 type="button"
                 className="data-market-buy-button"
-                disabled={!selectedAccount || demandDatasets.filter(isPurchasableDataset).length === 0 || Boolean(pendingDatasetId)}
+                disabled={!selectedAccount || demandListings.filter(isPurchasableListing).length === 0 || Boolean(pendingListingId)}
                 onClick={() => void purchaseDemandList()}
               >
-                {pendingDatasetId ? t('dataMarketPurchasing') : t('dataMarketBuyDemand')}
+                {pendingListingId ? t('dataMarketPurchasing') : t('dataMarketBuyDemand')}
               </button>
             </section>
 
@@ -251,15 +265,15 @@ function MarketStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MarketDatasetCard({
-  dataset,
+function MarketPackageCard({
+  listing,
   inDemandList,
   selectedAccount,
   pending,
   onToggleDemand,
   onPurchase,
 }: {
-  dataset: Dataset
+  listing: MarketPackageListing
   inDemandList: boolean
   selectedAccount: CreditAccount | null
   pending: boolean
@@ -267,47 +281,45 @@ function MarketDatasetCard({
   onPurchase: () => void
 }) {
   const { t } = useI18n()
-  const task = datasetTaskDescription(dataset) || dataset.label
-  const quality = buildDatasetQualityView(dataset)
-  const purchaseDisabled = pending || dataset.has_access === true || !isPurchasableDataset(dataset) || !selectedAccount
+  const purchaseDisabled = pending || listing.hasAccess || !isPurchasableListing(listing) || !selectedAccount
   return (
     <article className="data-market-card">
       <div className="data-market-card__visual">
-        <span>{dataset.stats.robot_type || t('dataManageRobotUnknown')}</span>
-        <strong>{dataset.stats.total_episodes}</strong>
+        <span>{listing.robotType || t('dataManageRobotUnknown')}</span>
+        <strong>{listing.packageItem.stats.total_episodes}</strong>
       </div>
       <div className="data-market-card__body">
         <div className="data-market-card__head">
-          <h2>{task}</h2>
-          <span className={cn('data-market-access', dataset.has_access && 'is-owned')}>
-            {dataset.has_access
+          <h2>{listing.title}</h2>
+          <span className={cn('data-market-access', listing.hasAccess && 'is-owned')}>
+            {listing.hasAccess
               ? t('dataMarketOwnedBadge')
-              : isPurchasableDataset(dataset) ? t('dataMarketForSaleBadge') : t('dataMarketPendingBadge')}
+              : isPurchasableListing(listing) ? t('dataMarketForSaleBadge') : t('dataMarketPendingBadge')}
           </span>
         </div>
-        <p>{dataset.id}</p>
+        <p>{listing.description || listing.packageItem.id}</p>
         <div className="data-market-card__tags">
-          <span>{dataset.stats.robot_type || t('dataManageRobotUnknown')}</span>
-          <span>{t(qualityStatusLabelKey(quality.autoCleanStatus))}</span>
-          <span>{t(qualityStatusLabelKey(quality.manualReviewStatus))}</span>
+          <span>{listing.robotType || t('dataManageRobotUnknown')}</span>
+          <span>{t('dataMarketPackageId')}: {listing.packageItem.id}</span>
+          {listing.storage && <span>{t('dataMarketStorage')}: {listing.storage}</span>}
         </div>
         <div className="data-market-card__metrics">
-          <span>{t('dataManageEpisodes')}: {dataset.stats.total_episodes}</span>
-          <span>{t('dataManageFrames')}: {dataset.stats.total_frames}</span>
-          <span>FPS: {dataset.stats.fps || 0}</span>
+          <span>{t('dataManageEpisodes')}: {listing.packageItem.stats.total_episodes}</span>
+          <span>{t('dataManageFrames')}: {listing.packageItem.stats.total_frames}</span>
+          <span>FPS: {listing.packageItem.stats.fps || 0}</span>
         </div>
       </div>
       <div className="data-market-card__footer">
         <div className="data-market-price">
           <span>{t('dataMarketPrice')}</span>
-          <strong>{formatDatasetPrice(dataset, t)}</strong>
+          <strong>{formatListingPrice(listing, t)}</strong>
         </div>
         <div className="data-market-card__actions">
           <button type="button" className="data-market-secondary-button" onClick={onToggleDemand}>
             {inDemandList ? t('dataMarketRemoveDemand') : t('dataMarketAddDemand')}
           </button>
           <button type="button" className="data-market-primary-button" disabled={purchaseDisabled} onClick={onPurchase}>
-            {dataset.has_access ? t('dataMarketOwnedAction') : pending ? t('dataMarketPurchasing') : t('dataMarketBuyNow')}
+            {listing.hasAccess ? t('dataMarketOwnedAction') : pending ? t('dataMarketPurchasing') : t('dataMarketBuyNow')}
           </button>
         </div>
       </div>
@@ -316,10 +328,10 @@ function MarketDatasetCard({
 }
 
 function buildMarketCategories(
-  datasets: Dataset[],
+  listings: MarketPackageListing[],
   t: (key: TranslationKey, params?: Record<string, string | number>) => string,
 ): Array<{ value: MarketCategory; label: string }> {
-  const robotTypes = [...new Set(datasets.map((dataset) => dataset.stats.robot_type).filter(Boolean))].slice(0, 5)
+  const robotTypes = [...new Set(listings.map((listing) => listing.robotType).filter(Boolean))].slice(0, 5)
   return [
     { value: 'all', label: t('dataMarketCategoryAll') },
     { value: 'priced', label: t('dataMarketCategoryPriced') },
@@ -329,59 +341,87 @@ function buildMarketCategories(
   ]
 }
 
-function isMarketDataset(dataset: Dataset): boolean {
-  return dataset.price_credit !== undefined
-    || dataset.has_access !== undefined
-    || dataset.lifecycle_stage === 'clean'
-    || dataset.source === 'remote'
+function packageMarketListing(packageItem: DatasetPackage): MarketPackageListing | null {
+  const packageRecord = packageItem as unknown as Record<string, unknown>
+  const summary = asRecord(packageItem.evaluation_summary)
+  const packageListing = asRecord(packageRecord.market_listing)
+  const summaryListing = asRecord(summary.market_listing)
+  const listing = Object.keys(packageListing).length ? packageListing : summaryListing
+  const status = textValue(listing.status ?? packageRecord.market_status ?? summary.market_status).toLowerCase()
+  const priceCredit = numberValue(listing.price_credit ?? listing.price_credits ?? packageRecord.price_credit ?? summary.price_credit)
+  const hasAccessValue = listing.has_access ?? listing.owned ?? packageRecord.has_access ?? summary.has_access
+  const hasAccess = hasAccessValue === true || hasAccessValue === 'true'
+  const storage = textValue(
+    listing.storage_url
+      ?? listing.oss_url
+      ?? listing.download_url
+      ?? packageRecord.market_storage_url
+      ?? summary.oss_url,
+  )
+  const listed = ['listed', 'published', 'active', 'on_sale'].includes(status)
+  const hasExplicitListing = listed || priceCredit !== null || hasAccessValue !== undefined || storage.length > 0
+  if (!hasExplicitListing) return null
+  const task = textValue(listing.task ?? listing.task_description ?? summary.task_description ?? packageItem.stats.task_description)
+  const title = textValue(listing.title ?? listing.name) || task || packageItem.label || packageItem.id
+  const description = textValue(listing.description) || task || packageItem.path
+  return {
+    id: textValue(listing.id) || packageItem.id,
+    packageItem,
+    title,
+    description,
+    robotType: textValue(listing.robot_type) || packageItem.stats.robot_type,
+    task,
+    priceCredit,
+    hasAccess,
+    status,
+    storage,
+    updatedAt: textValue(listing.updated_at) || packageItem.updated_at,
+  }
 }
 
-function isPurchasableDataset(dataset: Dataset): boolean {
-  return dataset.has_access !== true
-    && dataset.price_credit !== null
-    && dataset.price_credit !== undefined
+function isPurchasableListing(listing: MarketPackageListing): boolean {
+  return !listing.hasAccess && listing.priceCredit !== null
 }
 
-function matchesCategory(dataset: Dataset, category: MarketCategory): boolean {
+function matchesCategory(listing: MarketPackageListing, category: MarketCategory): boolean {
   if (category === 'all') return true
-  if (category === 'priced') return isPurchasableDataset(dataset)
-  if (category === 'owned') return dataset.has_access === true
-  if (category === 'free') return dataset.price_credit === 0
-  if (category.startsWith('robot:')) return dataset.stats.robot_type === category.slice('robot:'.length)
+  if (category === 'priced') return isPurchasableListing(listing)
+  if (category === 'owned') return listing.hasAccess
+  if (category === 'free') return listing.priceCredit === 0
+  if (category.startsWith('robot:')) return listing.robotType === category.slice('robot:'.length)
   return true
 }
 
-function matchesMarketQuery(dataset: Dataset, query: string): boolean {
+function matchesMarketQuery(listing: MarketPackageListing, query: string): boolean {
   if (!query) return true
   const text = [
-    dataset.id,
-    dataset.label,
-    dataset.name,
-    dataset.path,
-    dataset.stats.robot_type,
-    datasetTaskDescription(dataset),
+    listing.id,
+    listing.packageItem.id,
+    listing.title,
+    listing.description,
+    listing.robotType,
+    listing.task,
+    listing.storage,
   ].join(' ').toLowerCase()
   return text.includes(query)
 }
 
-function compareMarketDatasets(left: Dataset, right: Dataset, sort: MarketSort): number {
-  if (sort === 'newest') return right.updated_at.localeCompare(left.updated_at)
-  if (sort === 'price_asc') return (left.price_credit ?? Number.POSITIVE_INFINITY) - (right.price_credit ?? Number.POSITIVE_INFINITY)
-  if (sort === 'scale_desc') return right.stats.total_episodes - left.stats.total_episodes
-  const leftAccessRank = left.has_access ? 1 : 0
-  const rightAccessRank = right.has_access ? 1 : 0
-  return rightAccessRank - leftAccessRank || right.updated_at.localeCompare(left.updated_at)
+function compareMarketListings(left: MarketPackageListing, right: MarketPackageListing, sort: MarketSort): number {
+  if (sort === 'newest') return right.updatedAt.localeCompare(left.updatedAt)
+  if (sort === 'price_asc') return (left.priceCredit ?? Number.POSITIVE_INFINITY) - (right.priceCredit ?? Number.POSITIVE_INFINITY)
+  if (sort === 'scale_desc') return right.packageItem.stats.total_episodes - left.packageItem.stats.total_episodes
+  return Number(right.hasAccess) - Number(left.hasAccess) || right.updatedAt.localeCompare(left.updatedAt)
 }
 
-function formatDatasetPrice(
-  dataset: Dataset,
+function formatListingPrice(
+  listing: MarketPackageListing,
   t: (key: TranslationKey, params?: Record<string, string | number>) => string,
 ): string {
-  if (dataset.price_credit === undefined || dataset.price_credit === null) return t('dataMarketPriceTbd')
-  if (dataset.price_credit === 0) return t('dataMarketFree')
-  return `${dataset.price_credit} ${t('dataMarketCreditUnit')}`
+  if (listing.priceCredit === null) return t('dataMarketPriceTbd')
+  if (listing.priceCredit === 0) return t('dataMarketFree')
+  return `${listing.priceCredit} ${t('dataMarketCreditUnit')}`
 }
 
-function isDataset(value: Dataset | undefined): value is Dataset {
+function isMarketPackageListing(value: MarketPackageListing | null | undefined): value is MarketPackageListing {
   return Boolean(value)
 }
