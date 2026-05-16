@@ -29,8 +29,8 @@ const MARKET_APPLICATION_STATUSES = [
 
 export function packageMarketListing(packageItem: DatasetPackage): MarketPackageListing | null {
   const { listing, packageRecord, summary, status } = packageMarketPayload(packageItem)
-  const priceCredit = numberValue(listing.price_credit ?? listing.price_credits ?? packageRecord.price_credit ?? summary.price_credit)
-  const hasAccessValue = listing.has_access ?? listing.owned ?? packageRecord.has_access ?? summary.has_access
+  const priceCredit = numberValue(listing.price_credit ?? listing.price_credits ?? packageRecord.price_credit)
+  const hasAccessValue = listing.has_access ?? listing.owned ?? packageRecord.has_access
   const hasAccess = hasAccessValue === true || hasAccessValue === 'true'
   const storage = textValue(
     listing.storage_url
@@ -92,9 +92,7 @@ function isMarketVisibleStatus(status: string): boolean {
 function packageMarketPayload(packageItem: DatasetPackage) {
   const packageRecord = packageItem as unknown as Record<string, unknown>
   const summary = asRecord(packageItem.evaluation_summary)
-  const packageListing = asRecord(packageRecord.market_listing)
-  const summaryListing = asRecord(summary.market_listing)
-  const listing = Object.keys(packageListing).length ? packageListing : summaryListing
-  const status = textValue(listing.status ?? packageRecord.market_status ?? summary.market_status).toLowerCase()
+  const listing = asRecord(packageItem.market_listing)
+  const status = textValue(listing.status ?? packageRecord.market_status).toLowerCase()
   return { listing, packageRecord, summary, status }
 }

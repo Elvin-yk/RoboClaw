@@ -207,6 +207,7 @@ class DataStateStore:
         payload.setdefault("dataset_ids", [])
         payload.setdefault("groups", {})
         payload.setdefault("evaluation_summary", {})
+        payload.setdefault("market_listing", {})
         payload["gates"] = self._normalize_gates(payload.get("gates"), PACKAGE_GATE_KEYS)
         payload.setdefault("updated_at", utc_now_iso())
         return payload

@@ -20,7 +20,7 @@ import {
   readEpisodeVideos,
   type EpisodeVideo,
 } from '@/domains/data/lib/episodeMedia'
-import type { RobotTrajectorySource } from '@/domains/data/model/types'
+import type { RobotTrajectorySignal, RobotTrajectorySource } from '@/domains/data/model/types'
 import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
@@ -101,6 +101,7 @@ export function EpisodePlaybackPanel({
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackError, setPlaybackError] = useState('')
+  const [robotSignal, setRobotSignal] = useState<RobotTrajectorySignal>('action')
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
   const syncLockRef = useRef(false)
   const playbackTimeRef = useRef(0)
@@ -297,6 +298,8 @@ export function EpisodePlaybackPanel({
           path={path}
           episodeIndex={loadedEpisodeIndex}
           currentTime={playbackTime}
+          signal={robotSignal}
+          onSignalChange={setRobotSignal}
           allowStaticModel={allowStaticRobot3D}
         />
       )}

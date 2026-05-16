@@ -575,6 +575,10 @@ def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, t
     package_data_files = sorted((tmp_path / "packages" / "pkg_ab" / "data").rglob("*.parquet"))
     assert len(package_data_files) == 2
 
+    market_application = client.post("/api/data/packages/pkg_ab/market-listing-applications")
+    assert market_application.status_code == 200
+    assert market_application.json()["market_listing"]["status"] == "applied"
+
     import pyarrow.parquet as pq
 
     package_rows = []
@@ -595,6 +599,7 @@ def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, t
     assert results["results"]["total"] == 4
     package_detail = client.get("/api/data/packages/pkg_ab").json()
     assert package_detail["evaluation_summary"]["total"] == 4
+    assert package_detail["market_listing"]["status"] == "applied"
 
     saved = client.post(
         "/api/data/annotation/annotations",

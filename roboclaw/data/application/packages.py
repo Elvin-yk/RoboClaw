@@ -35,14 +35,12 @@ class DatasetPackageService:
     def apply_market_listing(self, package_id: str) -> dict[str, Any]:
         path = self.repository.resolve_package_path(package_id)
         state = self.repository.state_store.load_package_state(path)
-        summary = dict(state.get("evaluation_summary") or {})
-        listing = dict(summary.get("market_listing") or {})
+        listing = dict(state.get("market_listing") or {})
         listing.update({
             "status": "applied",
             "applied_at": utc_now_iso(),
         })
-        summary["market_listing"] = listing
-        state["evaluation_summary"] = summary
+        state["market_listing"] = listing
         self.repository.state_store.write_package_state(path, state)
         return self.repository.read_package(package_id).to_dict()
 

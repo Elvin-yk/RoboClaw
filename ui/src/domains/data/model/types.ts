@@ -61,6 +61,7 @@ export interface DatasetPackage {
   stats: DatasetStats
   gates: Record<string, DataGate>
   evaluation_summary: Record<string, unknown>
+  market_listing: Record<string, unknown>
   updated_at: string
 }
 
