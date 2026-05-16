@@ -486,6 +486,10 @@
   align-items: start;
 }
 
+.data-qc-page {
+  padding-bottom: 104px;
+}
+
 .data-qc-review-main {
   display: grid;
   min-width: 0;
@@ -1317,23 +1321,6 @@
   border: 0;
   background: transparent;
   padding: 0;
-}
-
-.data-qc-review-visuals .data-analysis-timeline {
-  position: static;
-  right: auto;
-  bottom: auto;
-  left: auto;
-  z-index: auto;
-  grid-template-columns: 32px 36px 32px 32px minmax(140px, 1fr) auto;
-  gap: 8px;
-  padding: 8px 10px;
-  box-shadow: none;
-}
-
-.data-qc-review-visuals .data-page .data-analysis-timeline button,
-.data-qc-review-visuals .data-analysis-timeline button {
-  min-height: 34px;
 }
 
 .data-qc-review-actions {
@@ -3391,6 +3378,21 @@
   color: #166534;
 }
 
+.data-manage-status-count.is-no_repair_needed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.data-manage-status-count.is-repaired {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.data-manage-status-count.is-needs_fix {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
 .data-manage-status-count.is-failed {
   background: #fee2e2;
   color: #991b1b;
@@ -3483,11 +3485,15 @@
 }
 
 .data-manage-status-filter-group .data-manage-filter-field + .data-manage-filter-field {
+  padding-left: 0;
+}
+
+.data-manage-status-filter-group.is-single-row .data-manage-filter-field + .data-manage-filter-field {
   position: relative;
   padding-left: 18px;
 }
 
-.data-manage-status-filter-group .data-manage-filter-field + .data-manage-filter-field::before {
+.data-manage-status-filter-group.is-single-row .data-manage-filter-field + .data-manage-filter-field::before {
   content: '';
   position: absolute;
   left: 0;
@@ -3662,6 +3668,24 @@
   border-color: #bbf7d0;
   background: #dcfce7;
   color: #166534;
+}
+
+.data-manage-page .data-manage-status-filter__option.is-no_repair_needed.is-active {
+  border-color: #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.data-manage-page .data-manage-status-filter__option.is-repaired.is-active {
+  border-color: #fed7aa;
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.data-manage-page .data-manage-status-filter__option.is-needs_fix.is-active {
+  border-color: #fed7aa;
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .data-manage-page .data-manage-status-filter__option.is-failed.is-active {
@@ -4081,6 +4105,24 @@
 .data-manage-quality-row strong.is-passed {
   background: #dcfce7;
   color: #166534;
+}
+
+.data-manage-quality-pill strong.is-no_repair_needed,
+.data-manage-quality-row strong.is-no_repair_needed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.data-manage-quality-pill strong.is-repaired,
+.data-manage-quality-row strong.is-repaired {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.data-manage-quality-pill strong.is-needs_fix,
+.data-manage-quality-row strong.is-needs_fix {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .data-manage-quality-pill strong.is-failed,

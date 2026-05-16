@@ -12,6 +12,8 @@ export type DatasetPackageStage =
   | 'failed'
 
 export type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'needs_review' | 'skipped'
+export type DataAutoCleanOutcome = 'pending' | 'no_repair_needed' | 'repaired' | 'failed'
+export type DataManualReviewOutcome = 'pending' | 'passed' | 'needs_fix' | 'failed'
 
 export interface DataGate {
   key: string
@@ -102,6 +104,7 @@ export interface DataQcRun {
   lane: string
   chain_id: string
   status: string
+  outcome?: DataAutoCleanOutcome | DataManualReviewOutcome
   started_at: string
   updated_at: string
   steps: DataQcRunStep[]
@@ -122,6 +125,7 @@ export interface DataReviewEpisodeDecision {
 
 export interface DataReviewState {
   status: DataReviewStatus
+  outcome: DataManualReviewOutcome
   episodes: Record<string, DataReviewEpisodeDecision>
   draft_edits: Record<string, unknown>
   updated_at: string

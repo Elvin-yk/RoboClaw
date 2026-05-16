@@ -15,6 +15,11 @@ from roboclaw.data.repair.types import DamageType
 from .jobs import DataJobCoordinator, DataJobHandle
 from .serialization import json_ready
 
+AUTO_CLEAN_OUTCOME_PENDING = "pending"
+AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED = "no_repair_needed"
+AUTO_CLEAN_OUTCOME_REPAIRED = "repaired"
+AUTO_CLEAN_OUTCOME_FAILED = "failed"
+
 
 class DataCleanService:
     def __init__(self, repository: DataRepository, jobs: DataJobCoordinator) -> None:
@@ -244,17 +249,24 @@ class DataCleanService:
                 dataset_path,
                 object_type="dataset",
                 key="review",
-                status="skipped",
-                message="No manual review required",
+                status="pending",
+                message="Manual review pending",
+                details={"auto_clean_run_id": run["run_id"], "auto_clean_outcome": AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED},
             )
-            self.repository.state_store.set_dataset_stage(dataset_path, "clean")
+            self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
             self._record_qc_step(dataset_path, run, {
                 "id": "repair_if_possible",
                 "status": "skipped",
                 "message": "Dataset is already clean",
             })
-            self._finish_qc_run(dataset_path, run, status="completed", output=active_output)
-            return {"dataset_id": dataset_id, "outcome": "clean", "diagnosis": diagnosis_payload}
+            self._finish_qc_run(
+                dataset_path,
+                run,
+                status="completed",
+                outcome=AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED,
+                output=active_output,
+            )
+            return {"dataset_id": dataset_id, "outcome": AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED, "diagnosis": diagnosis_payload}
 
         if not diagnosis.repairable:
             return self._fail_auto_clean(
@@ -354,15 +366,22 @@ class DataCleanService:
             dataset_path,
             object_type="dataset",
             key="review",
-            status="skipped",
-            message="Automatic repair verified",
+            status="pending",
+            message="Manual review pending",
+            details={"auto_clean_run_id": run["run_id"], "auto_clean_outcome": AUTO_CLEAN_OUTCOME_REPAIRED},
         )
-        self.repository.state_store.set_dataset_stage(dataset_path, "clean")
-        self._finish_qc_run(dataset_path, run, status="completed", output=active_output)
+        self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
+        self._finish_qc_run(
+            dataset_path,
+            run,
+            status="completed",
+            outcome=AUTO_CLEAN_OUTCOME_REPAIRED,
+            output=active_output,
+        )
         return {
             "dataset_id": dataset_id,
             "active_output": active_output,
-            "outcome": "clean",
+            "outcome": AUTO_CLEAN_OUTCOME_REPAIRED,
             "diagnosis": diagnosis_payload,
             "repair": result_payload,
         }
@@ -418,7 +437,12 @@ class DataCleanService:
         self.repository.state_store.set_dataset_qc_lane(
             dataset_path,
             lane=lane,
-            payload={"status": "running", "chain_id": chain_id, "last_run_id": run["run_id"]},
+            payload={
+                "status": "running",
+                "outcome": AUTO_CLEAN_OUTCOME_PENDING,
+                "chain_id": chain_id,
+                "last_run_id": run["run_id"],
+            },
         )
         return run
 
@@ -440,10 +464,12 @@ class DataCleanService:
         run: dict[str, Any],
         *,
         status: str,
+        outcome: str,
         output: dict[str, Any] | None = None,
         failure: dict[str, Any] | None = None,
     ) -> None:
         run["status"] = status
+        run["outcome"] = outcome
         run["updated_at"] = utc_now_iso()
         if output is not None:
             run["output"] = output
@@ -455,11 +481,13 @@ class DataCleanService:
             "run_id": run["run_id"],
             "lane": run["lane"],
             "status": status,
+            "outcome": outcome,
             "output": output or {},
             "failure": failure or {},
         })
         lane_payload: dict[str, Any] = {
             "status": status,
+            "outcome": outcome,
             "chain_id": run["chain_id"],
             "last_run_id": run["run_id"],
         }
@@ -510,10 +538,10 @@ class DataCleanService:
         )
         self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
         failure = {"step_id": step_id, "message": message, "details": details}
-        self._finish_qc_run(dataset_path, run, status="failed", failure=failure)
+        self._finish_qc_run(dataset_path, run, status="failed", outcome=AUTO_CLEAN_OUTCOME_FAILED, failure=failure)
         return {
             "dataset_id": dataset_id,
-            "outcome": "needs_review",
+            "outcome": AUTO_CLEAN_OUTCOME_FAILED,
             "failure": failure,
             "diagnosis": diagnosis_payload,
         }

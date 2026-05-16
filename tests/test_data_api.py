@@ -390,7 +390,7 @@ def test_episode_robot_trajectory_accepts_nested_feature_names(tmp_path: Path) -
     assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [106, 107, 108, 109]
 
 
-def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
+def test_clean_run_marks_healthy_dataset_no_repair_needed(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/demo")
     client = _client(tmp_path)
 
@@ -407,20 +407,22 @@ def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
     job = _wait_job(client, started.json()["job_id"])
 
     assert job["phase"] == "completed"
+    assert job["result"]["datasets"][0]["outcome"] == "no_repair_needed"
     detail = client.get("/api/data/library/datasets/local/demo").json()
-    assert detail["lifecycle_stage"] == "clean"
+    assert detail["lifecycle_stage"] == "needs_review"
     assert detail["gates"]["inspect"]["status"] == "passed"
     assert detail["gates"]["clean"]["status"] == "passed"
-    assert detail["gates"]["review"]["status"] == "skipped"
+    assert detail["gates"]["review"]["status"] == "pending"
     assert detail["active_output"]["kind"] == "source"
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "completed"
+    assert detail["qc"]["lanes"]["auto_clean"]["outcome"] == "no_repair_needed"
     assert detail["qc"]["reports"]["diagnosis"]["relative_path"].startswith("reports/diagnosis/")
     assert (tmp_path / "local" / "demo" / ".status" / "current.json").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / "events.jsonl").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / detail["qc"]["reports"]["diagnosis"]["relative_path"]).is_file()
 
 
-def test_clean_run_writes_repaired_dataset_to_cleaned_pool(tmp_path: Path) -> None:
+def test_clean_run_writes_repaired_outcome(tmp_path: Path) -> None:
     _create_meta_stale_dataset(tmp_path, "local/stale")
     client = _client(tmp_path)
 
@@ -430,13 +432,16 @@ def test_clean_run_writes_repaired_dataset_to_cleaned_pool(tmp_path: Path) -> No
 
     assert job["phase"] == "completed"
     result = job["result"]["datasets"][0]
+    assert result["outcome"] == "repaired"
     assert result["active_output"]["kind"] == "artifact"
 
     source = client.get("/api/data/library/datasets/local/stale").json()
-    assert source["lifecycle_stage"] == "clean"
+    assert source["lifecycle_stage"] == "needs_review"
     assert source["gates"]["clean"]["status"] == "passed"
+    assert source["gates"]["review"]["status"] == "pending"
     assert source["gates"]["clean"]["details"]["active_output"]["kind"] == "artifact"
     assert source["active_output"]["kind"] == "artifact"
+    assert source["qc"]["lanes"]["auto_clean"]["outcome"] == "repaired"
     artifact_path = tmp_path / "local" / "stale" / source["active_output"]["relative_path"]
     assert artifact_path.is_dir()
     assert list((tmp_path / "local" / "stale" / ".status" / "runs").glob("*.json"))
@@ -454,22 +459,36 @@ def test_auto_clean_empty_dataset_fails_clean_and_requires_review(tmp_path: Path
     job = _wait_job(client, started.json()["job_id"])
 
     assert job["phase"] == "completed"
+    assert job["result"]["datasets"][0]["outcome"] == "failed"
     detail = client.get("/api/data/library/datasets/local/empty").json()
     assert detail["lifecycle_stage"] == "needs_review"
     assert detail["gates"]["clean"]["status"] == "failed"
     assert "empty_dataset_check" in detail["gates"]["clean"]["message"]
     assert detail["gates"]["review"]["status"] == "needs_review"
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "failed"
+    assert detail["qc"]["lanes"]["auto_clean"]["outcome"] == "failed"
 
 
 def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: Path) -> None:
-    _create_dataset(tmp_path, "local/review", episodes=3, frames=30, with_data=True, task_text="old task")
+    _create_dataset(
+        tmp_path,
+        "local/review",
+        episodes=3,
+        frames=30,
+        with_data=True,
+        with_videos=True,
+        task_text="old task",
+    )
     client = _client(tmp_path)
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/review"]})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
 
     workspace = client.get("/api/data/review/workspace", params={"dataset_id": "local/review"})
     assert workspace.status_code == 200
     assert workspace.json()["episode_indices"] == [0, 1, 2]
     assert workspace.json()["review"]["status"] == "pending"
+    assert workspace.json()["review"]["outcome"] == "pending"
 
     early_batch = client.post("/api/data/review/batch-runs", json={"dataset_ids": ["local/review"]})
     assert early_batch.status_code == 400
@@ -480,6 +499,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     )
     assert first.status_code == 200
     assert first.json()["review"]["status"] == "pending"
+    assert first.json()["review"]["outcome"] == "pending"
 
     missing_reason = client.patch(
         "/api/data/review/datasets/local/review/episodes/1",
@@ -503,6 +523,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     )
     assert second.status_code == 200
     assert second.json()["review"]["status"] == "ready_for_batch"
+    assert second.json()["review"]["outcome"] == "needs_fix"
 
     draft = client.patch(
         "/api/data/review/datasets/local/review/draft",
@@ -510,6 +531,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     )
     assert draft.status_code == 200
     assert draft.json()["review"]["draft_edits"]["task_description"] == "updated task"
+    assert draft.json()["review"]["outcome"] == "needs_fix"
 
     batch = client.post(
         "/api/data/review/batch-runs",
@@ -525,6 +547,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     assert detail["lifecycle_stage"] == "clean"
     assert detail["gates"]["review"]["status"] == "passed"
     assert detail["qc"]["review"]["status"] == "applied"
+    assert detail["qc"]["review"]["outcome"] == "passed"
     assert detail["active_output"]["kind"] == "artifact"
 
     artifact_path = tmp_path / "local" / "review" / detail["active_output"]["relative_path"]
@@ -552,6 +575,35 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     original_rows = pq.read_table(tmp_path / "local" / "review" / "data" / "chunk-000" / "file-000.parquet").to_pylist()
     assert original_info["total_episodes"] == 3
     assert len(original_rows) == 30
+
+
+def test_review_batch_rejects_all_failed_review(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/all_failed", episodes=2, frames=20, with_data=True, with_videos=True)
+    client = _client(tmp_path)
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/all_failed"]})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
+
+    for episode_index in (0, 1):
+        response = client.patch(
+            f"/api/data/review/datasets/local/all_failed/episodes/{episode_index}",
+            json={
+                "decision": "failed",
+                "reason": "video_abnormal",
+                "reviewer_id": "user-1",
+            },
+        )
+        assert response.status_code == 200
+
+    workspace = client.get("/api/data/review/workspace", params={"dataset_id": "local/all_failed"}).json()
+    assert workspace["review"]["status"] == "ready_for_batch"
+    assert workspace["review"]["outcome"] == "failed"
+
+    batch = client.post(
+        "/api/data/review/batch-runs",
+        json={"dataset_ids": ["local/all_failed"], "reviewer_id": "user-1"},
+    )
+    assert batch.status_code == 400
 
 
 def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, tmp_path: Path) -> None:

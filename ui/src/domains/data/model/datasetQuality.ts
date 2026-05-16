@@ -1,23 +1,36 @@
 import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
-import type { DataGate, Dataset, GateStatus } from '@/domains/data/model/types'
+import type { DataAutoCleanOutcome, DataGate, DataManualReviewOutcome, Dataset } from '@/domains/data/model/types'
 import type { TranslationKey } from '@/i18n'
 
-export type QualityStatus = GateStatus
+export type AutoCleanOutcome = DataAutoCleanOutcome
+export type AutoCleanStatus = 'pending' | 'passed' | 'failed'
+export type ManualReviewOutcome = DataManualReviewOutcome
 
-const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
-  pending: 'dataQualityStatusPending',
-  running: 'dataQualityStatusRunning',
-  passed: 'dataQualityStatusPassed',
-  failed: 'dataQualityStatusFailed',
-  needs_review: 'dataQualityStatusNeedsReview',
-  skipped: 'dataQualityStatusSkipped',
+const AUTO_CLEAN_OUTCOME_LABELS: Record<AutoCleanOutcome, TranslationKey> = {
+  pending: 'dataAutoCleanOutcomePending',
+  no_repair_needed: 'dataAutoCleanOutcomeNoRepairNeeded',
+  repaired: 'dataAutoCleanOutcomeRepaired',
+  failed: 'dataAutoCleanOutcomeFailed',
+}
+
+const AUTO_CLEAN_STATUS_LABELS: Record<AutoCleanStatus, TranslationKey> = {
+  pending: 'dataAutoCleanOutcomePending',
+  passed: 'dataAutoCleanOutcomePassed',
+  failed: 'dataAutoCleanOutcomeFailed',
+}
+
+const MANUAL_REVIEW_OUTCOME_LABELS: Record<ManualReviewOutcome, TranslationKey> = {
+  pending: 'dataManualReviewOutcomePending',
+  passed: 'dataManualReviewOutcomePassed',
+  needs_fix: 'dataManualReviewOutcomeNeedsFix',
+  failed: 'dataManualReviewOutcomeFailed',
 }
 
 export interface DatasetQualityView {
   taskDescription: string
   createdDate: string
-  autoCleanStatus: QualityStatus
-  manualReviewStatus: QualityStatus
+  autoCleanOutcome: AutoCleanOutcome
+  manualReviewOutcome: ManualReviewOutcome
   autoCleanMessage: string
   manualReviewMessage: string
 }
@@ -25,15 +38,12 @@ export interface DatasetQualityView {
 export function buildDatasetQualityView(dataset: Dataset): DatasetQualityView {
   const cleanGate = gateOrPending(dataset.gates.clean)
   const reviewGate = gateOrPending(dataset.gates.review)
-  const autoCleanLaneStatus = qcLaneStatus(dataset, 'auto_clean')
-  const manualReviewLaneStatus = qcLaneStatus(dataset, 'manual_review')
-  const reviewState = qcReviewStatus(dataset)
 
   return {
     taskDescription: datasetTaskDescription(dataset),
     createdDate: datasetCreatedDate(dataset),
-    autoCleanStatus: autoCleanStatus(dataset, autoCleanLaneStatus, cleanGate.status),
-    manualReviewStatus: manualReviewStatus(manualReviewLaneStatus, reviewGate.status, reviewState),
+    autoCleanOutcome: qcAutoCleanOutcome(dataset),
+    manualReviewOutcome: qcManualReviewOutcome(dataset),
     autoCleanMessage: cleanGate.message,
     manualReviewMessage: reviewGate.message,
   }
@@ -66,30 +76,6 @@ export function matchesDatasetText(dataset: Dataset, query: string): boolean {
     .includes(needle)
 }
 
-function autoCleanStatus(
-  dataset: Dataset,
-  laneStatus: QualityStatus,
-  gateStatus: QualityStatus,
-): QualityStatus {
-  if (laneStatus !== 'pending') return laneStatus
-  if (dataset.lifecycle_stage === 'clean') return 'passed'
-  if (dataset.lifecycle_stage === 'cleaning') return 'running'
-  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'running') return gateStatus
-  if (gateStatus === 'needs_review') return 'failed'
-  return 'pending'
-}
-
-function manualReviewStatus(laneStatus: QualityStatus, gateStatus: QualityStatus, reviewStatus: string): QualityStatus {
-  if (reviewStatus === 'applied') return 'passed'
-  if (reviewStatus === 'ready_for_batch') return 'needs_review'
-  if (laneStatus === 'passed' || laneStatus === 'failed' || laneStatus === 'needs_review' || laneStatus === 'skipped') return laneStatus
-  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'needs_review') {
-    return gateStatus
-  }
-  if (gateStatus === 'skipped') return 'skipped'
-  return 'pending'
-}
-
 export function qcReviewStatus(dataset: Dataset): string {
   const qc = asRecord(dataset.qc)
   const review = asRecord(qc.review)
@@ -100,21 +86,56 @@ export function qcReviewStatus(dataset: Dataset): string {
   return ''
 }
 
-export function qualityStatusLabelKey(status: QualityStatus): TranslationKey {
-  return QUALITY_STATUS_LABELS[status]
+export function autoCleanOutcomeLabelKey(outcome: AutoCleanOutcome): TranslationKey {
+  return AUTO_CLEAN_OUTCOME_LABELS[outcome]
 }
 
-function qcLaneStatus(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): QualityStatus {
+export function autoCleanStatusLabelKey(status: AutoCleanStatus): TranslationKey {
+  return AUTO_CLEAN_STATUS_LABELS[status]
+}
+
+export function autoCleanDisplayStatus(outcome: AutoCleanOutcome): AutoCleanStatus {
+  if (outcome === 'failed') return 'failed'
+  if (outcome === 'no_repair_needed' || outcome === 'repaired') return 'passed'
+  return 'pending'
+}
+
+export function manualReviewOutcomeLabelKey(outcome: ManualReviewOutcome): TranslationKey {
+  return MANUAL_REVIEW_OUTCOME_LABELS[outcome]
+}
+
+function qcAutoCleanOutcome(dataset: Dataset): AutoCleanOutcome {
+  const outcome = textValue(qcLanePayload(dataset, 'auto_clean').outcome).toLowerCase()
+  if (
+    outcome === 'pending'
+    || outcome === 'no_repair_needed'
+    || outcome === 'repaired'
+    || outcome === 'failed'
+  ) {
+    return outcome
+  }
+  return 'pending'
+}
+
+function qcManualReviewOutcome(dataset: Dataset): ManualReviewOutcome {
+  const qc = asRecord(dataset.qc)
+  const review = asRecord(qc.review)
+  const outcome = textValue(review.outcome).toLowerCase()
+  if (
+    outcome === 'pending'
+    || outcome === 'passed'
+    || outcome === 'needs_fix'
+    || outcome === 'failed'
+  ) {
+    return outcome
+  }
+  return 'pending'
+}
+
+function qcLanePayload(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Record<string, unknown> {
   const qc = asRecord(dataset.qc)
   const lanes = asRecord(qc.lanes)
-  const payload = asRecord(lanes[lane])
-  const status = textValue(payload.status).toLowerCase()
-  if (status === 'completed' || status === 'passed') return 'passed'
-  if (status === 'failed' || status === 'rejected') return 'failed'
-  if (status === 'needs_review' || status === 'needs_rework') return 'needs_review'
-  if (status === 'running' || status === 'queued' || status === 'in_progress' || status === 'started') return 'running'
-  if (status === 'skipped') return 'skipped'
-  return 'pending'
+  return asRecord(lanes[lane])
 }
 
 function gateOrPending(gate: DataGate | undefined): Pick<DataGate, 'status' | 'message'> {

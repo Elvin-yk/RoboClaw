@@ -16,6 +16,12 @@ from .packages import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 
 REVIEW_STATUSES = {"pending", "ready_for_batch", "applied"}
 REVIEW_DECISIONS = {"passed", "failed"}
+REVIEW_OUTCOME_PENDING = "pending"
+REVIEW_OUTCOME_PASSED = "passed"
+REVIEW_OUTCOME_NEEDS_FIX = "needs_fix"
+REVIEW_OUTCOME_FAILED = "failed"
+AUTO_CLEAN_PASSED_OUTCOMES = {"no_repair_needed", "repaired"}
+REVIEW_BATCH_APPLICABLE_OUTCOMES = {REVIEW_OUTCOME_PASSED, REVIEW_OUTCOME_NEEDS_FIX}
 
 
 class DataReviewService:
@@ -71,6 +77,7 @@ class DataReviewService:
             "reviewed_at": utc_now_iso(),
         }
         review["status"] = self._review_progress_status(review, episode_indices)
+        review["outcome"] = self._review_outcome(review, episode_indices)
         review["updated_at"] = utc_now_iso()
         self._write_review_state(dataset_path, state, review, event_type="review_episode_decision")
         return self.workspace(dataset_id=dataset_id)
@@ -95,6 +102,7 @@ class DataReviewService:
         review["draft_edits"] = next_draft
         review["draft_reviewer_id"] = reviewer_id.strip()
         review["status"] = self._review_progress_status(review, episode_indices)
+        review["outcome"] = self._review_outcome(review, episode_indices)
         review["updated_at"] = utc_now_iso()
         self._write_review_state(dataset_path, state, review, event_type="review_draft_saved")
         return self.workspace(dataset_id=dataset_id)
@@ -132,9 +140,14 @@ class DataReviewService:
         info = self._read_json(materialized_path / "meta" / "info.json")
         episodes = self._normalize_episode_meta(info, self._read_episode_meta(materialized_path, info))
         episode_indices = [int(entry["episode_index"]) for entry in episodes]
-        review = self._review_state(dataset_path, episode_indices)
+        state = self.repository.state_store.load_dataset_state(dataset_path)
+        review = self._review_state_from_payload(state, episode_indices)
         if review["status"] != "ready_for_batch":
             raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
+        if self._auto_clean_outcome(state) not in AUTO_CLEAN_PASSED_OUTCOMES:
+            raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
+        if review["outcome"] not in REVIEW_BATCH_APPLICABLE_OUTCOMES:
+            raise ValueError(f"Dataset '{dataset_id}' review outcome cannot be applied")
 
     def _apply_review_batch(self, *, dataset_id: str, reviewer_id: str) -> dict[str, Any]:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
@@ -146,6 +159,10 @@ class DataReviewService:
         review = self._review_state_from_payload(state, episode_indices)
         if review["status"] != "ready_for_batch":
             raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
+        if self._auto_clean_outcome(state) not in AUTO_CLEAN_PASSED_OUTCOMES:
+            raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
+        if review["outcome"] not in REVIEW_BATCH_APPLICABLE_OUTCOMES:
+            raise ValueError(f"Dataset '{dataset_id}' review outcome cannot be applied")
 
         failed_indices = {
             int(index)
@@ -153,6 +170,8 @@ class DataReviewService:
             if dict(payload).get("decision") == "failed"
         }
         kept_episodes = [entry for entry in episodes if int(entry["episode_index"]) not in failed_indices]
+        if not kept_episodes:
+            raise ValueError(f"Dataset '{dataset_id}' has no episodes to keep")
         artifact_dir = dataset_path / ".status" / "artifacts" / f"review-{uuid4().hex[:10]}"
         self._materialize_review_artifact(
             output_path=artifact_dir,
@@ -164,6 +183,7 @@ class DataReviewService:
         relative_path = artifact_dir.relative_to(dataset_path).as_posix()
         applied_at = utc_now_iso()
         review["status"] = "applied"
+        review["outcome"] = REVIEW_OUTCOME_PASSED
         review["applied_at"] = applied_at
         review["applied_by"] = reviewer_id
         review["artifact_relative_path"] = relative_path
@@ -194,6 +214,7 @@ class DataReviewService:
         self.repository.state_store.write_dataset_state(dataset_path, state)
         self.repository.state_store.append_dataset_event(dataset_path, {
             "type": "review_batch_applied",
+            "review_outcome": review["outcome"],
             "artifact_relative_path": relative_path,
             "removed_episode_indices": sorted(failed_indices),
         })
@@ -392,6 +413,7 @@ class DataReviewService:
         review["episodes"] = normalized_episodes
         review["draft_edits"] = dict(review.get("draft_edits") or {})
         review["status"] = self._review_progress_status(review, episode_indices)
+        review["outcome"] = self._review_outcome(review, episode_indices)
         review.setdefault("updated_at", "")
         return review
 
@@ -418,6 +440,31 @@ class DataReviewService:
         status = str(review.get("status") or "pending")
         return status if status in REVIEW_STATUSES else "pending"
 
+    def _review_outcome(self, review: dict[str, Any], episode_indices: list[int]) -> str:
+        if review.get("status") == "applied":
+            return REVIEW_OUTCOME_PASSED
+        decisions = dict(review.get("episodes") or {})
+        if not episode_indices or not all(str(index) in decisions for index in episode_indices):
+            return REVIEW_OUTCOME_PENDING
+        passed_count = sum(1 for payload in decisions.values() if dict(payload).get("decision") == "passed")
+        failed_count = sum(1 for payload in decisions.values() if dict(payload).get("decision") == "failed")
+        if failed_count == len(episode_indices):
+            return REVIEW_OUTCOME_FAILED
+        if passed_count == len(episode_indices) and not self._has_draft_edits(review):
+            return REVIEW_OUTCOME_PASSED
+        if passed_count > 0 and (failed_count > 0 or self._has_draft_edits(review)):
+            return REVIEW_OUTCOME_NEEDS_FIX
+        return REVIEW_OUTCOME_PENDING
+
+    def _has_draft_edits(self, review: dict[str, Any]) -> bool:
+        return any(str(value).strip() for value in dict(review.get("draft_edits") or {}).values())
+
+    def _auto_clean_outcome(self, state: dict[str, Any]) -> str:
+        qc = state.get("qc") if isinstance(state.get("qc"), dict) else {}
+        lanes = qc.get("lanes") if isinstance(qc.get("lanes"), dict) else {}
+        auto_clean = lanes.get("auto_clean") if isinstance(lanes.get("auto_clean"), dict) else {}
+        return str(auto_clean.get("outcome") or "pending")
+
     def _write_review_state(
         self,
         dataset_path: Path,
@@ -432,6 +479,7 @@ class DataReviewService:
         self.repository.state_store.append_dataset_event(dataset_path, {
             "type": event_type,
             "review_status": review["status"],
+            "review_outcome": review["outcome"],
         })
 
     def _read_json(self, path: Path) -> dict[str, Any]:
