@@ -276,6 +276,13 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.post("/api/data/packages/{package_id}/market-listing-applications")
+    async def data_package_market_listing_application(package_id: str) -> dict[str, Any]:
+        try:
+            return service.packages.apply_market_listing(package_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.post("/api/data/packages/{package_id}/uploads")
     async def data_package_upload(package_id: str, body: PackageUploadRequest) -> dict[str, Any]:
         try:

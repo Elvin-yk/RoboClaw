@@ -38,8 +38,6 @@ const SERIES_COLORS = [
   '#84cc16',
 ]
 
-type ChartMode = 'grouped' | 'combined'
-
 export function TrajectoryCharts({
   trajectory,
   currentTime,
@@ -51,7 +49,6 @@ export function TrajectoryCharts({
   duration: number
   onSeek: (seconds: number) => void
 }) {
-  const [mode, setMode] = useState<ChartMode>('grouped')
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const relativeTimes = useMemo(() => relativeTimeValues(trajectory.timeValues), [trajectory.timeValues])
   const chartDuration = duration || relativeTimes[relativeTimes.length - 1] || 0
@@ -61,7 +58,6 @@ export function TrajectoryCharts({
     return <div className="data-empty">未加载 action / observation 曲线</div>
   }
 
-  const groups = mode === 'combined' ? [series] : chunk(series, 3)
   const cursorPercent = chartDuration > 0 ? clamp((currentTime / chartDuration) * 100, 0, 100) : 0
 
   function toggleSeries(seriesId: string) {
@@ -78,40 +74,18 @@ export function TrajectoryCharts({
 
   return (
     <div className="data-analysis-charts">
-      <div className="data-analysis-charts__head">
-        <div className="data-analysis-chart-modes" role="group" aria-label="Chart display mode">
-          <button
-            type="button"
-            className={mode === 'grouped' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
-            onClick={() => setMode('grouped')}
-          >
-            Split
-          </button>
-          <button
-            type="button"
-            className={mode === 'combined' ? 'data-analysis-secondary-button is-active' : 'data-analysis-secondary-button'}
-            onClick={() => setMode('combined')}
-          >
-            Combine all
-          </button>
-        </div>
-      </div>
-
-      <div className={mode === 'combined' ? 'data-analysis-combined-chart-list' : 'data-analysis-group-chart-list'}>
-        {groups.map((group, index) => (
-          <TrajectoryGroupChart
-            key={`${mode}-${index}`}
-            series={group}
-            hiddenSeries={hiddenSeries}
-            relativeTimes={relativeTimes}
-            currentTime={currentTime}
-            cursorPercent={cursorPercent}
-            duration={chartDuration}
-            combined={mode === 'combined'}
-            onSeek={onSeek}
-            onToggleSeries={toggleSeries}
-          />
-        ))}
+      <div className="data-analysis-section-title">关节动作曲线</div>
+      <div className="data-analysis-combined-chart-list">
+        <TrajectoryGroupChart
+          series={series}
+          hiddenSeries={hiddenSeries}
+          relativeTimes={relativeTimes}
+          currentTime={currentTime}
+          cursorPercent={cursorPercent}
+          duration={chartDuration}
+          onSeek={onSeek}
+          onToggleSeries={toggleSeries}
+        />
       </div>
     </div>
   )
@@ -124,7 +98,6 @@ function TrajectoryGroupChart({
   currentTime,
   cursorPercent,
   duration,
-  combined,
   onSeek,
   onToggleSeries,
 }: {
@@ -134,7 +107,6 @@ function TrajectoryGroupChart({
   currentTime: number
   cursorPercent: number
   duration: number
-  combined: boolean
   onSeek: (seconds: number) => void
   onToggleSeries: (seriesId: string) => void
 }) {
@@ -142,14 +114,13 @@ function TrajectoryGroupChart({
   const chartSeries = visibleSeries.length ? visibleSeries : series
   const [yMin, yMax] = yBounds(chartSeries)
   const tickValues = yTicks(yMin, yMax)
-  const timeTicks = xTickValues(duration, combined ? 7 : 5)
+  const timeTicks = xTickValues(duration, 7)
   const xGridLines = xAxisPositions(timeTicks.length)
   const currentIndex = closestIndex(relativeTimes, currentTime)
   const title = series.map((item) => item.label).join(', ')
 
   return (
-    <section className={combined ? 'data-analysis-group-chart data-analysis-group-chart--combined' : 'data-analysis-group-chart'}>
-      <div className="data-analysis-group-chart__title" title={title}>{title}</div>
+    <section className="data-analysis-group-chart data-analysis-group-chart--combined">
       <button
         type="button"
         className="data-analysis-group-chart__plot"
@@ -171,14 +142,14 @@ function TrajectoryGroupChart({
                 points={buildPolyline(item.actionValues, relativeTimes, duration, yMin, yMax)}
                 fill="none"
                 stroke={item.color}
-                strokeWidth={combined ? '0.45' : '0.65'}
+                strokeWidth="0.45"
                 vectorEffect="non-scaling-stroke"
               />
               <polyline
                 points={buildPolyline(item.stateValues, relativeTimes, duration, yMin, yMax)}
                 fill="none"
                 stroke={item.color}
-                strokeWidth={combined ? '0.45' : '0.65'}
+                strokeWidth="0.45"
                 strokeDasharray="3 2"
                 vectorEffect="non-scaling-stroke"
               />
@@ -234,14 +205,6 @@ function buildSeries(items: TrajectoryItem[]): TrajectorySeries[] {
     actionValues: item.actionValues,
     stateValues: item.stateValues,
   }))
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const result: T[][] = []
-  for (let index = 0; index < items.length; index += size) {
-    result.push(items.slice(index, index + size))
-  }
-  return result
 }
 
 function yBounds(series: TrajectorySeries[]): [number, number] {

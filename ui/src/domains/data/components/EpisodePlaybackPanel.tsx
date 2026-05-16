@@ -13,18 +13,20 @@ import {
   textValue,
   type AnyRecord,
 } from '@/domains/data/lib/analysisPayload'
-import type { RobotTrajectorySignal, RobotTrajectorySource } from '@/domains/data/model/types'
+import {
+  getAbsoluteClipTime,
+  getClipEnd,
+  getClipStart,
+  readEpisodeVideos,
+  type EpisodeVideo,
+} from '@/domains/data/lib/episodeMedia'
+import type { RobotTrajectorySource } from '@/domains/data/model/types'
+import { cn } from '@/shared/lib/cn'
 import { RobotTrajectory3DPanel } from './robotTrajectory3D/RobotTrajectory3DPanel'
 
-interface EpisodeVideo {
-  path: string
-  url: string
-  stream: string
-  from_timestamp: number | null
-  to_timestamp: number | null
-}
-
 export type EpisodePlaybackDisplayMode = 'full' | 'video' | 'trajectory'
+export type EpisodePlaybackChrome = 'panel' | 'plain'
+export type EpisodePlaybackSummaryMode = 'full' | 'duration'
 
 const VIDEO_SYNC_TOLERANCE = 0.15
 const LOOP_EPSILON = 0.05
@@ -47,6 +49,11 @@ export function EpisodePlaybackPanel({
   dataset,
   path,
   showRobot3D = true,
+  showTrajectoryCharts = true,
+  showTaskDescription = true,
+  allowStaticRobot3D = false,
+  chrome = 'panel',
+  summaryMode = 'full',
 }: {
   episode: AnyRecord
   episodeIndex: number
@@ -63,19 +70,28 @@ export function EpisodePlaybackPanel({
   dataset?: string
   path?: string
   showRobot3D?: boolean
+  showTrajectoryCharts?: boolean
+  showTaskDescription?: boolean
+  allowStaticRobot3D?: boolean
+  chrome?: EpisodePlaybackChrome
+  summaryMode?: EpisodePlaybackSummaryMode
 }) {
   const loadedEpisodeIndex = numberValue(episode.episode_index) ?? episodeIndex
   const summary = asRecord(episode.summary)
-  const videos = useMemo(() => readVideos(episode), [episode])
-  const trajectory = useMemo(() => readTrajectory(episode), [episode])
-  const taskDescription = useMemo(() => readTaskDescription(episode), [episode])
+  const taskDescription = useMemo(() => readEpisodeTaskDescription(episode), [episode])
   const showVideos = displayMode === 'full' || displayMode === 'video'
   const showTrajectory = displayMode === 'full' || displayMode === 'trajectory'
+  const shouldReadTrajectory = showTrajectory && showTrajectoryCharts
+  const videos = useMemo(() => readEpisodeVideos(episode), [episode])
+  const trajectory = useMemo(
+    () => (shouldReadTrajectory ? readTrajectory(episode) : EMPTY_TRAJECTORY),
+    [episode, shouldReadTrajectory],
+  )
   const showRobotTrajectory3D = displayMode === 'full'
     && showRobot3D
     && source !== 'remote'
     && (source === 'path' ? Boolean(path) : Boolean(dataset))
-  const showTaskDescription = displayMode === 'full'
+  const shouldShowTaskDescription = displayMode === 'full' && showTaskDescription
   const visibleVideos = showVideos ? videos : EMPTY_VIDEOS
   const visibleTrajectory = showTrajectory ? trajectory : EMPTY_TRAJECTORY
   const duration = useMemo(
@@ -85,7 +101,6 @@ export function EpisodePlaybackPanel({
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackError, setPlaybackError] = useState('')
-  const [robotSignal, setRobotSignal] = useState<RobotTrajectorySignal>('action')
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
   const syncLockRef = useRef(false)
   const playbackTimeRef = useRef(0)
@@ -99,7 +114,7 @@ export function EpisodePlaybackPanel({
     syncLockRef.current = true
     videoRefs.current.forEach((video, index) => {
       if (!video || index === skipIndex || video.readyState === 0) return
-      const targetTime = getAbsoluteTime(visibleVideos[index], relativeTime, video.duration)
+      const targetTime = getAbsoluteClipTime(visibleVideos[index], relativeTime, video.duration)
       if (forceSeek || Math.abs(video.currentTime - targetTime) > VIDEO_SYNC_TOLERANCE) {
         video.currentTime = targetTime
       }
@@ -187,68 +202,92 @@ export function EpisodePlaybackPanel({
   }
 
   const hasPlaybackData = visibleVideos.length > 0 || visibleTrajectory.items.length > 0 || showRobotTrajectory3D
+  const rootClassName = cn(
+    chrome === 'panel' && 'data-panel',
+    'data-analysis-player',
+    chrome === 'plain' && 'data-analysis-player--plain',
+  )
 
   if (!hasPlaybackData) {
     return (
-      <section className="data-panel">
-        {showTitle && <div className="data-panel__title"><h2>Episode 可视化</h2></div>}
+      <section className={rootClassName}>
+        {showTitle && showEpisodeControls && (
+          <div className="data-panel__title data-analysis-player__title">
+            <EpisodePicker
+              value={episodeIndex}
+              totalEpisodes={totalEpisodes}
+              loading={loading}
+              canLoadEpisode={canLoadEpisode}
+              onChange={onEpisodeIndexChange}
+              onLoad={onLoadEpisode}
+            />
+          </div>
+        )}
         <div className="data-empty">{emptyLabel || '加载 episode 后显示视频和 action / observation 曲线'}</div>
       </section>
     )
   }
 
   return (
-    <section className="data-panel data-analysis-player">
+    <section className={rootClassName}>
       {showTitle && (
-        <div className="data-panel__title">
-          <h2>Episode 可视化</h2>
+        <div className="data-panel__title data-analysis-player__title">
           {showEpisodeControls && (
-            <div className="data-analysis-player__summary">
-              <EpisodePicker
-                value={episodeIndex}
-                totalEpisodes={totalEpisodes}
-                loading={loading}
-                canLoadEpisode={canLoadEpisode}
-                onChange={onEpisodeIndexChange}
-                onLoad={onLoadEpisode}
-              />
-              <span>Episode #{loadedEpisodeIndex}</span>
-              <span>{formatSeconds(duration)}</span>
-              {showVideos && <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>}
-            </div>
+            <EpisodePicker
+              value={episodeIndex}
+              totalEpisodes={totalEpisodes}
+              loading={loading}
+              canLoadEpisode={canLoadEpisode}
+              onChange={onEpisodeIndexChange}
+              onLoad={onLoadEpisode}
+            />
           )}
+          <div className="data-analysis-player__summary">
+            {summaryMode === 'full' && <span>Episode #{loadedEpisodeIndex}</span>}
+            <span>{formatSeconds(duration)}</span>
+            {summaryMode === 'full' && showVideos && (
+              <span>{summary.video_count == null ? visibleVideos.length : textValue(summary.video_count)} videos</span>
+            )}
+          </div>
         </div>
       )}
 
       {playbackError && <div className="data-alert">{playbackError}</div>}
 
-      {showTaskDescription && taskDescription && (
-        <div className="data-analysis-task-strip">
-          <span>Task</span>
-          <strong>{taskDescription}</strong>
-        </div>
+      {shouldShowTaskDescription && taskDescription && (
+        <section className="data-analysis-section">
+          <div className="data-analysis-section-title">任务描述</div>
+          <div className="data-analysis-section-card data-analysis-task-card">
+            {taskDescription}
+          </div>
+        </section>
       )}
 
-      {showVideos && (
-        <div className="data-analysis-video-grid">
-          {visibleVideos.map((video, index) => (
-            <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
-              <video
-                ref={(node) => {
-                  videoRefs.current[index] = node
-                }}
-                src={video.url}
-                muted
-                playsInline
-                preload="metadata"
-                onClick={() => setIsPlaying((current) => !current)}
-                onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
-                onTimeUpdate={() => handleLeaderTimeUpdate(index)}
-              />
-              <figcaption>{video.stream || video.path}</figcaption>
-            </figure>
-          ))}
-        </div>
+      {showVideos && visibleVideos.length > 0 && (
+        <section className="data-analysis-section">
+          <div className="data-analysis-section-title">相机画面</div>
+          <div className="data-analysis-section-card">
+            <div className="data-analysis-video-grid">
+              {visibleVideos.map((video, index) => (
+                <figure key={`${loadedEpisodeIndex}-${video.path}-${index}`} className="data-analysis-video">
+                  <video
+                    ref={(node) => {
+                      videoRefs.current[index] = node
+                    }}
+                    src={video.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    onClick={() => setIsPlaying((current) => !current)}
+                    onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+                    onTimeUpdate={() => handleLeaderTimeUpdate(index)}
+                  />
+                  <figcaption>{video.stream || video.path}</figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
 
       {showRobotTrajectory3D && (
@@ -258,8 +297,7 @@ export function EpisodePlaybackPanel({
           path={path}
           episodeIndex={loadedEpisodeIndex}
           currentTime={playbackTime}
-          signal={robotSignal}
-          onSignalChange={setRobotSignal}
+          allowStaticModel={allowStaticRobot3D}
         />
       )}
 
@@ -278,7 +316,7 @@ export function EpisodePlaybackPanel({
         }}
       />
 
-      {showTrajectory && (
+      {showTrajectory && showTrajectoryCharts && (
         <TrajectoryCharts
           trajectory={visibleTrajectory}
           currentTime={playbackTime}
@@ -290,7 +328,7 @@ export function EpisodePlaybackPanel({
   )
 }
 
-function EpisodePicker({
+export function EpisodePicker({
   value,
   totalEpisodes,
   loading,
@@ -312,7 +350,17 @@ function EpisodePicker({
   function updateValue(rawValue: string) {
     const nextValue = Number(rawValue)
     if (!Number.isFinite(nextValue)) return
-    onChange(clamp(Math.trunc(nextValue), 0, maxEpisodeIndex))
+    const nextEpisodeIndex = clamp(Math.trunc(nextValue), 0, maxEpisodeIndex)
+    onChange(nextEpisodeIndex)
+    if (!loading && canLoadEpisode) {
+      onLoad(nextEpisodeIndex)
+    }
+  }
+
+  function loadEpisode(nextEpisodeIndex: number) {
+    const normalizedEpisodeIndex = clamp(nextEpisodeIndex, 0, maxEpisodeIndex)
+    onChange(normalizedEpisodeIndex)
+    onLoad(normalizedEpisodeIndex)
   }
 
   return (
@@ -320,7 +368,7 @@ function EpisodePicker({
       <button
         type="button"
         className="data-analysis-secondary-button"
-        onClick={() => onLoad(Math.max(0, normalizedValue - 1))}
+        onClick={() => loadEpisode(normalizedValue - 1)}
         disabled={loading || !canLoadEpisode || normalizedValue <= 0}
         title="上一个 episode"
       >
@@ -333,21 +381,14 @@ function EpisodePicker({
           min={0}
           max={hasUpperBound ? maxEpisodeIndex : undefined}
           value={normalizedValue}
+          disabled={loading || !canLoadEpisode}
           onChange={(event) => updateValue(event.target.value)}
         />
       </label>
       <button
         type="button"
         className="data-analysis-secondary-button"
-        onClick={() => onLoad(normalizedValue)}
-        disabled={loading || !canLoadEpisode}
-      >
-        Load
-      </button>
-      <button
-        type="button"
-        className="data-analysis-secondary-button"
-        onClick={() => onLoad(normalizedValue + 1)}
+        onClick={() => loadEpisode(normalizedValue + 1)}
         disabled={loading || !canLoadEpisode || (hasUpperBound && normalizedValue >= maxEpisodeIndex)}
         title="下一个 episode"
       >
@@ -484,17 +525,7 @@ function ResetIcon() {
   )
 }
 
-function readVideos(episode: AnyRecord): EpisodeVideo[] {
-  return asArray(episode.videos).map(asRecord).map((video) => ({
-    path: textValue(video.path),
-    url: textValue(video.url),
-    stream: textValue(video.stream) || textValue(video.path),
-    from_timestamp: numberValue(video.from_timestamp),
-    to_timestamp: numberValue(video.to_timestamp),
-  })).filter((video) => Boolean(video.url))
-}
-
-function readTaskDescription(episode: AnyRecord): string {
+export function readEpisodeTaskDescription(episode: AnyRecord): string {
   const summary = asRecord(episode.summary)
   const candidates = [
     episode.task_description,
@@ -513,6 +544,15 @@ function readTaskDescription(episode: AnyRecord): string {
     if (text) return text
   }
   return ''
+}
+
+export function resolveEpisodePlaybackDuration(
+  episode: AnyRecord,
+  options: { includeTrajectory?: boolean } = {},
+): number {
+  const summary = asRecord(episode.summary)
+  const trajectory = options.includeTrajectory === false ? EMPTY_TRAJECTORY : readTrajectory(episode)
+  return resolvePlaybackDuration(summary, readEpisodeVideos(episode), trajectory)
 }
 
 function readTrajectory(episode: AnyRecord): TrajectoryPayload {
@@ -556,21 +596,4 @@ function resolvePlaybackDuration(
   const trajectoryTimes = relativeTimeValues(trajectory.timeValues)
   const trajectoryDuration = trajectoryTimes[trajectoryTimes.length - 1] ?? 0
   return Math.max(summaryDuration, rowDuration, videoDuration, trajectoryDuration, 0)
-}
-
-function getClipStart(video: EpisodeVideo | null | undefined): number {
-  return video?.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
-}
-
-function getClipEnd(video: EpisodeVideo | null | undefined, mediaDuration: number): number | null {
-  if (video?.to_timestamp != null && Number.isFinite(video.to_timestamp)) return video.to_timestamp
-  if (Number.isFinite(mediaDuration) && mediaDuration > 0) return mediaDuration
-  return null
-}
-
-function getAbsoluteTime(video: EpisodeVideo | null | undefined, relativeTime: number, mediaDuration: number): number {
-  const start = getClipStart(video)
-  const end = getClipEnd(video, mediaDuration)
-  const maxRelative = end == null ? Number.POSITIVE_INFINITY : Math.max(end - start, 0)
-  return start + clamp(relativeTime, 0, maxRelative)
 }

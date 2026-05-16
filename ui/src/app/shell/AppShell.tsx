@@ -71,6 +71,14 @@ const NAV_ICONS: Record<string, JSX.Element> = {
       <path d="M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
     </svg>
   ),
+  '/data/market': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16l-1 13H5L4 7z" />
+      <path d="M8 7a4 4 0 0 1 8 0" />
+      <path d="M8 12h8" />
+      <path d="M9 16h4" />
+    </svg>
+  ),
   '/data/qc': (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 12l2 2 4-5" />
@@ -199,9 +207,8 @@ export default function AppShell() {
     { path: '/training/remote', label: t('remoteTraining') },
   ]
   const dataChildren = [
+    { path: '/data/market', label: t('dataMarketNav') },
     { path: '/data/manage', label: t('dataManageNav') },
-    { path: '/data/qc', label: t('dataQcNav') },
-    { path: '/data/analysis', label: t('dataAnalysisNav') },
     { path: '/data/annotation', label: t('dataAnnotationNav') },
   ]
   const settingsChildren = [
@@ -413,7 +420,12 @@ export default function AppShell() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={cn(
+        'app-shell',
+        sidebarCollapsed && 'app-shell--sidebar-collapsed',
+      )}
+    >
       <aside
         className={cn(
           'app-sidebar',
@@ -454,7 +466,11 @@ export default function AppShell() {
       </aside>
 
       <div className="app-shell__main">
-        <AppHeader />
+        <AppHeader
+          onOpenSystemActions={() => {
+            if (!compactNav) setSidebarCollapsed(true)
+          }}
+        />
         <main className="app-shell__content">
           <Outlet />
         </main>

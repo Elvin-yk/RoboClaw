@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataDateRangeFilter, isDateInFilter, type DateFilterValue } from '@/domains/data/components/DataDateRangeFilter'
 import { asRecord } from '@/domains/data/lib/analysisPayload'
+import { readReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   dataGateLabelKey,
   dataGateMessageLabelKey,
@@ -16,6 +17,7 @@ import {
   qcReviewStatus,
   type QualityStatus,
 } from '@/domains/data/model/datasetQuality'
+import { isMarketApplicationSubmitted } from '@/domains/data/model/marketListing'
 import { isTerminalDataJobPhase, type DataGate, type DataJob, type DataQcRun, type Dataset, type DatasetPackage } from '@/domains/data/model/types'
 import { useDataJobStore } from '@/domains/data/store/jobStore'
 import { useDataLibraryStore } from '@/domains/data/store/libraryStore'
@@ -23,7 +25,6 @@ import { useI18n } from '@/i18n'
 import type { TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 import { useAuthStore } from '@/shared/lib/authStore'
-import { evoApi, type CreditAccount } from '@/shared/api/evoClient'
 
 type DrawerTarget =
   | { type: 'dataset'; id: string }
@@ -136,6 +137,8 @@ export default function DataManagePage() {
   const [drawerWidth, setDrawerWidth] = useState(560)
   const [reloadedJobSignatures, setReloadedJobSignatures] = useState<string[]>([])
   const [autoCleanDialogJobId, setAutoCleanDialogJobId] = useState<string | null>(null)
+  const [storedReturnQcQuery, setStoredReturnQcQuery] = useState(() => readReviewQueueReturn())
+  const [applyingMarketPackageId, setApplyingMarketPackageId] = useState('')
   const loadedDrawerDatasetFromQuery = useRef('')
   const drawerDatasetFromQuery = searchParams.get('dataset') || ''
 
@@ -224,16 +227,8 @@ export default function DataManagePage() {
     .map((job) => `${job.job_id}:${job.phase}:${job.updated_at}`)
     .sort()
   const terminalJobSignature = terminalJobSignatures[terminalJobSignatures.length - 1] ?? ''
-  const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([])
-  const [selectedDataAccountId, setSelectedDataAccountId] = useState('')
-  const [purchasePendingDatasetId, setPurchasePendingDatasetId] = useState('')
-  const [purchaseMessage, setPurchaseMessage] = useState('')
-  const [dataCreditMessage, setDataCreditMessage] = useState('')
-  const dataAccounts = useMemo(
-    () => creditAccounts.filter((account) => account.account_type === 'data'),
-    [creditAccounts],
-  )
-  const selectedDataAccount = dataAccounts.find((account) => account.id === selectedDataAccountId) || dataAccounts[0] || null
+  const returnQcQueryFromUrl = searchParams.get('returnQc') || ''
+  const returnQcQuery = returnQcQueryFromUrl || storedReturnQcQuery
 
   useEffect(() => {
     setRawPage((current) => clampPage(current, pageCount(rawDatasets.length, pageSize)))
@@ -244,6 +239,12 @@ export default function DataManagePage() {
   useEffect(() => {
     window.localStorage.setItem(MANAGE_SECTION_STORAGE_KEY, JSON.stringify(sectionOpen))
   }, [sectionOpen])
+
+  useEffect(() => {
+    if (!returnQcQueryFromUrl) return
+    writeReviewQueueReturn(returnQcQueryFromUrl)
+    setStoredReturnQcQuery(returnQcQueryFromUrl)
+  }, [returnQcQueryFromUrl])
 
   useEffect(() => {
     if (!terminalJobSignature || reloadedJobSignatures.includes(terminalJobSignature)) return
@@ -257,17 +258,6 @@ export default function DataManagePage() {
     loadedDrawerDatasetFromQuery.current = drawerDatasetFromQuery
     setDrawerTarget({ type: 'dataset', id: drawerDatasetFromQuery })
   }, [datasets, drawerDatasetFromQuery])
-
-  useEffect(() => {
-    if (!user) return
-    void loadDataCreditAccounts()
-  }, [user])
-
-  useEffect(() => {
-    if (selectedDataAccountId || dataAccounts.length === 0) return
-    const personalAccount = dataAccounts.find((account) => !account.org_id)
-    setSelectedDataAccountId((personalAccount || dataAccounts[0]).id)
-  }, [dataAccounts, selectedDataAccountId])
 
   async function createPackage() {
     const nextPackageId = packageId.trim()
@@ -284,35 +274,6 @@ export default function DataManagePage() {
     await load()
   }
 
-  async function loadDataCreditAccounts() {
-    try {
-      const next = await evoApi.listCreditAccounts()
-      setCreditAccounts(next)
-      setDataCreditMessage('')
-    } catch (error) {
-      setDataCreditMessage(error instanceof Error ? error.message : '数据积分账户加载失败')
-    }
-  }
-
-  async function purchaseDatasetWithCredit(dataset: Dataset) {
-    const account = selectedDataAccount
-    if (!account) {
-      setPurchaseMessage('请选择数据积分账户')
-      return
-    }
-    setPurchasePendingDatasetId(dataset.id)
-    setPurchaseMessage('')
-    try {
-      await evoApi.purchaseDataset(dataset.id, account.id)
-      setPurchaseMessage('购买成功')
-      await Promise.all([load(), loadDataCreditAccounts()])
-    } catch (error) {
-      setPurchaseMessage(error instanceof Error ? error.message : '购买失败')
-    } finally {
-      setPurchasePendingDatasetId('')
-    }
-  }
-
   async function uploadPackage(packageItem: DatasetPackage) {
     const repoId = uploadRepoId.trim()
     if (!repoId) return
@@ -322,6 +283,17 @@ export default function DataManagePage() {
       private: uploadPrivate,
     })
     attach(job)
+  }
+
+  async function applyPackageToMarket(packageItem: DatasetPackage) {
+    if (isMarketApplicationSubmitted(packageItem)) return
+    setApplyingMarketPackageId(packageItem.id)
+    try {
+      await dataApi.applyPackageMarketListing(packageItem.id)
+      await load()
+    } finally {
+      setApplyingMarketPackageId('')
+    }
   }
 
   async function startSelectedAutoClean() {
@@ -335,6 +307,7 @@ export default function DataManagePage() {
     if (!canStartManualReviewBatch || !selectedManualReviewDatasets.length) return
     const params = new URLSearchParams()
     params.set('dataset', selectedManualReviewDatasets[0].id)
+    params.set('returnTo', 'data-manage')
     selectedManualReviewDatasets.forEach((dataset) => params.append('datasets', dataset.id))
     navigate(`/data/qc?${params.toString()}`)
   }
@@ -373,7 +346,12 @@ export default function DataManagePage() {
   function openDatasetReview(dataset: Dataset) {
     setDrawerTarget(null)
     const encodedDataset = encodeURIComponent(dataset.id)
-    navigate(`/data/qc?dataset=${encodedDataset}&datasets=${encodedDataset}`)
+    navigate(`/data/qc?dataset=${encodedDataset}&datasets=${encodedDataset}&returnTo=data-manage`)
+  }
+
+  function returnToReviewQueue() {
+    if (!returnQcQuery) return
+    navigate(`/data/qc?${returnQcQuery}`)
   }
 
   function openPackageGate(packageItem: DatasetPackage, gateKey: string) {
@@ -425,28 +403,15 @@ export default function DataManagePage() {
   return (
     <section className="data-manage-page data-manage-page--current">
       {error && <div className="data-manage-error">{error}</div>}
-      {dataCreditMessage && <div className="data-manage-error">{dataCreditMessage}</div>}
-      {dataAccounts.length > 0 && (
-        <div className="mb-4 rounded-xl border border-bd bg-sf px-4 py-3 shadow-card">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-semibold text-tx">数据积分</span>
-            <select
-              value={selectedDataAccount?.id || ''}
-              onChange={(event) => setSelectedDataAccountId(event.target.value)}
-              className="h-9 min-w-[220px] rounded-lg border border-bd bg-bg px-3 text-tx"
-            >
-              {dataAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.org_id ? '组织账户' : '个人账户'} · 可用 {account.available_balance}
-                </option>
-              ))}
-            </select>
-            {selectedDataAccount && (
-              <span className="text-tx2">
-                可用 {selectedDataAccount.available_balance} · 冻结 {selectedDataAccount.held_balance}
-              </span>
-            )}
+      {returnQcQuery && (
+        <div className="data-manage-return-banner">
+          <div>
+            <strong>{t('dataManageReturnedFromQc')}</strong>
+            <span>{t('dataManageReturnToQcHint')}</span>
           </div>
+          <button type="button" className="data-manage-neutral-button" onClick={returnToReviewQueue}>
+            {t('dataManageReturnToQc')}
+          </button>
         </div>
       )}
 
@@ -740,12 +705,6 @@ export default function DataManagePage() {
             onDelete={() => setDeleteTarget({ type: 'dataset', id: drawerDataset.id })}
             onAnalyze={() => openDatasetAnalysis(drawerDataset)}
             onReview={() => openDatasetReview(drawerDataset)}
-            dataAccounts={dataAccounts}
-            selectedDataAccountId={selectedDataAccount?.id || ''}
-            purchasePending={purchasePendingDatasetId === drawerDataset.id}
-            purchaseMessage={purchaseMessage}
-            onSelectDataAccount={setSelectedDataAccountId}
-            onPurchase={() => void purchaseDatasetWithCredit(drawerDataset)}
             onResizeStart={startDrawerResize}
             style={drawerStyle}
           />
@@ -764,6 +723,9 @@ export default function DataManagePage() {
             onPrivateChange={setUploadPrivate}
             onClose={() => setDrawerTarget(null)}
             onUpload={() => void uploadPackage(drawerPackage)}
+            marketApplicationBusy={applyingMarketPackageId === drawerPackage.id}
+            marketApplicationPending={isMarketApplicationSubmitted(drawerPackage)}
+            onApplyMarket={() => void applyPackageToMarket(drawerPackage)}
             onDelete={() => setDeleteTarget({ type: 'package', id: drawerPackage.id })}
             onOpenGate={(gateKey) => openPackageGate(drawerPackage, gateKey)}
             onResizeStart={startDrawerResize}
@@ -1188,12 +1150,6 @@ function DatasetDrawer({
   onDelete,
   onAnalyze,
   onReview,
-  dataAccounts,
-  selectedDataAccountId,
-  purchasePending,
-  purchaseMessage,
-  onSelectDataAccount,
-  onPurchase,
   onResizeStart,
   style,
 }: {
@@ -1202,22 +1158,10 @@ function DatasetDrawer({
   onDelete: () => void
   onAnalyze: () => void
   onReview: () => void
-  dataAccounts: CreditAccount[]
-  selectedDataAccountId: string
-  purchasePending: boolean
-  purchaseMessage: string
-  onSelectDataAccount: (accountId: string) => void
-  onPurchase: () => void
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void
   style: CSSProperties
 }) {
   const { t } = useI18n()
-  const hasPurchaseFields = dataset.price_credit !== undefined || dataset.has_access !== undefined
-  const purchaseDisabled = purchasePending
-    || dataset.has_access === true
-    || dataset.price_credit === null
-    || dataset.price_credit === undefined
-    || !selectedDataAccountId
   return (
     <aside className="data-manage-drawer" style={style}>
       <DrawerResizeHandle onResizeStart={onResizeStart} />
@@ -1242,38 +1186,6 @@ function DatasetDrawer({
           <KeyValue wide label={t('dataManagePath')} value={dataset.path} />
         </div>
       </DrawerSection>
-      {hasPurchaseFields && (
-        <DrawerSection title="数据购买">
-          <div className="data-manage-kv-grid">
-            <KeyValue label="售价" value={dataset.price_credit == null ? '未设置' : `${dataset.price_credit} 数据积分`} />
-            <KeyValue label="授权状态" value={dataset.has_access ? '已拥有下载权限' : '未购买'} />
-          </div>
-          {!dataset.has_access && (
-            <div className="mt-3 grid gap-3">
-              <select
-                value={selectedDataAccountId}
-                onChange={(event) => onSelectDataAccount(event.target.value)}
-                className="h-10 rounded-lg border border-bd bg-bg px-3 text-sm text-tx"
-              >
-                {dataAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.org_id ? '组织账户' : '个人账户'} · 可用 {account.available_balance}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="data-manage-drawer-action"
-                disabled={purchaseDisabled}
-                onClick={onPurchase}
-              >
-                {purchasePending ? '购买中...' : '购买数据'}
-              </button>
-            </div>
-          )}
-          {purchaseMessage && <div className="mt-3 text-sm text-tx2">{purchaseMessage}</div>}
-        </DrawerSection>
-      )}
       <DrawerSection title={t('dataManageQualitySection')}>
         <DatasetQualityPanel dataset={dataset} onReview={onReview} />
       </DrawerSection>
@@ -1459,6 +1371,9 @@ function PackageDrawer({
   onPrivateChange,
   onClose,
   onUpload,
+  marketApplicationBusy,
+  marketApplicationPending,
+  onApplyMarket,
   onDelete,
   onOpenGate,
   onResizeStart,
@@ -1473,6 +1388,9 @@ function PackageDrawer({
   onPrivateChange: (value: boolean) => void
   onClose: () => void
   onUpload: () => void
+  marketApplicationBusy: boolean
+  marketApplicationPending: boolean
+  onApplyMarket: () => void
   onDelete: () => void
   onOpenGate: (gateKey: string) => void
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void
@@ -1499,6 +1417,23 @@ function PackageDrawer({
           </label>
           <button type="button" onClick={onUpload} disabled={!repoId.trim()}>{t('dataManageUploadPackage')}</button>
         </div>
+      </DrawerSection>
+      <DrawerSection
+        title={t('dataManageMarketListingSection')}
+        action={(
+          <button
+            type="button"
+            className="data-manage-drawer-action"
+            onClick={onApplyMarket}
+            disabled={marketApplicationBusy || marketApplicationPending}
+          >
+            {marketApplicationBusy
+              ? t('dataManageMarketApplying')
+              : marketApplicationPending ? t('dataManageMarketApplyPending') : t('dataManageApplyMarket')}
+          </button>
+        )}
+      >
+        <p className="data-manage-market-note">{t('dataManageMarketListingHint')}</p>
       </DrawerSection>
       <DrawerSection title={t('dataManageStatsSection')}>
         <div className="data-manage-kv-grid">

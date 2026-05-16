@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataEpisodeInspectionWorkspace } from '@/domains/data/components/DataEpisodeInspectionWorkspace'
-import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/analysisPayload'
+import {
+  readEpisodeTaskDescription,
+  resolveEpisodePlaybackDuration,
+} from '@/domains/data/components/EpisodePlaybackPanel'
+import { asRecord, formatSeconds } from '@/domains/data/lib/analysisPayload'
+import { framePreviewTime, readEpisodeVideos, type EpisodeVideo } from '@/domains/data/lib/episodeMedia'
+import { clearReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   buildDatasetQualityView,
   datasetTaskDescription,
@@ -43,14 +49,6 @@ interface QcSequenceSummary {
   nextRecord: QcDatasetRecord | null
 }
 
-interface QcFrameVideo {
-  path: string
-  url: string
-  stream: string
-  from_timestamp: number | null
-  to_timestamp: number | null
-}
-
 const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }> = [
   { value: 'motion_abnormal', labelKey: 'dataReviewReasonMotionAbnormal' },
   { value: 'video_abnormal', labelKey: 'dataReviewReasonVideoAbnormal' },
@@ -60,6 +58,7 @@ const REVIEW_FAILURE_REASONS: Array<{ value: string; labelKey: TranslationKey }>
 ]
 
 export default function DataQcPage() {
+  const navigate = useNavigate()
   const { t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const user = useAuthStore((state) => state.user)
@@ -85,12 +84,23 @@ export default function DataQcPage() {
   const [datasetIdCopied, setDatasetIdCopied] = useState(false)
   const reviewLoadRequestRef = useRef(0)
   const inspectionLoadRequestRef = useRef(0)
+  const datasetQuery = searchParams.get('dataset') || ''
   const reviewerId = currentReviewerId(user)
   const reviewerLabel = currentReviewerLabel(user)
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (datasetQuery || activeDatasetId || reviewLoading) return
+    navigate('/data/manage', { replace: true })
+  }, [activeDatasetId, datasetQuery, navigate, reviewLoading])
+
+  useEffect(() => {
+    const reviewQuery = searchParams.toString()
+    if (datasetQuery && reviewQuery) writeReviewQueueReturn(reviewQuery)
+  }, [datasetQuery, searchParams])
 
   useEffect(() => {
     const datasetId = searchParams.get('dataset') || ''
@@ -280,6 +290,7 @@ export default function DataQcPage() {
   function clearReviewSequence() {
     reviewLoadRequestRef.current += 1
     inspectionLoadRequestRef.current += 1
+    clearReviewQueueReturn()
     setActiveDatasetId('')
     setReviewWorkspace(null)
     setReviewLoading(false)
@@ -292,10 +303,29 @@ export default function DataQcPage() {
     setSearchParams(new URLSearchParams())
   }
 
+  function returnToManage() {
+    const targetParams = new URLSearchParams()
+    if (activeDatasetId) targetParams.set('dataset', activeDatasetId)
+    const reviewQuery = searchParams.toString()
+    if (reviewQuery) {
+      writeReviewQueueReturn(reviewQuery)
+      targetParams.set('returnQc', reviewQuery)
+    }
+    const query = targetParams.toString()
+    navigate(`/data/manage${query ? `?${query}` : ''}`)
+  }
+
   return (
     <section className="data-page data-qc-page">
       {error && <div className="data-alert">{error}</div>}
       {reviewError && <div className="data-alert">{reviewError}</div>}
+      {hasReviewSelection && (
+        <div className="data-analysis-toolbar">
+          <button type="button" className="data-analysis-return" onClick={returnToManage}>
+            {t('dataQcBackToManage')}
+          </button>
+        </div>
+      )}
 
       <div className="data-qc-review-workspace">
         <section className="data-panel data-qc-review-list-panel">
@@ -481,12 +511,10 @@ function ReviewLedger({
 }) {
   const reviewedCount = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)]).length
   const total = workspace.episode_indices.length
-  const currentPosition = Math.max(0, workspace.episode_indices.indexOf(episodeIndex))
   const progress = total ? Math.round((reviewedCount / total) * 100) : 0
   return (
     <div className="data-qc-review-ledger">
       <div className="data-qc-review-ledger__head">
-        <span>{t('dataReviewEpisodeProgress', { current: currentPosition + 1, total: Math.max(total, 1) })}</span>
         <span>{t('dataReviewReviewedCount', { reviewed: reviewedCount, total })}</span>
         <span>{t('dataQcRemaining')}: {Math.max(total - reviewedCount, 0)}</span>
       </div>
@@ -554,62 +582,148 @@ function ReviewInspectionWorkspace({
   onSaveDraftTaskDescription: () => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
+  const episodePayload = asRecord(episode)
+  const taskDescription = readEpisodeTaskDescription(episodePayload)
+  const duration = resolveEpisodePlaybackDuration(episodePayload, { includeTrajectory: false })
+  const [inspectionOpen, setInspectionOpen] = useState(true)
+  const [editOpen, setEditOpen] = useState(true)
+  const inspectionTitle = t('dataReviewInspectionChecklistTitle')
+  const editTitle = t('dataReviewEditSectionTitle')
+
   return (
-    <section className="data-panel data-review-inspection-checklist">
-      <div className="data-panel__title">
-        <h2>{t('dataReviewInspectionChecklistTitle')}</h2>
-      </div>
-      <article className="data-review-inspection-item">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataReviewInspectionTaskDescription')}</strong>
-            <em>{t('dataReviewInspectionDatasetScope')}</em>
+    <div className="data-review-inspection-groups">
+      <section className="data-panel data-review-inspection-checklist">
+        <ReviewSectionTitle
+          title={inspectionTitle}
+          open={inspectionOpen}
+          controlsId="data-qc-inspection-items"
+          onToggle={() => setInspectionOpen((current) => !current)}
+          t={t}
+        >
+          <div className="data-qc-episode-duration">
+            <span>{t('dataAnalysisEpisodeLengths')}</span>
+            <strong>{formatSeconds(duration)}</strong>
           </div>
-        </div>
-        <TaskDescriptionInspection
-          datasetTask={datasetTask}
-          draftTaskDescription={draftTaskDescription}
-          saving={saving}
-          reviewLoading={reviewLoading}
-          onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
-          onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+        </ReviewSectionTitle>
+
+        {inspectionOpen && (
+          <div id="data-qc-inspection-items" className="data-review-section-body">
+            {taskDescription && (
+              <section className="data-analysis-section data-qc-review-task-summary">
+                <div className="data-analysis-section-title">{t('collectionTaskDescription')}</div>
+                <div className="data-analysis-section-card data-analysis-task-card">
+                  {taskDescription}
+                </div>
+              </section>
+            )}
+
+            <article className="data-review-inspection-item">
+              <div className="data-review-inspection-item__head">
+                <div>
+                  <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
+                </div>
+              </div>
+              <FirstLastFrameInspection episode={episode} t={t} />
+            </article>
+
+            <div className="data-qc-review-visuals">
+              <DataEpisodeInspectionWorkspace
+                source={source}
+                dataset={dataset}
+                episode={episode}
+                episodeIndex={episodeIndex}
+                totalEpisodes={totalEpisodes}
+                loading={loading}
+                canLoadEpisode={canLoadEpisode}
+                error={error}
+                emptyLabel={t('dataQcReviewVisualsLoading')}
+                showEpisodeControls={false}
+                showTitle={false}
+                displayMode="full"
+                showRobot3D
+                allowStaticRobot3D
+                showTrajectoryCharts={false}
+                showTaskDescription={false}
+                chrome="plain"
+                summaryMode="duration"
+                onEpisodeIndexChange={onEpisodeIndexChange}
+                onLoadEpisode={onLoadEpisode}
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="data-panel data-review-edit-items">
+        <ReviewSectionTitle
+          title={editTitle}
+          open={editOpen}
+          controlsId="data-qc-edit-items"
+          onToggle={() => setEditOpen((current) => !current)}
           t={t}
         />
-      </article>
-
-      <article className="data-review-inspection-item data-qc-review-visuals">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataQcEpisodeInspectionTitle')}</strong>
+        {editOpen && (
+          <div id="data-qc-edit-items" className="data-review-section-body">
+            <article className="data-review-inspection-item">
+              <div className="data-review-inspection-item__head">
+                <div>
+                  <strong>{t('dataReviewTaskDraft')}</strong>
+                  <em>{t('dataReviewInspectionDatasetScope')}</em>
+                </div>
+              </div>
+              <TaskDescriptionInspection
+                datasetTask={datasetTask}
+                draftTaskDescription={draftTaskDescription}
+                saving={saving}
+                reviewLoading={reviewLoading}
+                onDraftTaskDescriptionChange={onDraftTaskDescriptionChange}
+                onSaveDraftTaskDescription={onSaveDraftTaskDescription}
+                t={t}
+              />
+            </article>
           </div>
-        </div>
-        <DataEpisodeInspectionWorkspace
-          source={source}
-          dataset={dataset}
-          episode={episode}
-          episodeIndex={episodeIndex}
-          totalEpisodes={totalEpisodes}
-          loading={loading}
-          canLoadEpisode={canLoadEpisode}
-          error={error}
-          emptyLabel={t('dataQcReviewVisualsLoading')}
-          showEpisodeControls={false}
-          showTitle={false}
-          displayMode="full"
-          onEpisodeIndexChange={onEpisodeIndexChange}
-          onLoadEpisode={onLoadEpisode}
-        />
-      </article>
+        )}
+      </section>
+    </div>
+  )
+}
 
-      <article className="data-review-inspection-item">
-        <div className="data-review-inspection-item__head">
-          <div>
-            <strong>{t('dataReviewInspectionFirstLastFrame')}</strong>
-          </div>
+function ReviewSectionTitle({
+  title,
+  open,
+  controlsId,
+  onToggle,
+  t,
+  children,
+}: {
+  title: string
+  open: boolean
+  controlsId: string
+  onToggle: () => void
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
+  children?: ReactNode
+}) {
+  return (
+    <div className="data-panel__title data-review-section-title">
+      <button
+        type="button"
+        className="data-review-section-toggle"
+        aria-expanded={open}
+        aria-controls={controlsId}
+        aria-label={t(open ? 'dataReviewCollapseSection' : 'dataReviewExpandSection', { title })}
+        onClick={onToggle}
+      >
+        <span className="data-review-section-toggle__chevron" aria-hidden="true">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="data-review-section-toggle__text">{title}</span>
+      </button>
+      {children && (
+        <div className="data-review-section-title__aside">
+          {children}
         </div>
-        <FirstLastFrameInspection episode={episode} t={t} />
-      </article>
-    </section>
+      )}
+    </div>
   )
 }
 
@@ -659,13 +773,12 @@ function FirstLastFrameInspection({
   episode: unknown
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
-  const videos = useMemo(() => readQcFrameVideos(episode), [episode])
+  const videos = useMemo(() => readEpisodeVideos(episode), [episode])
   if (!videos.length) {
     return <div className="data-empty">{t('dataReviewFirstLastFrameEmpty')}</div>
   }
   return (
     <div className="data-review-first-last-frame">
-      <span>{t('dataReviewFirstLastFrameTitle')}</span>
       <div className="data-review-first-last-frame__grid">
         {videos.map((video, index) => (
           <div key={`${video.path}-${index}`} className="data-review-first-last-frame__stream">
@@ -686,7 +799,7 @@ function FramePreviewVideo({
   label,
   position,
 }: {
-  video: QcFrameVideo
+  video: EpisodeVideo
   label: string
   position: 'first' | 'last'
 }) {
@@ -894,29 +1007,6 @@ function nextReviewDatasetId(records: QcDatasetRecord[], currentDatasetId: strin
   if (currentIndex < 0) return ids[0] || ''
   const after = records.slice(currentIndex + 1).find((record) => record.id !== currentDatasetId)
   return after?.id || ids[0] || ''
-}
-
-function readQcFrameVideos(episode: unknown): QcFrameVideo[] {
-  const episodePayload = asRecord(episode)
-  return asArray(episodePayload.videos).map(asRecord).map((video) => ({
-    path: textValue(video.path),
-    url: textValue(video.url),
-    stream: textValue(video.stream) || textValue(video.path),
-    from_timestamp: numberValue(video.from_timestamp),
-    to_timestamp: numberValue(video.to_timestamp),
-  })).filter((video) => Boolean(video.url))
-}
-
-function framePreviewTime(video: QcFrameVideo, position: 'first' | 'last', duration: number | null): number {
-  const start = video.from_timestamp != null && Number.isFinite(video.from_timestamp) ? video.from_timestamp : 0
-  const end = video.to_timestamp != null && Number.isFinite(video.to_timestamp)
-    ? video.to_timestamp
-    : duration
-  const target = position === 'first'
-    ? start
-    : Math.max((end ?? duration ?? 0) - 0.05, start)
-  if (duration == null || duration <= 0) return Math.max(target, 0)
-  return Math.min(Math.max(target, 0), Math.max(duration - 0.05, 0))
 }
 
 function workspaceRecordFallback(dataset: Dataset): QcDatasetRecord {

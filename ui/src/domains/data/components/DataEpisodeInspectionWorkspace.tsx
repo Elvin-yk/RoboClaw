@@ -1,7 +1,13 @@
 import { asRecord } from '@/domains/data/lib/analysisPayload'
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
-import { EpisodePlaybackPanel, type EpisodePlaybackDisplayMode } from './EpisodePlaybackPanel'
+import {
+  EpisodePicker,
+  EpisodePlaybackPanel,
+  type EpisodePlaybackChrome,
+  type EpisodePlaybackDisplayMode,
+  type EpisodePlaybackSummaryMode,
+} from './EpisodePlaybackPanel'
 
 interface DataEpisodeInspectionWorkspaceProps {
   source: RobotTrajectorySource
@@ -17,6 +23,12 @@ interface DataEpisodeInspectionWorkspaceProps {
   showEpisodeControls?: boolean
   showTitle?: boolean
   displayMode?: EpisodePlaybackDisplayMode
+  showRobot3D?: boolean
+  showTrajectoryCharts?: boolean
+  showTaskDescription?: boolean
+  allowStaticRobot3D?: boolean
+  chrome?: EpisodePlaybackChrome
+  summaryMode?: EpisodePlaybackSummaryMode
   onEpisodeIndexChange: (episodeIndex: number) => void
   onLoadEpisode: (episodeIndex: number) => void
 }
@@ -35,6 +47,12 @@ export function DataEpisodeInspectionWorkspace({
   showEpisodeControls = true,
   showTitle = true,
   displayMode = 'full',
+  showRobot3D = true,
+  showTrajectoryCharts = true,
+  showTaskDescription = true,
+  allowStaticRobot3D = false,
+  chrome = 'panel',
+  summaryMode = 'full',
   onEpisodeIndexChange,
   onLoadEpisode,
 }: DataEpisodeInspectionWorkspaceProps) {
@@ -60,18 +78,26 @@ export function DataEpisodeInspectionWorkspace({
           source={source}
           dataset={dataset}
           path={path}
+          showRobot3D={showRobot3D}
+          showTrajectoryCharts={showTrajectoryCharts}
+          showTaskDescription={showTaskDescription}
+          allowStaticRobot3D={allowStaticRobot3D}
+          chrome={chrome}
+          summaryMode={summaryMode}
         />
       ) : (
-        <section className="data-panel data-qc-episode-inspection">
+        <section className={chrome === 'panel' ? 'data-panel data-qc-episode-inspection' : 'data-qc-episode-inspection'}>
           {showTitle && (
             <div className="data-panel__title">
-              <h2>{t('dataQcEpisodeInspectionTitle')}</h2>
               {showEpisodeControls && (
-                <div className="data-analysis-player__summary">
-                  <button type="button" onClick={() => onLoadEpisode(episodeIndex)} disabled={loading || !canLoadEpisode}>
-                    {t('dataAnalysisLoadEpisode', { index: episodeIndex })}
-                  </button>
-                </div>
+                <EpisodePicker
+                  value={episodeIndex}
+                  totalEpisodes={totalEpisodes}
+                  loading={loading}
+                  canLoadEpisode={canLoadEpisode}
+                  onChange={onEpisodeIndexChange}
+                  onLoad={onLoadEpisode}
+                />
               )}
             </div>
           )}

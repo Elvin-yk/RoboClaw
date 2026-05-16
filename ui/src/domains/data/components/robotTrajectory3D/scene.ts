@@ -11,6 +11,8 @@ const ARM_COLORS: Record<RobotArmSide, string> = {
   left: '#4f8fbd',
   right: '#d0892b',
 }
+const DEFAULT_CAMERA_POSITION = [-1.05, 0, 0.44] as const
+const DEFAULT_CAMERA_TARGET = [0, 0, -0.08] as const
 
 interface ArmInstance {
   robot: URDFRobot
@@ -37,8 +39,8 @@ export class RobotTrajectory3DScene {
     this.scene.background = new THREE.Color(0xf3f6fa)
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.04, 40)
     this.camera.up.set(0, 0, 1)
-    this.camera.position.set(0.62, 0.62, 0.42)
-    this.camera.lookAt(0, 0, 0.16)
+    this.camera.position.set(...DEFAULT_CAMERA_POSITION)
+    this.camera.lookAt(...DEFAULT_CAMERA_TARGET)
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -46,7 +48,7 @@ export class RobotTrajectory3DScene {
     container.appendChild(this.renderer.domElement)
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
-    this.controls.target.set(0, 0, 0.16)
+    this.controls.target.set(...DEFAULT_CAMERA_TARGET)
     this.controls.enableDamping = true
     this.controls.update()
 

@@ -3,7 +3,7 @@ import { asArray, asRecord, numberValue, textValue } from '@/domains/data/lib/an
 import type { RobotTrajectorySource } from '@/domains/data/model/types'
 import { useI18n } from '@/i18n'
 import { DatasetStatsPanel } from './DatasetStatsPanel'
-import { EpisodePlaybackPanel } from './EpisodePlaybackPanel'
+import { EpisodePicker, EpisodePlaybackPanel } from './EpisodePlaybackPanel'
 
 interface DataAnalysisWorkspaceProps {
   source: RobotTrajectorySource
@@ -86,12 +86,14 @@ export function DataAnalysisWorkspace({
       ) : (
         <section className="data-panel">
           <div className="data-panel__title">
-            <h2>{t('dataAnalysisEpisodeVisualization')}</h2>
-            <div className="data-analysis-player__summary">
-              <button type="button" onClick={() => onLoadEpisode(episodeIndex)} disabled={loading || !canLoadEpisode}>
-                {t('dataAnalysisLoadEpisode', { index: episodeIndex })}
-              </button>
-            </div>
+            <EpisodePicker
+              value={episodeIndex}
+              totalEpisodes={totalEpisodes}
+              loading={loading}
+              canLoadEpisode={canLoadEpisode}
+              onChange={onEpisodeIndexChange}
+              onLoad={onLoadEpisode}
+            />
           </div>
           <div className="data-empty">{emptyLabel || (hasLoadedDataset ? t('dataAnalysisSelectEpisodePrompt') : t('dataAnalysisInspectFirst'))}</div>
         </section>

@@ -16,7 +16,11 @@ function roleColor(role: MembershipRole | null): string {
     return '#6b7a8d'
 }
 
-export default function AppHeader() {
+interface AppHeaderProps {
+    onOpenSystemActions?: () => void
+}
+
+export default function AppHeader({ onOpenSystemActions }: AppHeaderProps) {
     const navigate = useNavigate()
     const { connected } = useChatSocket()
     const toast = useToast((state) => state.add)
@@ -46,13 +50,20 @@ export default function AppHeader() {
         }
     }
 
+    function handleSystemStatusClick() {
+        setSystemPopoverOpen((open) => {
+            if (!open) onOpenSystemActions?.()
+            return !open
+        })
+    }
+
     return (
         <header className="app-topbar">
             <div className="app-topbar__connection">
                 <button
                     type="button"
                     className="app-topbar__status-button"
-                    onClick={() => setSystemPopoverOpen((open) => !open)}
+                    onClick={handleSystemStatusClick}
                     aria-label={connected ? t('connected') : t('disconnected')}
                     aria-expanded={systemPopoverOpen}
                 >

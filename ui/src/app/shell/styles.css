@@ -1,6 +1,12 @@
 .app-shell {
+  --app-sidebar-current-width: 204px;
+
   display: flex;
   min-height: 100vh;
+}
+
+.app-shell--sidebar-collapsed {
+  --app-sidebar-current-width: 56px;
 }
 
 .app-shell__main {
@@ -27,10 +33,9 @@
   flex-direction: column;
   gap: 16px;
   border-right: 1px solid rgba(47, 111, 228, 0.10);
-  background: rgba(255, 255, 255, 0.68);
+  background: #fbfdff;
   padding: 16px 12px;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(12px);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -225,7 +230,6 @@
   border: 1px solid rgba(47, 111, 228, 0.12);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.94));
   box-shadow: 0 14px 36px rgba(47, 111, 228, 0.08);
-  backdrop-filter: blur(14px);
 }
 
 .glass-panel::after {
@@ -287,7 +291,6 @@
   align-items: center;
   justify-content: center;
   background: rgba(15, 23, 41, 0.78);
-  backdrop-filter: blur(6px);
   z-index: 9999;
   padding: 32px;
 }
@@ -540,18 +543,6 @@
   border: 1px solid rgba(47, 111, 228, 0.1);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 10px 24px rgba(47, 111, 228, 0.06);
-}
-
-.metric-card::after {
-  content: '';
-  position: absolute;
-  inset: auto -20% -55% auto;
-  width: 120px;
-  height: 120px;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.12;
-  filter: blur(18px);
 }
 
 .metric-card--teal {
@@ -888,7 +879,6 @@
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 28px 72px rgba(127, 29, 29, 0.22);
   padding: 22px;
-  backdrop-filter: blur(18px);
   animation: popover-enter 0.14s ease-out;
 }
 
@@ -1067,6 +1057,8 @@
 
 @media (max-width: 900px) {
   .app-shell {
+    --app-sidebar-current-width: 0px;
+
     flex-direction: column;
   }
 
@@ -1128,7 +1120,6 @@
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 16px 34px rgba(27, 37, 55, 0.16);
-    backdrop-filter: blur(16px);
     padding: 8px;
   }
 
@@ -1176,8 +1167,7 @@
   .app-sidebar {
     top: 0;
     gap: 16px;
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(18px);
+    background: #fbfdff;
   }
 
   .app-sidebar__header {

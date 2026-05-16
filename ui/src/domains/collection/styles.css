@@ -738,7 +738,6 @@ button.collection-task-card:disabled {
     color: var(--tx2);
     box-shadow: 0 24px 80px rgba(31, 61, 112, 0.16);
     opacity: 0;
-    backdrop-filter: blur(18px);
     transform: translateX(18px) scale(0.96);
     animation: trash-flyout-in 0.18s ease forwards;
     transition:

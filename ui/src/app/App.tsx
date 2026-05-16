@@ -5,6 +5,7 @@ import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
 import DataAnalysisPage from '@/domains/data/pages/DataAnalysisPage'
 import DataAnnotationPage from '@/domains/data/pages/DataAnnotationPage'
+import DataMarketPage from '@/domains/data/pages/DataMarketPage'
 import DataManagePage from '@/domains/data/pages/DataManagePage'
 import DataQcPage from '@/domains/data/pages/DataQcPage'
 import TrainingCenterPage from '@/domains/training/pages/TrainingCenterPage'
@@ -63,6 +64,7 @@ function App() {
                         <Route path="data" element={<Navigate to="/data/manage" replace />} />
                         <Route path="data/analysis" element={<DataAnalysisPage />} />
                         <Route path="data/annotation" element={<DataAnnotationPage />} />
+                        <Route path="data/market" element={<DataMarketPage />} />
                         <Route path="data/manage" element={<DataManagePage />} />
                         <Route path="data/qc" element={<DataQcPage />} />
                         <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />

@@ -10,6 +10,7 @@ interface LibraryState {
   loading: boolean
   error: string
   load: () => Promise<void>
+  loadPackages: () => Promise<void>
   toggleDataset: (datasetId: string) => void
   setDatasetSelection: (datasetIds: string[], selected: boolean) => void
   clearSelection: () => void
@@ -30,6 +31,15 @@ export const useDataLibraryStore = create<LibraryState>((set, get) => ({
     try {
       const [datasets, packages] = await Promise.all([dataApi.listDatasets(), dataApi.listPackages()])
       set({ datasets, packages, loading: false })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error), loading: false })
+    }
+  },
+  loadPackages: async () => {
+    set({ loading: true, error: '' })
+    try {
+      const packages = await dataApi.listPackages()
+      set({ packages, loading: false })
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error), loading: false })
     }

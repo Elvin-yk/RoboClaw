@@ -38,7 +38,6 @@
     border-radius: 28px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 247, 251, 0.95));
     box-shadow: 0 20px 56px rgba(47, 111, 228, 0.1);
-    backdrop-filter: blur(14px);
     padding: 36px 32px 32px;
     animation: page-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
