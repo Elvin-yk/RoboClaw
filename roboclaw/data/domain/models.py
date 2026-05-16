@@ -120,7 +120,6 @@ class DatasetPackage:
     stats: DatasetStats = field(default_factory=DatasetStats)
     gates: dict[str, Gate] = field(default_factory=dict)
     evaluation_summary: dict[str, Any] = field(default_factory=dict)
-    market_listing: dict[str, Any] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -136,7 +135,6 @@ class DatasetPackage:
             "stats": self.stats.to_dict(),
             "gates": {key: gate.to_dict() for key, gate in self.gates.items()},
             "evaluation_summary": self.evaluation_summary,
-            "market_listing": self.market_listing,
             "updated_at": self.updated_at,
         }
 

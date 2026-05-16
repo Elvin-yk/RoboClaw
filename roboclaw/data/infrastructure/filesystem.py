@@ -146,7 +146,6 @@ class DataRepository:
             stats=self._stats_from_info(path, info),
             gates={key: Gate(**gate) for key, gate in state["gates"].items()},
             evaluation_summary=dict(state.get("evaluation_summary") or {}),
-            market_listing=dict(state.get("market_listing") or {}),
             updated_at=str(state.get("updated_at") or ""),
         )
 

@@ -2523,38 +2523,6 @@
   background: #f8fafc;
 }
 
-.data-robot-trajectory3d__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 8px 10px;
-  background: #ffffff;
-}
-
-.data-robot-trajectory3d__signals {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.data-page .data-robot-trajectory3d__signals button {
-  min-height: 30px;
-  border-color: #d0d5dd;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #475467;
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.data-page .data-robot-trajectory3d__signals button.is-active,
-.data-page .data-robot-trajectory3d__signals button:not(:disabled):hover {
-  border-color: #98a2b3;
-  background: #f2f4f7;
-  color: #101828;
-}
-
 .data-robot-trajectory3d__viewport {
   position: relative;
   height: min(52vh, 520px);
