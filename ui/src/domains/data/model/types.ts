@@ -12,7 +12,7 @@ export type DatasetPackageStage =
   | 'failed'
 
 export type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'needs_review' | 'skipped'
-export type DataAutoCleanOutcome = 'pending' | 'no_repair_needed' | 'repaired' | 'failed'
+export type DataAutoCleanOutcome = 'pending' | 'passed' | 'failed'
 export type DataManualReviewOutcome = 'pending' | 'passed' | 'needs_fix' | 'failed'
 
 export interface DataGate {

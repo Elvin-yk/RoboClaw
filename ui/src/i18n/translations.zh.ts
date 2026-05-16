@@ -980,8 +980,6 @@ export const inlineZh = {
         dataQualityStatusSkipped: '无需检阅',
         dataAutoCleanOutcomePending: '待处理',
         dataAutoCleanOutcomePassed: '通过',
-        dataAutoCleanOutcomeNoRepairNeeded: '无需修复',
-        dataAutoCleanOutcomeRepaired: '修复通过',
         dataAutoCleanOutcomeFailed: '未通过',
         dataManualReviewOutcomePending: '待处理',
         dataManualReviewOutcomePassed: '通过',

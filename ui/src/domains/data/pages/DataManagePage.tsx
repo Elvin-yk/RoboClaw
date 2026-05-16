@@ -11,13 +11,11 @@ import {
   sortDataGateKeys,
 } from '@/domains/data/model/gates'
 import {
-  autoCleanDisplayStatus,
-  autoCleanStatusLabelKey,
+  autoCleanOutcomeLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
   manualReviewOutcomeLabelKey,
   qcReviewStatus,
-  type AutoCleanStatus,
   type AutoCleanOutcome,
   type ManualReviewOutcome,
 } from '@/domains/data/model/datasetQuality'
@@ -47,17 +45,17 @@ const MANAGE_SECTION_STORAGE_KEY = 'roboclaw:data-manage:sections'
 
 type ManageSectionKey = 'raw' | 'clean' | 'packages'
 type QualityLane = 'auto_clean' | 'manual_review'
-type QualityOutcome = AutoCleanStatus | ManualReviewOutcome
+type QualityOutcome = AutoCleanOutcome | ManualReviewOutcome
 type QualityStepStatusClass = GateStatus
 type QualityRunStepView = DataQcRun['steps'][number]
 
 type SectionOpenState = Record<ManageSectionKey, boolean>
-type AutoCleanStatusFilter = AutoCleanStatus | 'all'
+type AutoCleanStatusFilter = AutoCleanOutcome | 'all'
 type ManualReviewStatusFilter = ManualReviewOutcome | 'all'
 type LaneStatusCounts<T extends string> = Record<T, number>
 
 interface DatasetSectionStatusSummary {
-  autoClean: LaneStatusCounts<AutoCleanStatus>
+  autoClean: LaneStatusCounts<AutoCleanOutcome>
   manualReview: LaneStatusCounts<ManualReviewOutcome>
 }
 
@@ -94,7 +92,7 @@ const QUALITY_STEP_LABELS: Record<string, TranslationKey> = {
   repair_verify: 'dataManageQualityStepVerify',
   manual_review_decision: 'dataManageQualityStepManualReview',
 }
-const AUTO_CLEAN_STATUSES: AutoCleanStatus[] = ['pending', 'passed', 'failed']
+const AUTO_CLEAN_STATUSES: AutoCleanOutcome[] = ['pending', 'passed', 'failed']
 const MANUAL_REVIEW_OUTCOMES: ManualReviewOutcome[] = ['pending', 'passed', 'needs_fix', 'failed']
 
 export default function DataManagePage() {
@@ -1752,7 +1750,7 @@ function datasetSectionStatusSummary(datasets: Dataset[]): DatasetSectionStatusS
   return summary
 }
 
-function emptyAutoCleanOutcomeCounts(): LaneStatusCounts<AutoCleanStatus> {
+function emptyAutoCleanOutcomeCounts(): LaneStatusCounts<AutoCleanOutcome> {
   return { pending: 0, passed: 0, failed: 0 }
 }
 
@@ -1793,8 +1791,8 @@ function isReviewBatchReady(dataset: Dataset): boolean {
 function datasetAutoCleanDisplayStatus(
   dataset: Dataset,
   quality = buildDatasetQualityView(dataset),
-): AutoCleanStatus {
-  return autoCleanDisplayStatus(quality.autoCleanOutcome)
+): AutoCleanOutcome {
+  return quality.autoCleanOutcome
 }
 
 function datasetManualReviewDisplayStatus(
@@ -1829,15 +1827,15 @@ function currentReviewerId(user: { id?: string; phone?: string; nickname?: strin
 }
 
 function isAutoCleanPassedOutcome(outcome: AutoCleanOutcome): boolean {
-  return outcome === 'no_repair_needed' || outcome === 'repaired'
+  return outcome === 'passed'
 }
 
 function isManualReviewBatchApplicable(outcome: ManualReviewOutcome): boolean {
   return outcome === 'passed' || outcome === 'needs_fix'
 }
 
-function autoCleanStatusLabel(status: AutoCleanStatus, t: (key: TranslationKey) => string): string {
-  return t(autoCleanStatusLabelKey(status))
+function autoCleanStatusLabel(status: AutoCleanOutcome, t: (key: TranslationKey) => string): string {
+  return t(autoCleanOutcomeLabelKey(status))
 }
 
 function manualReviewOutcomeLabel(outcome: ManualReviewOutcome, t: (key: TranslationKey) => string): string {
@@ -1875,10 +1873,11 @@ function normalizedQualityStepStatus(status: string): GateStatus {
 
 function autoCleanStepFallbacks(outcome: AutoCleanOutcome, message: string): QualityRunStepView[] {
   const failedStepId = outcome === 'failed' ? autoCleanFailureStepId(message) : ''
+  const alreadyClean = outcome === 'passed' && message.toLowerCase().includes('already clean')
   return ['empty_dataset_check', 'damage_diagnosis', 'repair_if_possible', 'repair_verify'].map((stepId) => ({
     id: stepId,
-    status: autoCleanFallbackStepStatus(stepId, outcome, failedStepId),
-    message: autoCleanFallbackStepMessage(stepId, failedStepId, outcome, message),
+    status: autoCleanFallbackStepStatus(stepId, outcome, failedStepId, alreadyClean),
+    message: autoCleanFallbackStepMessage(stepId, failedStepId, alreadyClean, message),
     details: {},
   }))
 }
@@ -1897,24 +1896,25 @@ function autoCleanFallbackStepStatus(
   stepId: string,
   outcome: AutoCleanOutcome,
   failedStepId: string,
+  alreadyClean: boolean,
 ): string {
   if (outcome === 'pending') return 'pending'
   if (outcome === 'failed') {
     if (stepId === failedStepId) return 'failed'
     return autoCleanStepIndex(stepId) < autoCleanStepIndex(failedStepId) ? 'passed' : 'pending'
   }
-  if (outcome === 'no_repair_needed' && (stepId === 'repair_if_possible' || stepId === 'repair_verify')) return 'skipped'
+  if (alreadyClean && (stepId === 'repair_if_possible' || stepId === 'repair_verify')) return 'skipped'
   return 'passed'
 }
 
 function autoCleanFallbackStepMessage(
   stepId: string,
   failedStepId: string,
-  outcome: AutoCleanOutcome,
+  alreadyClean: boolean,
   message: string,
 ): string {
   if (stepId === failedStepId) return message
-  if (outcome === 'no_repair_needed' && stepId === 'repair_if_possible') return message
+  if (alreadyClean && stepId === 'repair_if_possible') return message
   return ''
 }
 

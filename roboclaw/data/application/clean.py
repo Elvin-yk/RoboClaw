@@ -16,8 +16,7 @@ from .jobs import DataJobCoordinator, DataJobHandle
 from .serialization import json_ready
 
 AUTO_CLEAN_OUTCOME_PENDING = "pending"
-AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED = "no_repair_needed"
-AUTO_CLEAN_OUTCOME_REPAIRED = "repaired"
+AUTO_CLEAN_OUTCOME_PASSED = "passed"
 AUTO_CLEAN_OUTCOME_FAILED = "failed"
 
 
@@ -251,7 +250,11 @@ class DataCleanService:
                 key="review",
                 status="pending",
                 message="Manual review pending",
-                details={"auto_clean_run_id": run["run_id"], "auto_clean_outcome": AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED},
+                details={
+                    "auto_clean_run_id": run["run_id"],
+                    "auto_clean_outcome": AUTO_CLEAN_OUTCOME_PASSED,
+                    "auto_clean_result": "no_repair_needed",
+                },
             )
             self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
             self._record_qc_step(dataset_path, run, {
@@ -263,10 +266,15 @@ class DataCleanService:
                 dataset_path,
                 run,
                 status="completed",
-                outcome=AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED,
+                outcome=AUTO_CLEAN_OUTCOME_PASSED,
                 output=active_output,
             )
-            return {"dataset_id": dataset_id, "outcome": AUTO_CLEAN_OUTCOME_NO_REPAIR_NEEDED, "diagnosis": diagnosis_payload}
+            return {
+                "dataset_id": dataset_id,
+                "outcome": AUTO_CLEAN_OUTCOME_PASSED,
+                "auto_clean_result": "no_repair_needed",
+                "diagnosis": diagnosis_payload,
+            }
 
         if not diagnosis.repairable:
             return self._fail_auto_clean(
@@ -365,23 +373,27 @@ class DataCleanService:
         self.repository.state_store.set_gate(
             dataset_path,
             object_type="dataset",
-            key="review",
-            status="pending",
-            message="Manual review pending",
-            details={"auto_clean_run_id": run["run_id"], "auto_clean_outcome": AUTO_CLEAN_OUTCOME_REPAIRED},
-        )
+                key="review",
+                status="pending",
+                message="Manual review pending",
+                details={
+                    "auto_clean_run_id": run["run_id"],
+                    "auto_clean_outcome": AUTO_CLEAN_OUTCOME_PASSED,
+                    "auto_clean_result": result.outcome,
+                },
+            )
         self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
         self._finish_qc_run(
             dataset_path,
             run,
             status="completed",
-            outcome=AUTO_CLEAN_OUTCOME_REPAIRED,
+            outcome=AUTO_CLEAN_OUTCOME_PASSED,
             output=active_output,
         )
         return {
             "dataset_id": dataset_id,
             "active_output": active_output,
-            "outcome": AUTO_CLEAN_OUTCOME_REPAIRED,
+            "outcome": AUTO_CLEAN_OUTCOME_PASSED,
             "diagnosis": diagnosis_payload,
             "repair": result_payload,
         }

@@ -979,8 +979,6 @@ export const inlineEn = {
         dataQualityStatusSkipped: 'Skipped',
         dataAutoCleanOutcomePending: 'Pending',
         dataAutoCleanOutcomePassed: 'Passed',
-        dataAutoCleanOutcomeNoRepairNeeded: 'No Repair Needed',
-        dataAutoCleanOutcomeRepaired: 'Repaired',
         dataAutoCleanOutcomeFailed: 'Failed',
         dataManualReviewOutcomePending: 'Pending',
         dataManualReviewOutcomePassed: 'Passed',

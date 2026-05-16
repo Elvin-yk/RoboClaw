@@ -3,17 +3,9 @@ import type { DataAutoCleanOutcome, DataGate, DataManualReviewOutcome, Dataset }
 import type { TranslationKey } from '@/i18n'
 
 export type AutoCleanOutcome = DataAutoCleanOutcome
-export type AutoCleanStatus = 'pending' | 'passed' | 'failed'
 export type ManualReviewOutcome = DataManualReviewOutcome
 
 const AUTO_CLEAN_OUTCOME_LABELS: Record<AutoCleanOutcome, TranslationKey> = {
-  pending: 'dataAutoCleanOutcomePending',
-  no_repair_needed: 'dataAutoCleanOutcomeNoRepairNeeded',
-  repaired: 'dataAutoCleanOutcomeRepaired',
-  failed: 'dataAutoCleanOutcomeFailed',
-}
-
-const AUTO_CLEAN_STATUS_LABELS: Record<AutoCleanStatus, TranslationKey> = {
   pending: 'dataAutoCleanOutcomePending',
   passed: 'dataAutoCleanOutcomePassed',
   failed: 'dataAutoCleanOutcomeFailed',
@@ -90,16 +82,6 @@ export function autoCleanOutcomeLabelKey(outcome: AutoCleanOutcome): Translation
   return AUTO_CLEAN_OUTCOME_LABELS[outcome]
 }
 
-export function autoCleanStatusLabelKey(status: AutoCleanStatus): TranslationKey {
-  return AUTO_CLEAN_STATUS_LABELS[status]
-}
-
-export function autoCleanDisplayStatus(outcome: AutoCleanOutcome): AutoCleanStatus {
-  if (outcome === 'failed') return 'failed'
-  if (outcome === 'no_repair_needed' || outcome === 'repaired') return 'passed'
-  return 'pending'
-}
-
 export function manualReviewOutcomeLabelKey(outcome: ManualReviewOutcome): TranslationKey {
   return MANUAL_REVIEW_OUTCOME_LABELS[outcome]
 }
@@ -108,8 +90,7 @@ function qcAutoCleanOutcome(dataset: Dataset): AutoCleanOutcome {
   const outcome = textValue(qcLanePayload(dataset, 'auto_clean').outcome).toLowerCase()
   if (
     outcome === 'pending'
-    || outcome === 'no_repair_needed'
-    || outcome === 'repaired'
+    || outcome === 'passed'
     || outcome === 'failed'
   ) {
     return outcome

@@ -390,7 +390,7 @@ def test_episode_robot_trajectory_accepts_nested_feature_names(tmp_path: Path) -
     assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [106, 107, 108, 109]
 
 
-def test_clean_run_marks_healthy_dataset_no_repair_needed(tmp_path: Path) -> None:
+def test_clean_run_marks_healthy_dataset_auto_clean_passed(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/demo")
     client = _client(tmp_path)
 
@@ -407,7 +407,8 @@ def test_clean_run_marks_healthy_dataset_no_repair_needed(tmp_path: Path) -> Non
     job = _wait_job(client, started.json()["job_id"])
 
     assert job["phase"] == "completed"
-    assert job["result"]["datasets"][0]["outcome"] == "no_repair_needed"
+    assert job["result"]["datasets"][0]["outcome"] == "passed"
+    assert job["result"]["datasets"][0]["auto_clean_result"] == "no_repair_needed"
     detail = client.get("/api/data/library/datasets/local/demo").json()
     assert detail["lifecycle_stage"] == "needs_review"
     assert detail["gates"]["inspect"]["status"] == "passed"
@@ -415,14 +416,14 @@ def test_clean_run_marks_healthy_dataset_no_repair_needed(tmp_path: Path) -> Non
     assert detail["gates"]["review"]["status"] == "pending"
     assert detail["active_output"]["kind"] == "source"
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "completed"
-    assert detail["qc"]["lanes"]["auto_clean"]["outcome"] == "no_repair_needed"
+    assert detail["qc"]["lanes"]["auto_clean"]["outcome"] == "passed"
     assert detail["qc"]["reports"]["diagnosis"]["relative_path"].startswith("reports/diagnosis/")
     assert (tmp_path / "local" / "demo" / ".status" / "current.json").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / "events.jsonl").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / detail["qc"]["reports"]["diagnosis"]["relative_path"]).is_file()
 
 
-def test_clean_run_writes_repaired_outcome(tmp_path: Path) -> None:
+def test_clean_run_marks_repaired_dataset_auto_clean_passed(tmp_path: Path) -> None:
     _create_meta_stale_dataset(tmp_path, "local/stale")
     client = _client(tmp_path)
 
@@ -432,8 +433,9 @@ def test_clean_run_writes_repaired_outcome(tmp_path: Path) -> None:
 
     assert job["phase"] == "completed"
     result = job["result"]["datasets"][0]
-    assert result["outcome"] == "repaired"
+    assert result["outcome"] == "passed"
     assert result["active_output"]["kind"] == "artifact"
+    assert result["repair"]["outcome"] == "repaired"
 
     source = client.get("/api/data/library/datasets/local/stale").json()
     assert source["lifecycle_stage"] == "needs_review"
@@ -441,7 +443,7 @@ def test_clean_run_writes_repaired_outcome(tmp_path: Path) -> None:
     assert source["gates"]["review"]["status"] == "pending"
     assert source["gates"]["clean"]["details"]["active_output"]["kind"] == "artifact"
     assert source["active_output"]["kind"] == "artifact"
-    assert source["qc"]["lanes"]["auto_clean"]["outcome"] == "repaired"
+    assert source["qc"]["lanes"]["auto_clean"]["outcome"] == "passed"
     artifact_path = tmp_path / "local" / "stale" / source["active_output"]["relative_path"]
     assert artifact_path.is_dir()
     assert list((tmp_path / "local" / "stale" / ".status" / "runs").glob("*.json"))
