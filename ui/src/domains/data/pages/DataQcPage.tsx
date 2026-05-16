@@ -13,6 +13,7 @@ import {
   autoCleanOutcomeLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
+  qcReviewPayload,
   qcReviewStatus,
   type AutoCleanOutcome,
 } from '@/domains/data/model/datasetQuality'
@@ -23,8 +24,6 @@ import { useAuthStore } from '@/shared/lib/authStore'
 import { useI18n, type TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 
-type ReviewWorkStatus = DataReviewStatus
-
 interface QcDatasetRecord {
   id: string
   name: string
@@ -32,7 +31,7 @@ interface QcDatasetRecord {
   task: string
   createdDate: string
   autoCleanOutcome: AutoCleanOutcome
-  reviewStatus: ReviewWorkStatus
+  reviewStatus: DataReviewStatus
   reviewedCount: number
   passedCount: number
   failedCount: number
@@ -956,10 +955,9 @@ function ReviewDecisionControls({
 
 function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
   const quality = buildDatasetQualityView(dataset)
-  const review = reviewPayload(dataset)
+  const review = qcReviewPayload(dataset)
   const episodes = asRecord(review.episodes)
   const decisions = Object.values(episodes).map(asRecord)
-  const reviewStatus = datasetReviewStatus(dataset)
   return {
     id: dataset.id,
     name: dataset.label || dataset.name,
@@ -967,21 +965,13 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
     task: quality.taskDescription,
     createdDate: quality.createdDate,
     autoCleanOutcome: quality.autoCleanOutcome,
-    reviewStatus,
+    reviewStatus: qcReviewStatus(dataset) || 'pending',
     reviewedCount: decisions.length,
     passedCount: decisions.filter((decision) => decision.decision === 'passed').length,
     failedCount: decisions.filter((decision) => decision.decision === 'failed').length,
     totalEpisodes: dataset.stats.total_episodes,
     reviewerIds: Array.from(new Set(decisions.map((decision) => String(decision.reviewer_id || '')).filter(Boolean))),
   }
-}
-
-function datasetReviewStatus(dataset: Dataset): ReviewWorkStatus {
-  const status = qcReviewStatus(dataset)
-  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
-    return status
-  }
-  return 'pending'
 }
 
 function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {
@@ -1020,10 +1010,6 @@ function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {
   if (scopedIds.length) return Array.from(new Set(scopedIds))
   const datasetId = searchParams.get('dataset')
   return datasetId ? [datasetId] : []
-}
-
-function reviewPayload(dataset: Dataset): Record<string, unknown> {
-  return asRecord(asRecord(dataset.qc).review)
 }
 
 function reviewTaskDescription(workspace: DataReviewWorkspace): string {

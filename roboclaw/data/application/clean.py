@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from roboclaw.data.domain.models import (
+    AUTO_CLEAN_OUTCOME_FAILED,
+    AUTO_CLEAN_OUTCOME_PASSED,
+    AUTO_CLEAN_OUTCOME_PENDING,
+)
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 from roboclaw.data.repair.diagnosis import diagnose_dataset
@@ -14,10 +19,6 @@ from roboclaw.data.repair.types import DamageType
 
 from .jobs import DataJobCoordinator, DataJobHandle
 from .serialization import json_ready
-
-AUTO_CLEAN_OUTCOME_PENDING = "pending"
-AUTO_CLEAN_OUTCOME_PASSED = "passed"
-AUTO_CLEAN_OUTCOME_FAILED = "failed"
 
 
 class DataCleanService:
@@ -244,19 +245,11 @@ class DataCleanService:
                 message="Dataset is already clean",
                 details=diagnosis_payload,
             )
-            self.repository.state_store.set_gate(
+            self._mark_manual_review_pending_after_auto_clean(
                 dataset_path,
-                object_type="dataset",
-                key="review",
-                status="pending",
-                message="Manual review pending",
-                details={
-                    "auto_clean_run_id": run["run_id"],
-                    "auto_clean_outcome": AUTO_CLEAN_OUTCOME_PASSED,
-                    "auto_clean_result": "no_repair_needed",
-                },
+                run,
+                auto_clean_result="no_repair_needed",
             )
-            self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
             self._record_qc_step(dataset_path, run, {
                 "id": "repair_if_possible",
                 "status": "skipped",
@@ -370,19 +363,11 @@ class DataCleanService:
             message=f"Repair completed: {active_output['relative_path']}",
             details={**result_payload, "verify": verify_payload, "active_output": active_output},
         )
-        self.repository.state_store.set_gate(
+        self._mark_manual_review_pending_after_auto_clean(
             dataset_path,
-            object_type="dataset",
-                key="review",
-                status="pending",
-                message="Manual review pending",
-                details={
-                    "auto_clean_run_id": run["run_id"],
-                    "auto_clean_outcome": AUTO_CLEAN_OUTCOME_PASSED,
-                    "auto_clean_result": result.outcome,
-                },
-            )
-        self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
+            run,
+            auto_clean_result=result.outcome,
+        )
         self._finish_qc_run(
             dataset_path,
             run,
@@ -409,6 +394,27 @@ class DataCleanService:
         output_dir = (dataset_path / ".status" / "artifacts" / run_id / "dataset").resolve()
         output_dir.relative_to(dataset_path.resolve())
         return output_dir
+
+    def _mark_manual_review_pending_after_auto_clean(
+        self,
+        dataset_path: Path,
+        run: dict[str, Any],
+        *,
+        auto_clean_result: str,
+    ) -> None:
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="review",
+            status="pending",
+            message="Manual review pending",
+            details={
+                "auto_clean_run_id": run["run_id"],
+                "auto_clean_outcome": AUTO_CLEAN_OUTCOME_PASSED,
+                "auto_clean_result": auto_clean_result,
+            },
+        )
+        self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
 
     def _mark_cleaned_output(self, output_dir: Path, repair_payload: dict[str, Any]) -> None:
         state = self.repository.state_store.load_dataset_state(output_dir)

@@ -1,5 +1,13 @@
 import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
-import type { DataAutoCleanOutcome, DataGate, DataManualReviewOutcome, Dataset } from '@/domains/data/model/types'
+import {
+  isDataAutoCleanOutcome,
+  isDataManualReviewOutcome,
+  type DataAutoCleanOutcome,
+  type DataGate,
+  type DataManualReviewOutcome,
+  type DataReviewStatus,
+  type Dataset,
+} from '@/domains/data/model/types'
 import type { TranslationKey } from '@/i18n'
 
 export type AutoCleanOutcome = DataAutoCleanOutcome
@@ -68,9 +76,8 @@ export function matchesDatasetText(dataset: Dataset, query: string): boolean {
     .includes(needle)
 }
 
-export function qcReviewStatus(dataset: Dataset): string {
-  const qc = asRecord(dataset.qc)
-  const review = asRecord(qc.review)
+export function qcReviewStatus(dataset: Dataset): DataReviewStatus | '' {
+  const review = qcReviewPayload(dataset)
   const status = textValue(review.status).toLowerCase()
   if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
     return status
@@ -88,35 +95,23 @@ export function manualReviewOutcomeLabelKey(outcome: ManualReviewOutcome): Trans
 
 function qcAutoCleanOutcome(dataset: Dataset): AutoCleanOutcome {
   const outcome = textValue(qcLanePayload(dataset, 'auto_clean').outcome).toLowerCase()
-  if (
-    outcome === 'pending'
-    || outcome === 'passed'
-    || outcome === 'failed'
-  ) {
-    return outcome
-  }
-  return 'pending'
+  return isDataAutoCleanOutcome(outcome) ? outcome : 'pending'
 }
 
 function qcManualReviewOutcome(dataset: Dataset): ManualReviewOutcome {
-  const qc = asRecord(dataset.qc)
-  const review = asRecord(qc.review)
+  const review = qcReviewPayload(dataset)
   const outcome = textValue(review.outcome).toLowerCase()
-  if (
-    outcome === 'pending'
-    || outcome === 'passed'
-    || outcome === 'needs_fix'
-    || outcome === 'failed'
-  ) {
-    return outcome
-  }
-  return 'pending'
+  return isDataManualReviewOutcome(outcome) ? outcome : 'pending'
 }
 
-function qcLanePayload(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Record<string, unknown> {
+export function qcLanePayload(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Record<string, unknown> {
   const qc = asRecord(dataset.qc)
   const lanes = asRecord(qc.lanes)
   return asRecord(lanes[lane])
+}
+
+export function qcReviewPayload(dataset: Dataset): Record<string, unknown> {
+  return asRecord(asRecord(dataset.qc).review)
 }
 
 function gateOrPending(gate: DataGate | undefined): Pick<DataGate, 'status' | 'message'> {

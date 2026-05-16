@@ -19,6 +19,10 @@ DatasetPackageStage = Literal[
 GateStatus = Literal["pending", "running", "passed", "failed", "needs_review", "skipped"]
 DatasetGateKey = Literal["inspect", "diagnose", "clean", "review"]
 DatasetPackageGateKey = Literal["assemble", "validate", "annotate", "upload"]
+AutoCleanOutcome = Literal["pending", "passed", "failed"]
+ManualReviewOutcome = Literal["pending", "passed", "needs_fix", "failed"]
+ManualReviewStatus = Literal["pending", "ready_for_batch", "applied"]
+ManualReviewDecision = Literal["passed", "failed"]
 DataJobPhase = Literal[
     "queued",
     "running",
@@ -31,6 +35,18 @@ DataJobPhase = Literal[
 
 DATASET_GATE_KEYS: tuple[DatasetGateKey, ...] = ("inspect", "diagnose", "clean", "review")
 PACKAGE_GATE_KEYS: tuple[DatasetPackageGateKey, ...] = ("assemble", "validate", "annotate", "upload")
+AUTO_CLEAN_OUTCOME_PENDING: AutoCleanOutcome = "pending"
+AUTO_CLEAN_OUTCOME_PASSED: AutoCleanOutcome = "passed"
+AUTO_CLEAN_OUTCOME_FAILED: AutoCleanOutcome = "failed"
+MANUAL_REVIEW_OUTCOME_PENDING: ManualReviewOutcome = "pending"
+MANUAL_REVIEW_OUTCOME_PASSED: ManualReviewOutcome = "passed"
+MANUAL_REVIEW_OUTCOME_NEEDS_FIX: ManualReviewOutcome = "needs_fix"
+MANUAL_REVIEW_OUTCOME_FAILED: ManualReviewOutcome = "failed"
+MANUAL_REVIEW_STATUS_PENDING: ManualReviewStatus = "pending"
+MANUAL_REVIEW_STATUS_READY_FOR_BATCH: ManualReviewStatus = "ready_for_batch"
+MANUAL_REVIEW_STATUS_APPLIED: ManualReviewStatus = "applied"
+MANUAL_REVIEW_DECISION_PASSED: ManualReviewDecision = "passed"
+MANUAL_REVIEW_DECISION_FAILED: ManualReviewDecision = "failed"
 
 
 @dataclass

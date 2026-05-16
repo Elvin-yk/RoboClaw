@@ -12,8 +12,18 @@ export type DatasetPackageStage =
   | 'failed'
 
 export type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'needs_review' | 'skipped'
-export type DataAutoCleanOutcome = 'pending' | 'passed' | 'failed'
-export type DataManualReviewOutcome = 'pending' | 'passed' | 'needs_fix' | 'failed'
+export const DATA_AUTO_CLEAN_OUTCOMES = ['pending', 'passed', 'failed'] as const
+export type DataAutoCleanOutcome = (typeof DATA_AUTO_CLEAN_OUTCOMES)[number]
+export const DATA_MANUAL_REVIEW_OUTCOMES = ['pending', 'passed', 'needs_fix', 'failed'] as const
+export type DataManualReviewOutcome = (typeof DATA_MANUAL_REVIEW_OUTCOMES)[number]
+
+export function isDataAutoCleanOutcome(value: string): value is DataAutoCleanOutcome {
+  return (DATA_AUTO_CLEAN_OUTCOMES as readonly string[]).includes(value)
+}
+
+export function isDataManualReviewOutcome(value: string): value is DataManualReviewOutcome {
+  return (DATA_MANUAL_REVIEW_OUTCOMES as readonly string[]).includes(value)
+}
 
 export interface DataGate {
   key: string
