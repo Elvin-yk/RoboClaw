@@ -790,6 +790,26 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     assert len(original_rows) == 30
 
 
+def test_review_episode_decision_requires_auto_clean_passed(tmp_path: Path) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/not_clean",
+        episodes=1,
+        frames=10,
+        with_data=True,
+        with_videos=True,
+    )
+    client = _client(tmp_path)
+
+    response = client.patch(
+        "/api/data/review/datasets/local/not_clean/episodes/0",
+        json={"decision": "passed", "reviewer_id": "user-1"},
+    )
+
+    assert response.status_code == 400
+    assert "has not passed auto clean" in response.json()["detail"]
+
+
 def test_review_batch_rejects_all_failed_review(tmp_path: Path) -> None:
     _create_dataset(tmp_path, "local/all_failed", episodes=2, frames=20, with_data=True, with_videos=True)
     client = _client(tmp_path)

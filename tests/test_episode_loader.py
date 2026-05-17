@@ -65,16 +65,20 @@ def test_load_episode_data_allows_materialized_video_symlink(tmp_path: Path):
     assert data["video_files"] == [video_path]
 
 
-def test_inspect_child_path_allows_materialized_symlink(tmp_path: Path):
+def test_inspect_child_path_rejects_materialized_symlink_escape(tmp_path: Path):
     source_video = tmp_path / "source.mp4"
     source_video.write_bytes(b"not-a-real-video")
     artifact = tmp_path / "artifact"
+    regular_video = artifact / "videos" / "camera" / "chunk-000" / "file-001.mp4"
+    regular_video.parent.mkdir(parents=True)
+    regular_video.write_bytes(b"video")
     symlink = artifact / "videos" / "camera" / "chunk-000" / "file-000.mp4"
-    symlink.parent.mkdir(parents=True)
     symlink.symlink_to(source_video)
 
     service = DataInspectService(repository=None)  # type: ignore[arg-type]
 
-    assert service._resolve_child_path(artifact, "videos/camera/chunk-000/file-000.mp4") == symlink
+    assert service._resolve_child_path(artifact, "videos/camera/chunk-000/file-001.mp4") == regular_video
+    with pytest.raises(HTTPException):
+        service._resolve_child_path(artifact, "videos/camera/chunk-000/file-000.mp4")
     with pytest.raises(HTTPException):
         service._resolve_child_path(artifact, "../source.mp4")

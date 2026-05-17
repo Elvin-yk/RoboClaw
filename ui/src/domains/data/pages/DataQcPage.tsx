@@ -13,6 +13,7 @@ import {
   autoCleanStatusLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
+  manualReviewStatusLabelKey,
   qcReviewPayload,
   qcReviewStatus,
   type AutoCleanStatus,
@@ -24,6 +25,8 @@ import { useAuthStore } from '@/shared/lib/authStore'
 import { useI18n, type TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 
+type QcReviewWorkStatus = DataReviewStatus | 'blocked'
+
 interface QcDatasetRecord {
   id: string
   name: string
@@ -31,7 +34,7 @@ interface QcDatasetRecord {
   task: string
   createdDate: string
   autoCleanStatus: AutoCleanStatus
-  reviewStatus: DataReviewStatus
+  reviewStatus: QcReviewWorkStatus
   reviewedCount: number
   passedCount: number
   failedCount: number
@@ -135,6 +138,7 @@ export default function DataQcPage() {
   const activeRecord = filteredRecords.find((record) => record.id === activeDatasetId)
     ?? records.find((record) => record.id === activeDatasetId)
     ?? null
+  const decisionBlockedReason = activeRecord ? reviewDecisionBlockedReason(activeRecord, t) : ''
   const activeDataset = reviewWorkspace?.dataset
     ?? datasets.find((datasetItem) => datasetItem.id === activeDatasetId)
     ?? null
@@ -235,6 +239,10 @@ export default function DataQcPage() {
 
   async function saveReviewDecision(decision: DataReviewDecision) {
     if (!activeDatasetId || !reviewWorkspace) return
+    if (decisionBlockedReason) {
+      setReviewError(decisionBlockedReason)
+      return
+    }
     if (!inspectionEndReached) {
       setReviewError(t('dataQcReviewActionsLocked'))
       return
@@ -371,7 +379,8 @@ export default function DataQcPage() {
                 <ReviewDecisionControls
                   workspace={reviewWorkspace}
                   saving={reviewSaving}
-                  canDecide={inspectionEndReached}
+                  canDecide={inspectionEndReached && !decisionBlockedReason}
+                  disabledReason={decisionBlockedReason}
                   failureOpen={failureOpen}
                   failureReason={failureReason}
                   failureNote={failureNote}
@@ -860,6 +869,7 @@ function ReviewDecisionControls({
   workspace,
   saving,
   canDecide,
+  disabledReason,
   failureOpen,
   failureReason,
   failureNote,
@@ -873,6 +883,7 @@ function ReviewDecisionControls({
   workspace: DataReviewWorkspace
   saving: boolean
   canDecide: boolean
+  disabledReason?: string
   failureOpen: boolean
   failureReason: string
   failureNote: string
@@ -887,7 +898,7 @@ function ReviewDecisionControls({
     return <div className="data-empty">{t('dataReviewNoEpisodes')}</div>
   }
   const savingReason = saving ? t('saving') : undefined
-  const decisionDisabledReason = savingReason || (!canDecide ? t('dataQcReviewActionsLocked') : undefined)
+  const decisionDisabledReason = savingReason || disabledReason || (!canDecide ? t('dataQcReviewActionsLocked') : undefined)
   const decisionDisabled = saving || !canDecide
   const submitFailDisabledReason = decisionDisabledReason || (!failureReason ? t('dataReviewFailureReasonRequired') : undefined)
   return (
@@ -965,7 +976,7 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
     task: quality.taskDescription,
     createdDate: quality.createdDate,
     autoCleanStatus: quality.autoCleanStatus,
-    reviewStatus: qcReviewStatus(dataset) || 'pending',
+    reviewStatus: quality.autoCleanStatus === 'passed' ? qcReviewStatus(dataset) || 'pending' : 'blocked',
     reviewedCount: decisions.length,
     passedCount: decisions.filter((decision) => decision.decision === 'passed').length,
     failedCount: decisions.filter((decision) => decision.decision === 'failed').length,
@@ -975,7 +986,7 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
 }
 
 function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {
-  const sequenceRecords = records
+  const sequenceRecords = records.filter((record) => record.reviewStatus !== 'blocked')
   const done = sequenceRecords.filter(isReviewCompleteRecord).length
   const remaining = sequenceRecords.filter(isReviewPendingRecord).length
   const activeIndex = sequenceRecords.findIndex((record) => record.id === activeDatasetId)
@@ -1002,7 +1013,23 @@ function isReviewPendingRecord(record: QcDatasetRecord): boolean {
 }
 
 function isReviewCompleteRecord(record: QcDatasetRecord): boolean {
-  return record.reviewStatus !== 'pending'
+  return record.reviewStatus !== 'pending' && record.reviewStatus !== 'blocked'
+}
+
+function reviewDecisionBlockedReason(
+  record: QcDatasetRecord,
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
+): string {
+  if (record.autoCleanStatus !== 'passed') {
+    return t('dataQcBlockedByAutoClean')
+  }
+  if (record.reviewStatus === 'blocked') {
+    return t('dataQcBlockedByAutoClean')
+  }
+  if (record.reviewStatus !== 'pending') {
+    return t('dataQcReadonlyStatus', { status: t(manualReviewStatusLabelKey(record.reviewStatus)) })
+  }
+  return ''
 }
 
 function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {

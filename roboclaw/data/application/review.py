@@ -80,6 +80,9 @@ class DataReviewService:
             raise ValueError("reason is required when decision is failed")
 
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
+        state = self.repository.state_store.load_dataset_state(dataset_path)
+        if self._clean_status(state) != "passed":
+            raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
         materialized_path = self.repository.dataset_materialized_path(dataset_id)
         info = self._read_json(materialized_path / "meta" / "info.json")
         episodes = self._normalize_episode_meta(info, self._read_episode_meta(materialized_path, info))
@@ -87,7 +90,6 @@ class DataReviewService:
         if episode_index not in episode_indices:
             raise ValueError(f"Episode {episode_index} is not part of dataset '{dataset_id}'")
 
-        state = self.repository.state_store.load_dataset_state(dataset_path)
         review = self._review_state_from_payload(state, episode_indices)
         review["episodes"][str(episode_index)] = {
             "decision": normalized_decision,
