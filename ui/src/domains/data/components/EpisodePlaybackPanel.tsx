@@ -30,6 +30,7 @@ export type EpisodePlaybackSummaryMode = 'full' | 'duration'
 
 const VIDEO_SYNC_TOLERANCE = 0.15
 const LOOP_EPSILON = 0.05
+const PLAYBACK_TIME_EPSILON = 0.001
 const EMPTY_VIDEOS: EpisodeVideo[] = []
 const EMPTY_TRAJECTORY: TrajectoryPayload = { timeValues: [], items: [], totalPoints: 0 }
 
@@ -131,6 +132,12 @@ export function EpisodePlaybackPanel({
     syncVideosTo(bounded, forceSeek)
   }, [duration, syncVideosTo])
 
+  const advancePlaybackTime = useCallback((nextTime: number) => {
+    if (Math.abs(nextTime - playbackTimeRef.current) < PLAYBACK_TIME_EPSILON) return
+    playbackTimeRef.current = nextTime
+    setPlaybackTime(nextTime)
+  }, [])
+
   useEffect(() => {
     videoRefs.current = []
     playbackTimeRef.current = 0
@@ -162,24 +169,35 @@ export function EpisodePlaybackPanel({
   }, [isPlaying, syncVideosTo, visibleVideos])
 
   useEffect(() => {
-    if (!isPlaying || visibleVideos.length > 0 || duration <= 0) return undefined
+    if (!isPlaying || duration <= 0) return undefined
+    const hasVideos = visibleVideos.length > 0
     const startedAt = performance.now()
     const startTime = playbackTimeRef.current
     let animationFrame = 0
-    const tick = (now: number) => {
-      const elapsed = (now - startedAt) / 1000
-      const nextTime = startTime + elapsed
+    // Videos: poll the leader video's currentTime each frame so playbackTime
+    // tracks the native video frame rate instead of the ~4Hz `timeupdate` event.
+    const tickFromVideo = () => {
+      const leader = videoRefs.current[0]
+      if (leader) {
+        const relative = leader.currentTime - getClipStart(visibleVideos[0])
+        advancePlaybackTime(clamp(relative, 0, duration))
+      }
+      animationFrame = window.requestAnimationFrame(tickFromVideo)
+    }
+    // No videos: advance from a wall clock so trajectory-only playback still runs.
+    const tickFromClock = (now: number) => {
+      const nextTime = startTime + (now - startedAt) / 1000
       if (nextTime >= duration - LOOP_EPSILON) {
         seekTo(0)
         setIsPlaying(false)
         return
       }
       seekTo(nextTime, false)
-      animationFrame = window.requestAnimationFrame(tick)
+      animationFrame = window.requestAnimationFrame(tickFromClock)
     }
-    animationFrame = window.requestAnimationFrame(tick)
+    animationFrame = window.requestAnimationFrame(hasVideos ? tickFromVideo : tickFromClock)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [duration, isPlaying, seekTo, visibleVideos.length])
+  }, [advancePlaybackTime, duration, isPlaying, seekTo, visibleVideos])
 
   const handleLeaderTimeUpdate = (index: number) => {
     if (syncLockRef.current || index !== 0) return
