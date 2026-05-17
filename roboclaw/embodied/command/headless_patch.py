@@ -10,7 +10,13 @@ import threading
 import time
 import tty
 from collections.abc import Callable
+from pathlib import Path
 from types import TracebackType
+
+from roboclaw.embodied.command.calibration_snapshot import (
+    CALIBRATION_SNAPSHOT_ENV,
+    apply_record_calibration_snapshot_from_env,
+)
 
 
 class TTYKeyboardListener:
@@ -143,3 +149,24 @@ def apply_headless_patch() -> None:
 
     control_utils.init_keyboard_listener = init_keyboard_listener
     control_utils.is_headless = lambda: not sys.stdin.isatty()
+    _patch_dataset_calibration_snapshot()
+
+
+def _patch_dataset_calibration_snapshot() -> None:
+    if not os.environ.get(CALIBRATION_SNAPSHOT_ENV):
+        return
+    import lerobot.datasets.lerobot_dataset as lerobot_dataset
+
+    dataset_cls = lerobot_dataset.LeRobotDataset
+    if getattr(dataset_cls, "_roboclaw_calibration_snapshot_patched", False):
+        return
+
+    original_create = dataset_cls.create.__func__
+
+    def create(cls, *args, **kwargs):
+        dataset = original_create(cls, *args, **kwargs)
+        apply_record_calibration_snapshot_from_env(Path(dataset.meta.root))
+        return dataset
+
+    dataset_cls.create = classmethod(create)
+    dataset_cls._roboclaw_calibration_snapshot_patched = True

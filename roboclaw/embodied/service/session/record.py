@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from roboclaw.embodied.board import Board, Command, InputConsumer, OutputConsumer, SessionState
 from roboclaw.embodied.command import CommandBuilder
+from roboclaw.embodied.command.calibration_snapshot import record_calibration_snapshot_env
 from roboclaw.embodied.service.session.base import Session
 
 if TYPE_CHECKING:
@@ -254,7 +255,12 @@ class RecordSession(Session):
                     **self._record_kwargs(kwargs),
                 )
                 self._dataset_name = dataset.runtime.name
-                await self.start(argv)
+                with record_calibration_snapshot_env(
+                    dataset.runtime.local_path,
+                    manifest,
+                    arms=str(kwargs.get("arms", "")),
+                ):
+                    await self.start(argv)
                 await self.board.update(
                     target_episodes=kwargs.get("num_episodes", 10),
                     dataset=self._dataset_name,

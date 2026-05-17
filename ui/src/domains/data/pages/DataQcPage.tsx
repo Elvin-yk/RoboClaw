@@ -10,12 +10,12 @@ import { asRecord, formatSeconds } from '@/domains/data/lib/analysisPayload'
 import { framePreviewTime, readEpisodeVideos, type EpisodeVideo } from '@/domains/data/lib/episodeMedia'
 import { clearReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
-  autoCleanOutcomeLabelKey,
+  autoCleanStatusLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
   qcReviewPayload,
   qcReviewStatus,
-  type AutoCleanOutcome,
+  type AutoCleanStatus,
 } from '@/domains/data/model/datasetQuality'
 import type { DataReviewDecision, DataReviewStatus, DataReviewWorkspace, Dataset } from '@/domains/data/model/types'
 import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
@@ -30,7 +30,7 @@ interface QcDatasetRecord {
   path: string
   task: string
   createdDate: string
-  autoCleanOutcome: AutoCleanOutcome
+  autoCleanStatus: AutoCleanStatus
   reviewStatus: DataReviewStatus
   reviewedCount: number
   passedCount: number
@@ -497,7 +497,7 @@ function ReviewStatusCards({
     <div className="data-qc-review-status-cards">
       <div className="data-qc-review-status-card">
         <span>{t('dataManageAutoCleanStatus')}</span>
-        <strong>{t(autoCleanOutcomeLabelKey(activeRecord.autoCleanOutcome))}</strong>
+        <strong>{t(autoCleanStatusLabelKey(activeRecord.autoCleanStatus))}</strong>
       </div>
       <div className="data-qc-review-status-card">
         <span>{t('dataQcCurrentAssignee')}</span>
@@ -964,7 +964,7 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
     path: dataset.real_path || dataset.path,
     task: quality.taskDescription,
     createdDate: quality.createdDate,
-    autoCleanOutcome: quality.autoCleanOutcome,
+    autoCleanStatus: quality.autoCleanStatus,
     reviewStatus: qcReviewStatus(dataset) || 'pending',
     reviewedCount: decisions.length,
     passedCount: decisions.filter((decision) => decision.decision === 'passed').length,
@@ -1002,7 +1002,7 @@ function isReviewPendingRecord(record: QcDatasetRecord): boolean {
 }
 
 function isReviewCompleteRecord(record: QcDatasetRecord): boolean {
-  return record.reviewStatus === 'ready_for_batch' || record.reviewStatus === 'applied'
+  return record.reviewStatus !== 'pending'
 }
 
 function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {

@@ -77,6 +77,7 @@ export const dataApi = {
   startPrototypeRun: (body: { package_id: string; cluster_count?: number; candidate_limit?: number; episode_indices?: number[]; quality_filter_mode?: string }) => postJson<DataJob>(`${DATA_API}/annotation/prototype-runs`, body),
   startPropagationRun: (body: { package_id: string; source_episode_index: number }) => postJson<DataJob>(`${DATA_API}/annotation/propagation-runs`, body),
   overview: () => api<DataOverview>(`${DATA_API}/overview`),
+  jobs: (params?: { kind?: string }) => api<DataJob[]>(`${DATA_API}/jobs${query(params ?? {})}`),
   job: (jobId: string) => api<DataJob>(`${DATA_API}/jobs/${jobId}`),
   cancelJob: (jobId: string) => postJson<DataJob>(`${DATA_API}/jobs/${jobId}/cancel`, {}),
 }

@@ -229,12 +229,28 @@ class DataStateStore:
         payload = dict(raw) if isinstance(raw, dict) else {}
         lanes = payload.get("lanes")
         reports = payload.get("reports")
-        payload["lanes"] = lanes if isinstance(lanes, dict) else {}
+        payload["lanes"] = self._normalize_qc_lanes(lanes)
         payload["reports"] = reports if isinstance(reports, dict) else {}
+        review = payload.get("review")
+        if isinstance(review, dict):
+            payload["review"] = self._strip_quality_outcome(review)
         return payload
 
     def _default_qc(self) -> dict[str, Any]:
         return {"lanes": {}, "reports": {}}
+
+    def _normalize_qc_lanes(self, raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(key): self._strip_quality_outcome(value) if isinstance(value, dict) else value
+            for key, value in raw.items()
+        }
+
+    def _strip_quality_outcome(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        normalized.pop("outcome", None)
+        return normalized
 
     def _normalize_active_output(self, raw: Any) -> dict[str, Any]:
         if isinstance(raw, dict):

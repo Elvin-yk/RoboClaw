@@ -12,6 +12,7 @@ from roboclaw.embodied.board import Board
 from roboclaw.embodied.board.board import IDLE_STATE
 from roboclaw.embodied.calibration import AutoCalibrationBatch
 from roboclaw.embodied.command import ActionError, CommandBuilder
+from roboclaw.embodied.command.calibration_snapshot import record_calibration_snapshot_env
 from roboclaw.embodied.embodiment.doctor import DoctorService
 from roboclaw.embodied.embodiment.hardware.monitor import (
     HardwareMonitor,
@@ -280,7 +281,8 @@ class EmbodiedService:
             use_cameras=use_cameras,
             arms=arms,
         )
-        await self._start_managed_session(self.record, owner="recording", argv=argv)
+        with record_calibration_snapshot_env(dataset.runtime.local_path, self.manifest, arms=arms):
+            await self._start_managed_session(self.record, owner="recording", argv=argv)
         await self.board.update(target_episodes=num_episodes, dataset=dataset.runtime.name)
         self._recording_started = True
         if self._monitor is not None:

@@ -4,8 +4,6 @@ import { DataAnalysisWorkspace } from '@/domains/data/components/DataAnalysisWor
 import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
 import { useI18n } from '@/i18n'
 
-type SourceMode = 'remote' | 'local'
-
 export default function DataAnalysisPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -33,6 +31,7 @@ export default function DataAnalysisPage() {
   const manageDataset = searchParams.get('manageDataset') || datasetFromQuery
   const qcDataset = searchParams.get('qcDataset') || datasetFromQuery
   const packageFromQuery = searchParams.get('package') || ''
+  const displayDataset = dataset.trim() || datasetFromQuery || packageFromQuery
 
   useEffect(() => {
     if (!datasetFromQuery && !packageFromQuery) {
@@ -61,29 +60,10 @@ export default function DataAnalysisPage() {
     })()
   }, [datasetFromQuery, inspect, loadEpisode, navigate, packageFromQuery, reset, setDataset, setSource])
 
-  async function inspectThenLoad(nextEpisodeIndex = 0) {
-    if (!dataset.trim()) return
-    const requestId = ++loadRequestRef.current
-    await inspect()
-    if (requestId !== loadRequestRef.current) return
-    setEpisodeIndex(nextEpisodeIndex)
-    await loadEpisode(nextEpisodeIndex)
-  }
-
   async function loadSelectedEpisode(nextEpisodeIndex = episodeIndex) {
     loadRequestRef.current += 1
     setEpisodeIndex(nextEpisodeIndex)
     await loadEpisode(nextEpisodeIndex)
-  }
-
-  function changeSource(nextSource: SourceMode) {
-    loadRequestRef.current += 1
-    setSource(nextSource)
-  }
-
-  function changeDataset(nextDataset: string) {
-    loadRequestRef.current += 1
-    setDataset(nextDataset)
   }
 
   function returnToManage() {
@@ -113,19 +93,9 @@ export default function DataAnalysisPage() {
       )}
 
       <section className="data-panel">
-        <div className="data-analysis-query">
-          <select value={source} onChange={(event) => changeSource(event.target.value as SourceMode)}>
-            <option value="local">本地数据</option>
-            <option value="remote">HuggingFace 数据</option>
-          </select>
-          <input
-            value={dataset}
-            onChange={(event) => changeDataset(event.target.value)}
-            placeholder={source === 'remote' ? 'namespace/dataset' : 'local/name'}
-          />
-          <button type="button" onClick={() => void inspectThenLoad(0)} disabled={loading || !dataset.trim()}>
-            检查
-          </button>
+        <div className="data-analysis-dataset-heading">
+          <span>{t('dataAnalysisDatasetName')}</span>
+          <strong>{displayDataset}</strong>
         </div>
         {error && <div className="data-alert">{error}</div>}
       </section>

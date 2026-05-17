@@ -1910,6 +1910,26 @@
   align-items: center;
 }
 
+.data-analysis-dataset-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.data-analysis-dataset-heading span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.data-analysis-dataset-heading strong {
+  color: #101828;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
 .data-page .data-analysis-return {
   border-color: #d0d5dd;
   background: #fff;
@@ -3224,6 +3244,44 @@
   overflow: visible;
 }
 
+.data-manage-background-job {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 12px 14px;
+}
+
+.data-manage-background-job__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.data-manage-background-job__head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.data-manage-background-job__head span {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.data-manage-background-job__head strong {
+  color: #101828;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.data-manage-background-job .data-manage-job-dialog__bar {
+  margin: 0;
+}
+
 .data-manage-section__header {
   min-height: 54px;
   display: flex;
@@ -3373,7 +3431,8 @@
   color: #075985;
 }
 
-.data-manage-status-count.is-passed {
+.data-manage-status-count.is-passed,
+.data-manage-status-count.is-applied {
   background: #dcfce7;
   color: #166534;
 }
@@ -3654,7 +3713,8 @@
   color: #075985;
 }
 
-.data-manage-page .data-manage-status-filter__option.is-passed.is-active {
+.data-manage-page .data-manage-status-filter__option.is-passed.is-active,
+.data-manage-page .data-manage-status-filter__option.is-applied.is-active {
   border-color: #bbf7d0;
   background: #dcfce7;
   color: #166534;
@@ -4080,7 +4140,9 @@
 }
 
 .data-manage-quality-pill strong.is-passed,
-.data-manage-quality-row strong.is-passed {
+.data-manage-quality-row strong.is-passed,
+.data-manage-quality-pill strong.is-applied,
+.data-manage-quality-row strong.is-applied {
   background: #dcfce7;
   color: #166534;
 }
@@ -4772,6 +4834,12 @@
   padding: 9px 10px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.data-manage-job-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .data-manage-confirm {

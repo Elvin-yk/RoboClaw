@@ -8,36 +8,19 @@ from typing import Any
 
 from .diagnosis import verify_repaired_dataset
 from .io import (
-    DEFAULT_VIDEO_PATH,
     build_video_path,
-    coerce_recovery_value,
+    build_video_path_from_indices,
     get_video_keys,
-    get_visual_keys,
     list_episode_dirs,
-    list_frame_pngs,
     load_info,
-    load_png_copy,
-    normalize_feature_shapes,
-    read_recovery_rows,
-    safe_read_parquet_metadata,
     safe_read_parquet_table,
-    sanitize_jsonl_line,
     scan_parquet_files,
-    write_info,
 )
 from .lerobot_adapter import LeRobotDatasetAdapter
-from .types import SKIP_FRAME_KEYS, DamageType, DiagnosisResult, RepairResult, TmpVideo
+from .types import DamageKind, DiagnosisResult, IntegrityStatus, RepairResult, RepairStrategy
+from .types import TmpVideo
 
 log = logging.getLogger(__name__)
-
-
-IN_PLACE_DAMAGE_TYPES = {
-    DamageType.PARQUET_NO_VIDEO,
-    DamageType.META_STALE,
-    DamageType.FRAME_MISMATCH,
-    DamageType.MISSING_CP,
-    DamageType.PARTIAL_TMP_VIDEOS_STUCK,
-}
 
 
 def group_tmp_videos_by_key(tmp_videos: list[TmpVideo]) -> dict[str, list[TmpVideo]]:
@@ -66,114 +49,8 @@ def prepare_output_dir(output_dir: Path, *, force: bool) -> bool:
     return not output_dir.exists()
 
 
-def get_single_episode_name(images_dir: Path, image_key: str) -> str:
-    episode_dirs = list_episode_dirs(images_dir / image_key)
-    if not episode_dirs:
-        raise FileNotFoundError(f"No episode image directories found for {image_key} under {images_dir}")
-    return episode_dirs[0].name
-
-
-def build_frame_dict(
-    *,
-    recovery_row: dict[str, Any],
-    features: dict[str, Any],
-    images_dir: Path,
-    image_keys: list[str],
-    episode_name_by_key: dict[str, str],
-    frame_index: int,
-    task: str,
-) -> dict[str, Any]:
-    frame: dict[str, Any] = {"task": task}
-    for key, feature in features.items():
-        if key in SKIP_FRAME_KEYS:
-            continue
-        if key in image_keys:
-            png_path = images_dir / key / episode_name_by_key[key] / f"frame-{frame_index:06d}.png"
-            frame[key] = load_png_copy(png_path)
-            continue
-        if key in recovery_row:
-            frame[key] = coerce_recovery_value(recovery_row[key], feature)
-    return frame
-
-
-def copy_critical_phase_intervals(src_dir: Path, dst_dir: Path, max_frames: int | None = None) -> None:
-    src_path = src_dir / "critical_phase_intervals.json"
-    if not src_path.exists():
-        return
-    intervals = json.loads(src_path.read_text(encoding="utf-8"))
-    if max_frames is not None:
-        truncated: list[dict[str, Any]] = []
-        for interval in intervals:
-            item = dict(interval)
-            if item["start_frame"] >= max_frames:
-                continue
-            if item["end_frame"] > max_frames:
-                item["end_frame"] = max_frames
-            truncated.append(item)
-        intervals = truncated
-    (dst_dir / "critical_phase_intervals.json").write_text(
-        json.dumps(intervals, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
 def parse_episode_index(episode_dir: Path) -> int:
     return int(episode_dir.name.split("-")[-1])
-
-
-def patch_episodes_video_columns(dataset_dir: Path, video_keys: list[str], n_frames: int, fps: int) -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    episode_parquets = sorted((dataset_dir / "meta" / "episodes").rglob("*.parquet"))
-    if not episode_parquets:
-        return
-
-    for episode_path in episode_parquets:
-        table = pq.read_table(episode_path)
-        to_timestamp = (n_frames - 1) / fps if fps > 0 else 0.0
-        for video_key in video_keys:
-            prefix = f"videos/{video_key}"
-            if f"{prefix}/chunk_index" in table.column_names:
-                continue
-            n_rows = len(table)
-            table = table.append_column(f"{prefix}/chunk_index", pa.array([0] * n_rows, type=pa.int64()))
-            table = table.append_column(f"{prefix}/file_index", pa.array([0] * n_rows, type=pa.int64()))
-            table = table.append_column(
-                f"{prefix}/from_timestamp", pa.array([0.0] * n_rows, type=pa.float64())
-            )
-            table = table.append_column(
-                f"{prefix}/to_timestamp", pa.array([to_timestamp] * n_rows, type=pa.float64())
-            )
-        pq.write_table(table, episode_path)
-
-
-def add_frames_from_recovery(
-    *,
-    dataset: Any,
-    recovery_rows: list[dict[str, Any]],
-    features: dict[str, Any],
-    images_dir: Path,
-    image_keys: list[str],
-    episode_name_by_key: dict[str, str],
-    task: str,
-) -> int:
-    actual_frames = 0
-    for frame_index, recovery_row in enumerate(recovery_rows):
-        frame = build_frame_dict(
-            recovery_row=recovery_row,
-            features=features,
-            images_dir=images_dir,
-            image_keys=image_keys,
-            episode_name_by_key=episode_name_by_key,
-            frame_index=frame_index,
-            task=task,
-        )
-        if any(frame.get(key) is None for key in image_keys):
-            break
-        dataset.add_frame(frame)
-        actual_frames += 1
-    return actual_frames
 
 
 class DatasetRepairService:
@@ -191,32 +68,35 @@ class DatasetRepairService:
         output_dir: Path,
     ) -> RepairResult:
         dataset_dir = diagnosis.dataset_dir
-        damage = diagnosis.damage_type
+        damage_kind = diagnosis.damage_kind
+        repair_strategy = diagnosis.repair_strategy
 
-        if damage == DamageType.HEALTHY:
-            return RepairResult(dataset_dir, damage, "healthy")
-        if damage == DamageType.EMPTY_SHELL:
-            return RepairResult(dataset_dir, damage, "skipped", error="empty shell -- nothing to recover")
+        if diagnosis.integrity_status == IntegrityStatus.HEALTHY:
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, "healthy")
+        if diagnosis.integrity_status == IntegrityStatus.EMPTY_SHELL:
+            return RepairResult(
+                dataset_dir,
+                damage_kind,
+                repair_strategy,
+                "skipped",
+                error="empty shell -- nothing to recover",
+            )
         if not diagnosis.repairable:
-            return RepairResult(dataset_dir, damage, "skipped", error="unrepairable")
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, "skipped", error="unrepairable")
         if dry_run:
-            return RepairResult(dataset_dir, damage, "skipped", error="dry run")
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, "skipped", error="dry run")
 
         if not prepare_output_dir(output_dir, force=force):
             return RepairResult(
                 dataset_dir,
-                damage,
+                damage_kind,
+                repair_strategy,
                 "skipped",
                 error=f"{output_dir} already exists",
             )
 
-        if damage in IN_PLACE_DAMAGE_TYPES:
-            shutil.copytree(
-                dataset_dir,
-                output_dir,
-                ignore=shutil.ignore_patterns(".status", ".data", ".workflow"),
-            )
-            self._scrub_cleaned(output_dir)
+        self._materialize_symlink_tree(dataset_dir, output_dir)
+        self._scrub_cleaned(output_dir)
 
         result = self._dispatch_repair(
             diagnosis,
@@ -224,13 +104,19 @@ class DatasetRepairService:
             vcodec=vcodec,
             output_dir=output_dir,
         )
-        if result.outcome != "repaired":
+        if result.status != "repaired":
             return result
 
         verify_errors = verify_repaired_dataset(output_dir)
         if not verify_errors:
             return result
-        return RepairResult(dataset_dir, damage, "failed", error="; ".join(verify_errors))
+        return RepairResult(
+            dataset_dir,
+            damage_kind,
+            repair_strategy,
+            "failed",
+            error="; ".join(verify_errors),
+        )
 
     def _dispatch_repair(
         self,
@@ -241,136 +127,46 @@ class DatasetRepairService:
         output_dir: Path,
     ) -> RepairResult:
         dataset_dir = diagnosis.dataset_dir
-        damage = diagnosis.damage_type
-        if damage == DamageType.CRASH_NO_SAVE:
-            self._repair_crash_no_save(
+        if diagnosis.repair_strategy == RepairStrategy.FORMALIZE_DATA_EPISODES:
+            self._repair_structure_incomplete(output_dir, diagnosis)
+            return RepairResult(
                 dataset_dir,
-                diagnosis,
-                task=task,
-                vcodec=vcodec,
-                output_dir=output_dir,
+                diagnosis.damage_kind,
+                diagnosis.repair_strategy,
+                "repaired",
             )
-        elif damage == DamageType.TMP_VIDEOS_STUCK:
-            self._repair_tmp_videos_stuck(
-                dataset_dir,
-                diagnosis,
-                task=task,
-                output_dir=output_dir,
-            )
-        elif damage == DamageType.PARTIAL_TMP_VIDEOS_STUCK:
-            self._repair_partial_tmp_videos_stuck(output_dir, diagnosis)
-        elif damage == DamageType.PARQUET_NO_VIDEO:
-            self._repair_parquet_no_video(output_dir, vcodec=vcodec)
-        elif damage == DamageType.META_STALE:
-            self._repair_meta_stale(output_dir)
-        elif damage == DamageType.FRAME_MISMATCH:
-            self._repair_frame_mismatch(output_dir, diagnosis)
-        elif damage == DamageType.MISSING_CP:
-            self._repair_missing_cp(output_dir, diagnosis)
-        return RepairResult(dataset_dir, damage, "repaired")
-
-    def _repair_crash_no_save(
-        self,
-        dataset_dir: Path,
-        diagnosis: DiagnosisResult,
-        *,
-        task: str,
-        vcodec: str,
-        output_dir: Path,
-    ) -> None:
-        info = load_info(dataset_dir)
-        recovery_rows = read_recovery_rows(dataset_dir)
-        features = normalize_feature_shapes(info["features"])
-        image_keys = get_visual_keys(info)
-        images_dir = dataset_dir / "images"
-        n_usable = min(len(recovery_rows), diagnosis.details["min_images_per_camera"])
-        if n_usable <= 0:
-            raise ValueError(f"No usable frames available to rebuild {dataset_dir}")
-
-        dataset = self._adapter.create_dataset(
-            repo_id=f"local/{output_dir.name}",
-            fps=int(info["fps"]),
-            root=output_dir,
-            robot_type=info.get("robot_type"),
-            features=features,
-            use_videos=bool(image_keys),
-            vcodec=vcodec,
+        return RepairResult(
+            dataset_dir,
+            diagnosis.damage_kind,
+            diagnosis.repair_strategy,
+            "skipped",
+            error=f"unsupported repair strategy: {diagnosis.repair_strategy.value}",
         )
-        episode_name_by_key = {key: get_single_episode_name(images_dir, key) for key in image_keys}
-        actual_frames = add_frames_from_recovery(
-            dataset=dataset,
-            recovery_rows=recovery_rows[:n_usable],
-            features=features,
-            images_dir=images_dir,
-            image_keys=image_keys,
-            episode_name_by_key=episode_name_by_key,
-            task=task,
-        )
-        dataset.save_episode()
-        dataset.finalize()
-        copy_critical_phase_intervals(dataset_dir, output_dir, max_frames=actual_frames)
 
-    def _repair_tmp_videos_stuck(
-        self,
-        dataset_dir: Path,
-        diagnosis: DiagnosisResult,
-        *,
-        task: str,
-        output_dir: Path,
-    ) -> None:
-        info = load_info(dataset_dir)
-        recovery_rows = read_recovery_rows(dataset_dir)
-        features = normalize_feature_shapes(info["features"])
-        video_keys = get_video_keys(info)
-        tmp_videos: list[TmpVideo] = diagnosis.details["tmp_videos"]
-        tmp_by_key = group_tmp_videos_by_key(tmp_videos)
-        non_video_features = {
-            key: value for key, value in features.items() if value.get("dtype") not in {"video", "image"}
-        }
-
-        dataset = self._adapter.create_dataset(
-            repo_id=f"local/{output_dir.name}",
-            fps=int(info["fps"]),
-            root=output_dir,
-            robot_type=info.get("robot_type"),
-            features=non_video_features,
-            use_videos=False,
-            vcodec="auto",
-        )
-        for frame_index, recovery_row in enumerate(recovery_rows):
-            dataset.add_frame(
-                build_frame_dict(
-                    recovery_row=recovery_row,
-                    features=non_video_features,
-                    images_dir=dataset_dir / "images",
-                    image_keys=[],
-                    episode_name_by_key={},
-                    frame_index=frame_index,
-                    task=task,
-                )
-            )
-        dataset.save_episode()
-        dataset.finalize()
-
-        for video_key in video_keys:
-            if video_key not in tmp_by_key:
+    def _materialize_symlink_tree(self, source_dir: Path, output_dir: Path) -> None:
+        output_dir.mkdir(parents=True, exist_ok=False)
+        for entry in sorted(source_dir.iterdir()):
+            if entry.name in {".status", ".data", ".workflow"}:
                 continue
-            # Single-episode case: take the first matching tmp video. Multi-episode
-            # streaming residue is rare in practice; if it shows up the deterministic
-            # ordering from ``group_tmp_videos_by_key`` picks the lowest episode.
-            src_mp4 = tmp_by_key[video_key][0].path
-            dst_mp4 = build_video_path(output_dir, info, video_key, episode_index=0)
-            dst_mp4.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_mp4, dst_mp4)
+            if entry.is_dir() and entry.name.startswith("tmp"):
+                continue
+            target = output_dir / entry.name
+            if entry.is_dir():
+                self._materialize_symlink_tree(entry, target)
+                continue
+            target.symlink_to(entry.resolve())
 
-        out_info = load_info(output_dir)
-        out_info["features"] = dict(info["features"])
-        out_info["total_episodes"] = 1
-        out_info["total_frames"] = len(recovery_rows)
-        out_info["video_path"] = info.get("video_path") or DEFAULT_VIDEO_PATH
-        write_info(output_dir, out_info)
-        patch_episodes_video_columns(output_dir, video_keys, len(recovery_rows), int(info["fps"]))
-        copy_critical_phase_intervals(dataset_dir, output_dir)
+    def _prepare_write_path(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() or path.is_symlink():
+            path.unlink()
+
+    def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        self._prepare_write_path(path)
+        path.write_text(json.dumps(payload, indent=4) + "\n", encoding="utf-8")
+
+    def _write_info(self, dataset_dir: Path, info: dict[str, Any]) -> None:
+        self._write_json(dataset_dir / "meta" / "info.json", info)
 
     def _repair_parquet_no_video(self, dataset_dir: Path, *, vcodec: str) -> None:
         info = load_info(dataset_dir)
@@ -396,12 +192,19 @@ class DatasetRepairService:
         info["total_episodes"] = total_episodes
         info["total_frames"] = total_frames
         info["splits"] = {"train": f"0:{total_episodes}"} if total_episodes > 0 else {}
-        write_info(dataset_dir, info)
+        self._write_info(dataset_dir, info)
         return total_episodes, total_frames
 
     def _repair_meta_stale(self, dataset_dir: Path) -> None:
         self._patch_info_totals_from_parquet(dataset_dir)
         self._drop_missing_video_keys(dataset_dir)
+        self._complete_dataset_structure(dataset_dir)
+
+    def _repair_structure_incomplete(self, dataset_dir: Path, diagnosis: DiagnosisResult) -> None:
+        self._patch_info_totals_from_parquet(dataset_dir)
+        self._copy_tmp_videos_for_missing_episodes(dataset_dir, diagnosis)
+        self._drop_missing_video_keys(dataset_dir)
+        self._complete_dataset_structure(dataset_dir)
 
     def _repair_partial_tmp_videos_stuck(
         self,
@@ -426,6 +229,7 @@ class DatasetRepairService:
             self._copy_tmp_videos_to_canonical(dataset_dir, info, video_key, entries)
         self._patch_info_totals_from_parquet(dataset_dir)
         self._drop_missing_video_keys(dataset_dir)
+        self._complete_dataset_structure(dataset_dir)
 
     def _copy_tmp_videos_to_canonical(
         self,
@@ -445,6 +249,58 @@ class DatasetRepairService:
             dst_mp4.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(tmp.path, dst_mp4)
 
+    def _copy_tmp_videos_for_missing_episodes(
+        self,
+        dataset_dir: Path,
+        diagnosis: DiagnosisResult,
+    ) -> None:
+        plan = diagnosis.details.get("repair_plan") or {}
+        missing_episode_indices = [int(value) for value in plan.get("missing_episode_indices") or []]
+        if not missing_episode_indices:
+            return
+        data_lengths = {
+            int(key): int(value)
+            for key, value in dict(diagnosis.details.get("data_episode_counts") or {}).items()
+        }
+        tmp_by_key = group_tmp_videos_by_key(list(diagnosis.details.get("tmp_videos") or []))
+        info = load_info(dataset_dir)
+        for video_key in get_video_keys(info):
+            entries = tmp_by_key.get(video_key) or []
+            if not entries:
+                continue
+            used: set[Path] = set()
+            for episode_index in missing_episode_indices:
+                entry = self._matching_tmp_video(entries, data_lengths.get(episode_index, 0), used)
+                if entry is None:
+                    continue
+                used.add(entry.path)
+                file_index = self._next_video_file_index(dataset_dir, video_key)
+                if not any((dataset_dir / "videos" / video_key).rglob("*.mp4")):
+                    file_index = 0
+                target = build_video_path_from_indices(dataset_dir, info, video_key, 0, file_index)
+                self._prepare_write_path(target)
+                shutil.copy2(entry.path, target)
+
+    def _matching_tmp_video(
+        self,
+        entries: list[TmpVideo],
+        expected_frames: int,
+        used: set[Path],
+    ) -> TmpVideo | None:
+        for entry in entries:
+            if entry.path in used:
+                continue
+            if expected_frames <= 0 or self._video_frame_count(entry.path) in {0, expected_frames}:
+                return entry
+        return None
+
+    def _next_video_file_index(self, dataset_dir: Path, video_key: str) -> int:
+        indices = [
+            self._parse_index(path.stem, "file")
+            for path in (dataset_dir / "videos" / video_key).rglob("file-*.mp4")
+        ]
+        return max(indices, default=-1) + 1
+
     def _drop_missing_video_keys(self, dataset_dir: Path) -> None:
         """Remove declared video features that have no mp4 file on disk.
 
@@ -463,7 +319,7 @@ class DatasetRepairService:
             return
         for key in missing:
             features.pop(key, None)
-        write_info(dataset_dir, info)
+        self._write_info(dataset_dir, info)
 
     def _scrub_cleaned(self, dataset_dir: Path) -> None:
         """Strip artifacts that should not survive into the cleaned copy:
@@ -476,69 +332,241 @@ class DatasetRepairService:
         for entry in dataset_dir.iterdir():
             if entry.is_dir() and entry.name.startswith("tmp"):
                 shutil.rmtree(entry)
+        self._curate_calibration_snapshot(dataset_dir)
 
-    def _repair_missing_cp(self, dataset_dir: Path, diagnosis: DiagnosisResult) -> None:
-        cp_path = dataset_dir / "critical_phase_intervals.json"
-        cp_path.write_text(
-            json.dumps(diagnosis.details["log_cp_intervals"], indent=2) + "\n",
+    def _complete_dataset_structure(self, dataset_dir: Path) -> None:
+        self._write_episode_metadata_from_parquet(dataset_dir)
+        self._write_stats_from_parquet(dataset_dir)
+        self._curate_calibration_snapshot(dataset_dir)
+
+    def _write_episode_metadata_from_parquet(self, dataset_dir: Path) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        info = load_info(dataset_dir)
+        fps = int(info.get("fps", 30) or 30)
+        task_by_index = self._load_tasks(dataset_dir)
+        episodes: dict[int, dict[str, Any]] = {}
+        for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
+            table = safe_read_parquet_table(parquet_path)
+            if table is None:
+                continue
+            rows = table.to_pylist()
+            data_chunk_index = self._parse_index(parquet_path.parent.name, "chunk")
+            data_file_index = self._parse_index(parquet_path.stem, "file")
+            for local_row_index, row in enumerate(rows):
+                episode_index = int(row.get("episode_index", 0) or 0)
+                global_index = int(row.get("index", local_row_index) or 0)
+                task_index = int(row.get("task_index", 0) or 0)
+                entry = episodes.setdefault(episode_index, {
+                    "episode_index": episode_index,
+                    "tasks": [task_by_index.get(task_index, "")],
+                    "length": 0,
+                    "data/chunk_index": data_chunk_index,
+                    "data/file_index": data_file_index,
+                    "dataset_from_index": global_index,
+                    "dataset_to_index": global_index + 1,
+                })
+                entry["length"] += 1
+                entry["dataset_from_index"] = min(int(entry["dataset_from_index"]), global_index)
+                entry["dataset_to_index"] = max(int(entry["dataset_to_index"]), global_index + 1)
+        for episode_index, entry in episodes.items():
+            for video_key in get_video_keys(info):
+                entry.update(
+                    self._video_pointer_for_episode(
+                        dataset_dir,
+                        info,
+                        video_key,
+                        entry,
+                        fps=fps,
+                    )
+                )
+        episodes_path = dataset_dir / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+        episodes_root = dataset_dir / "meta" / "episodes"
+        if episodes_root.exists() or episodes_root.is_symlink():
+            shutil.rmtree(episodes_root)
+        episodes_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pylist([episodes[key] for key in sorted(episodes)]), episodes_path)
+
+    def _video_pointer_for_episode(
+        self,
+        dataset_dir: Path,
+        info: dict[str, Any],
+        video_key: str,
+        episode: dict[str, Any],
+        *,
+        fps: int,
+    ) -> dict[str, Any]:
+        episode_index = int(episode["episode_index"])
+        length = int(episode["length"])
+        from_index = int(episode["dataset_from_index"])
+        to_index = int(episode["dataset_to_index"])
+        video_files = sorted((dataset_dir / "videos" / video_key).rglob("*.mp4"))
+        if not video_files:
+            return {}
+
+        shared = self._shared_video_file(video_files, to_index)
+        if shared is not None:
+            chunk_index, file_index = self._chunk_file_indices(shared)
+            return self._video_pointer(video_key, chunk_index, file_index, from_index, to_index, fps)
+
+        exact = self._exact_episode_video(video_files, episode_index, length)
+        if exact is not None:
+            chunk_index, file_index = self._chunk_file_indices(exact)
+            return self._video_pointer(video_key, chunk_index, file_index, 0, length, fps)
+
+        first = video_files[0]
+        frame_count = self._video_frame_count(first)
+        if frame_count == 0 or frame_count >= to_index:
+            chunk_index, file_index = self._chunk_file_indices(first)
+            return self._video_pointer(video_key, chunk_index, file_index, from_index, to_index, fps)
+        return {}
+
+    def _shared_video_file(self, video_files: list[Path], required_frames: int) -> Path | None:
+        for path in video_files:
+            frame_count = self._video_frame_count(path)
+            if frame_count >= required_frames:
+                return path
+        return None
+
+    def _exact_episode_video(
+        self,
+        video_files: list[Path],
+        episode_index: int,
+        expected_frames: int,
+    ) -> Path | None:
+        for path in video_files:
+            if self._parse_index(path.stem, "file") == episode_index:
+                return path
+        for path in video_files:
+            if self._video_frame_count(path) == expected_frames:
+                return path
+        return None
+
+    def _video_pointer(
+        self,
+        video_key: str,
+        chunk_index: int,
+        file_index: int,
+        from_frame: int,
+        to_frame: int,
+        fps: int,
+    ) -> dict[str, Any]:
+        prefix = f"videos/{video_key}"
+        from_timestamp = from_frame / fps if fps > 0 else 0.0
+        to_timestamp = to_frame / fps if fps > 0 else 0.0
+        return {
+            f"{prefix}/chunk_index": chunk_index,
+            f"{prefix}/file_index": file_index,
+            f"{prefix}/from_timestamp": from_timestamp,
+            f"{prefix}/to_timestamp": to_timestamp,
+        }
+
+    def _chunk_file_indices(self, path: Path) -> tuple[int, int]:
+        return (
+            self._parse_index(path.parent.name, "chunk"),
+            self._parse_index(path.stem, "file"),
+        )
+
+    def _video_frame_count(self, path: Path) -> int:
+        import cv2
+
+        capture = cv2.VideoCapture(str(path))
+        frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        capture.release()
+        return frames
+
+    def _write_stats_from_parquet(self, dataset_dir: Path) -> None:
+        import numpy as np
+
+        info = load_info(dataset_dir)
+        rows: list[dict[str, Any]] = []
+        for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
+            table = safe_read_parquet_table(parquet_path)
+            if table is not None:
+                rows.extend(table.to_pylist())
+        stats: dict[str, Any] = {}
+        for key, feature in info.get("features", {}).items():
+            if feature.get("dtype") in {"image", "video", "string"}:
+                continue
+            values = [row[key] for row in rows if key in row and row[key] is not None]
+            if not values:
+                continue
+            array = np.asarray(values, dtype=float)
+            if array.ndim == 1:
+                array = array.reshape(-1, 1)
+            stats[key] = {
+                "min": np.min(array, axis=0).tolist(),
+                "max": np.max(array, axis=0).tolist(),
+                "mean": np.mean(array, axis=0).tolist(),
+                "std": np.std(array, axis=0).tolist(),
+                "count": [int(array.shape[0])],
+                "q01": np.quantile(array, 0.01, axis=0).tolist(),
+                "q10": np.quantile(array, 0.10, axis=0).tolist(),
+                "q50": np.quantile(array, 0.50, axis=0).tolist(),
+                "q90": np.quantile(array, 0.90, axis=0).tolist(),
+                "q99": np.quantile(array, 0.99, axis=0).tolist(),
+            }
+        stats_path = dataset_dir / "meta" / "stats.json"
+        self._prepare_write_path(stats_path)
+        stats_path.write_text(json.dumps(stats, indent=4) + "\n", encoding="utf-8")
+
+    def _load_tasks(self, dataset_dir: Path) -> dict[int, str]:
+        tasks_path = dataset_dir / "meta" / "tasks.parquet"
+        if not tasks_path.is_file():
+            return {}
+        table = safe_read_parquet_table(tasks_path)
+        if table is None:
+            return {}
+        result: dict[int, str] = {}
+        for row in table.to_pylist():
+            result[int(row.get("task_index", 0) or 0)] = str(row.get("task", ""))
+        return result
+
+    def _parse_index(self, value: str, prefix: str) -> int:
+        marker = f"{prefix}-"
+        if value.startswith(marker):
+            return int(value[len(marker):])
+        return 0
+
+    def _curate_calibration_snapshot(self, dataset_dir: Path) -> None:
+        calibration_dir = dataset_dir / "calibration"
+        if not calibration_dir.is_dir():
+            return
+        selected = self._select_calibration_files(calibration_dir)
+        if not selected:
+            return
+        payloads = [
+            (relative_path, source_path.read_bytes())
+            for relative_path, source_path in selected
+        ]
+        shutil.rmtree(calibration_dir)
+        calibration_dir.mkdir(parents=True, exist_ok=True)
+        entries: list[dict[str, str]] = []
+        for relative_path, payload in payloads:
+            target = calibration_dir / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+            entries.append({"relative_path": relative_path.as_posix()})
+        manifest = {"schema_version": 1, "entries": entries}
+        (calibration_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=4) + "\n",
             encoding="utf-8",
         )
 
-    def _repair_frame_mismatch(self, dataset_dir: Path, diagnosis: DiagnosisResult) -> None:
-        n_keep = diagnosis.details["truncate_target_frames"]
-        if n_keep <= 0:
-            raise ValueError(f"No positive truncate target for {dataset_dir}")
-        self._truncate_recovery_jsonl(dataset_dir, n_keep)
-        self._truncate_images(dataset_dir, n_keep)
-        self._truncate_parquet(dataset_dir, n_keep)
-        if diagnosis.details["n_parquet_rows"] > 0:
-            self._patch_info_totals_from_parquet(dataset_dir)
-
-    def _truncate_recovery_jsonl(self, dataset_dir: Path, n_keep: int) -> None:
-        recovery_path = dataset_dir / "recovery_frames.jsonl"
-        if not recovery_path.exists():
-            return
-        kept_lines: list[str] = []
-        with recovery_path.open() as handle:
-            for line in handle:
-                sanitized = sanitize_jsonl_line(line)
-                if not sanitized:
-                    break
-                kept_lines.append(f"{sanitized}\n")
-                if len(kept_lines) >= n_keep:
-                    break
-        recovery_path.write_text("".join(kept_lines), encoding="utf-8")
-
-    def _truncate_images(self, dataset_dir: Path, n_keep: int) -> None:
-        for camera_dir in list_episode_dirs(dataset_dir / "images"):
-            seen = 0
-            for episode_dir in list_episode_dirs(camera_dir):
-                for png_path in list_frame_pngs(episode_dir):
-                    seen += 1
-                    if seen > n_keep:
-                        png_path.unlink()
-
-    def _truncate_parquet(self, dataset_dir: Path, n_keep: int) -> None:
-        import pyarrow.parquet as pq
-
-        remaining = n_keep
-        for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
-            metadata = safe_read_parquet_metadata(parquet_path)
-            if metadata is None:
-                parquet_path.unlink()
+    def _select_calibration_files(self, calibration_dir: Path) -> list[tuple[Path, Path]]:
+        selected: list[tuple[Path, Path]] = []
+        for source in sorted(calibration_dir.glob("*.json")):
+            if source.name == "manifest.json" or source.name.startswith("._"):
                 continue
-            if remaining <= 0:
-                parquet_path.unlink()
+            selected.append((Path(source.name), source))
+        if selected:
+            return selected
+        for source in sorted(calibration_dir.glob("*/*.json")):
+            if source.name == "manifest.json" or source.name.startswith("._"):
                 continue
-            if metadata.num_rows <= remaining:
-                remaining -= metadata.num_rows
-                continue
-            table = safe_read_parquet_table(parquet_path)
-            if table is None:
-                parquet_path.unlink()
-                continue
-            pq.write_table(table.slice(0, remaining), parquet_path)
-            remaining = 0
+            selected.append((Path(f"{source.parent.name}_{source.name}"), source))
+        return selected
 
 
 _REPAIR_SERVICE = DatasetRepairService()

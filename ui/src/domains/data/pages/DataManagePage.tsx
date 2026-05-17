@@ -10,19 +10,18 @@ import {
   sortDataGateKeys,
 } from '@/domains/data/model/gates'
 import {
-  autoCleanOutcomeLabelKey,
+  autoCleanStatusLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
-  manualReviewOutcomeLabelKey,
+  manualReviewStatusLabelKey,
   qcLanePayload,
-  qcReviewStatus,
-  type AutoCleanOutcome,
-  type ManualReviewOutcome,
+  type AutoCleanStatus,
+  type ManualReviewStatus,
 } from '@/domains/data/model/datasetQuality'
 import { isMarketApplicationSubmitted } from '@/domains/data/model/marketListing'
 import {
-  DATA_AUTO_CLEAN_OUTCOMES,
-  DATA_MANUAL_REVIEW_OUTCOMES,
+  DATA_AUTO_CLEAN_STATUSES,
+  DATA_REVIEW_STATUSES,
   isTerminalDataJobPhase,
   type DataGate,
   type DataJob,
@@ -55,18 +54,18 @@ const MANAGE_SECTION_STORAGE_KEY = 'roboclaw:data-manage:sections'
 
 type ManageSectionKey = 'raw' | 'clean' | 'packages'
 type QualityLane = 'auto_clean' | 'manual_review'
-type QualityOutcome = AutoCleanOutcome | ManualReviewOutcome
+type QualityStatus = AutoCleanStatus | ManualReviewStatus
 type QualityStepStatusClass = GateStatus
 type QualityRunStepView = DataQcRun['steps'][number]
 
 type SectionOpenState = Record<ManageSectionKey, boolean>
-type AutoCleanStatusFilter = AutoCleanOutcome | 'all'
-type ManualReviewStatusFilter = ManualReviewOutcome | 'all'
+type AutoCleanStatusFilter = AutoCleanStatus | 'all'
+type ManualReviewStatusFilter = ManualReviewStatus | 'all'
 type LaneStatusCounts<T extends string> = Record<T, number>
 
 interface DatasetSectionStatusSummary {
-  autoClean: LaneStatusCounts<AutoCleanOutcome>
-  manualReview: LaneStatusCounts<ManualReviewOutcome>
+  autoClean: LaneStatusCounts<AutoCleanStatus>
+  manualReview: LaneStatusCounts<ManualReviewStatus>
 }
 
 interface TaskFilterOption {
@@ -96,19 +95,37 @@ const JOB_PHASE_LABELS: Record<DataJob['phase'], TranslationKey> = {
 }
 
 const QUALITY_STEP_LABELS: Record<string, TranslationKey> = {
-  empty_dataset_check: 'dataManageQualityStepEmptyDatasetCheck',
+  data_integrity_check: 'dataManageQualityStepDataIntegrityCheck',
   damage_diagnosis: 'dataManageQualityStepDamageDiagnosis',
   repair_if_possible: 'dataManageQualityStepRepair',
   repair_verify: 'dataManageQualityStepVerify',
+  leading_static_trim: 'dataManageQualityStepLeadingStaticTrim',
   manual_review_decision: 'dataManageQualityStepManualReview',
 }
-const AUTO_CLEAN_STATUSES = DATA_AUTO_CLEAN_OUTCOMES
-const MANUAL_REVIEW_OUTCOMES = DATA_MANUAL_REVIEW_OUTCOMES
+const QUALITY_STEP_MESSAGE_LABELS: Record<string, TranslationKey> = {
+  healthy: 'dataManageQualityMessageHealthy',
+  empty_shell: 'dataManageQualityMessageEmptyShell',
+  structure_incomplete: 'dataManageQualityMessageStructureIncomplete',
+  none: 'dataManageQualityMessageNoDamage',
+  orphan_data_episodes: 'dataManageQualityMessageOrphanDataEpisodes',
+  stale_info_totals: 'dataManageQualityMessageStaleInfoTotals',
+  missing_metadata: 'dataManageQualityMessageMissingMetadata',
+  missing_data_rows: 'dataManageQualityMessageMissingDataRows',
+  missing_video_files: 'dataManageQualityMessageMissingVideoFiles',
+  recoverable_tmp_videos: 'dataManageQualityMessageRecoverableTmpVideos',
+  tmp_video_residue: 'dataManageQualityMessageTmpVideoResidue',
+  unknown_damage: 'dataManageQualityMessageUnknownDamage',
+  formalize_data_episodes: 'dataManageQualityMessageFormalizeDataEpisodes',
+  'Repair output verified': 'dataManageQualityMessageRepairVerified',
+}
+const AUTO_CLEAN_STATUSES = DATA_AUTO_CLEAN_STATUSES
+const MANUAL_REVIEW_STATUSES = DATA_REVIEW_STATUSES
 const AUTO_CLEAN_STEP_IDS: readonly string[] = [
-  'empty_dataset_check',
+  'data_integrity_check',
   'damage_diagnosis',
   'repair_if_possible',
   'repair_verify',
+  'leading_static_trim',
 ]
 
 export default function DataManagePage() {
@@ -128,7 +145,7 @@ export default function DataManagePage() {
     deleteDataset,
     deletePackage,
   } = useDataLibraryStore()
-  const { jobs, attach } = useDataJobStore()
+  const { jobs, attach, cancel } = useDataJobStore()
   const [packageId, setPackageId] = useState('')
   const [groupName, setGroupName] = useState('default')
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget>(null)
@@ -164,6 +181,21 @@ export default function DataManagePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    let mounted = true
+    void dataApi.jobs({ kind: 'auto_clean' }).then((activeJobs) => {
+      if (!mounted) return
+      for (const job of activeJobs) {
+        if (!isTerminalDataJobPhase(job.phase)) {
+          attach(job)
+        }
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [attach])
 
   const rawDatasetPool = useMemo(
     () => datasets.filter((dataset) => !isPackableDataset(dataset)),
@@ -207,8 +239,8 @@ export default function DataManagePage() {
   const rawFilteredIds = useMemo(() => rawDatasets.map((dataset) => dataset.id), [rawDatasets])
   const selectedRawIds = rawFilteredIds.filter((id) => selectedDatasetIdSet.has(id))
   const selectedRawDatasets = useMemo(
-    () => rawDatasetPool.filter((dataset) => selectedDatasetIdSet.has(dataset.id)),
-    [rawDatasetPool, selectedDatasetIdSet],
+    () => rawDatasets.filter((dataset) => selectedDatasetIdSet.has(dataset.id)),
+    [rawDatasets, selectedDatasetIdSet],
   )
   const selectedRawBatchIds = selectedRawDatasets.map((dataset) => dataset.id)
   const selectedManualReviewDatasets = selectedRawDatasets
@@ -228,7 +260,6 @@ export default function DataManagePage() {
     [selectedReviewDatasets],
   )
   const canApplyReviewBatch = selectedReviewDatasets.length > 0 && reviewBatchBlockedCount === 0
-  const autoCleanDisabledReason = selectedRawBatchIds.length ? '' : t('dataManageBatchDisabledNoDataset')
   const manualReviewDisabledReason = manualReviewBatchDisabledReason(selectedRawDatasets.length, manualReviewBlockedCount, t)
   const reviewBatchDisabledReason = applyReviewBatchDisabledReason(selectedReviewDatasets.length, reviewBatchBlockedCount, t)
   const selectedCleanIds = selectedDatasetIds.filter((id) => (
@@ -250,6 +281,20 @@ export default function DataManagePage() {
     ? packages.find((item) => item.id === deleteTarget.id) || null
     : null
   const autoCleanDialogJob = autoCleanDialogJobId ? jobs[autoCleanDialogJobId] ?? null : null
+  const activeAutoCleanJobs = Object.values(jobs)
+    .filter((job) => job.kind === 'auto_clean' && !isTerminalDataJobPhase(job.phase))
+    .sort((left, right) => left.started_at.localeCompare(right.started_at))
+  const primaryAutoCleanJob = activeAutoCleanJobs[activeAutoCleanJobs.length - 1] ?? null
+  const hasActiveAutoCleanJob = Boolean(primaryAutoCleanJob)
+  const canStartAutoCleanBatch = selectedRawBatchIds.length > 0 && !hasActiveAutoCleanJob
+  const autoCleanDisabledReason = hasActiveAutoCleanJob
+    ? t('dataManageAutoCleanDisabledRunning')
+    : selectedRawBatchIds.length
+      ? ''
+      : t('dataManageBatchDisabledNoDataset')
+  const activeAutoCleanJobSignature = activeAutoCleanJobs
+    .map((job) => `${job.job_id}:${job.phase}:${job.processed}:${job.updated_at}:${job.message}`)
+    .join('|')
   const terminalJobSignatures = Object.values(jobs)
     .filter((job) => job.kind === 'auto_clean' && isTerminalDataJobPhase(job.phase))
     .map((job) => `${job.job_id}:${job.phase}:${job.updated_at}`)
@@ -278,6 +323,11 @@ export default function DataManagePage() {
     setReloadedJobSignatures((current) => [...current, terminalJobSignature])
     void load()
   }, [load, reloadedJobSignatures, terminalJobSignature])
+
+  useEffect(() => {
+    if (!activeAutoCleanJobSignature) return
+    void load()
+  }, [activeAutoCleanJobSignature, load])
 
   useEffect(() => {
     if (!drawerDatasetFromQuery || loadedDrawerDatasetFromQuery.current === drawerDatasetFromQuery) return
@@ -324,10 +374,19 @@ export default function DataManagePage() {
   }
 
   async function startSelectedAutoClean() {
-    if (!selectedRawBatchIds.length) return
+    if (!canStartAutoCleanBatch) return
     const job = await dataApi.startAutoCleanRun({ dataset_ids: selectedRawBatchIds, chain_id: 'default', force: true })
     attach(job)
     setAutoCleanDialogJobId(job.job_id)
+    await load()
+  }
+
+  async function cancelAutoClean(jobId: string) {
+    await cancel(jobId)
+    if (autoCleanDialogJobId === jobId) {
+      setAutoCleanDialogJobId(null)
+    }
+    await load()
   }
 
   function openSelectedReviewQueue() {
@@ -449,6 +508,13 @@ export default function DataManagePage() {
           summary={rawStatusSummary}
         />
 
+        {primaryAutoCleanJob && (
+          <AutoCleanBackgroundJobPanel
+            job={primaryAutoCleanJob}
+            onCancel={() => void cancelAutoClean(primaryAutoCleanJob.job_id)}
+          />
+        )}
+
         <ManageSection
           sectionKey="raw"
           title={t('dataManageRawColumn')}
@@ -460,8 +526,8 @@ export default function DataManagePage() {
           actions={(
             <div className="data-manage-section__action-group">
               <ActionButtonWithReason
-                className={cn('data-manage-batch-clean-button', selectedRawBatchIds.length > 0 && 'is-armed')}
-                disabled={selectedRawBatchIds.length === 0}
+                className={cn('data-manage-batch-clean-button', canStartAutoCleanBatch && 'is-armed')}
+                disabled={!canStartAutoCleanBatch}
                 disabledReason={autoCleanDisabledReason}
                 onClick={() => void startSelectedAutoClean()}
               >
@@ -524,8 +590,8 @@ export default function DataManagePage() {
                 <FilterField label={t('dataManageManualReviewStatus')}>
                   <QualityStatusFacetFilter
                     label={t('dataManageManualReviewStatus')}
-                    statuses={MANUAL_REVIEW_OUTCOMES}
-                    labelFor={manualReviewOutcomeLabel}
+                    statuses={MANUAL_REVIEW_STATUSES}
+                    labelFor={manualReviewStatusLabel}
                     value={rawManualReviewFilter}
                     onChange={(value) => {
                       setRawManualReviewFilter(value)
@@ -619,8 +685,8 @@ export default function DataManagePage() {
                 <FilterField label={t('dataManageManualReviewStatus')}>
                   <QualityStatusFacetFilter
                     label={t('dataManageManualReviewStatus')}
-                    statuses={MANUAL_REVIEW_OUTCOMES}
-                    labelFor={manualReviewOutcomeLabel}
+                    statuses={MANUAL_REVIEW_STATUSES}
+                    labelFor={manualReviewStatusLabel}
                     value={cleanManualReviewFilter}
                     onChange={(value) => {
                       setCleanManualReviewFilter(value)
@@ -812,15 +878,15 @@ function DataManageDashboard({
         <DataManageDashboardLane
           title={t('dataManageManualReviewStatus')}
           counts={summary.manualReview}
-          statuses={MANUAL_REVIEW_OUTCOMES}
-          labelFor={(status) => manualReviewOutcomeLabel(status, t)}
+          statuses={MANUAL_REVIEW_STATUSES}
+          labelFor={(status) => manualReviewStatusLabel(status, t)}
         />
       </div>
     </section>
   )
 }
 
-function DataManageDashboardLane<T extends QualityOutcome>({
+function DataManageDashboardLane<T extends QualityStatus>({
   title,
   counts,
   statuses,
@@ -915,7 +981,7 @@ function ManageSection({
   )
 }
 
-function StatusCountPills<T extends QualityOutcome>({
+function StatusCountPills<T extends QualityStatus>({
   counts,
   statuses,
   labelFor,
@@ -1096,7 +1162,7 @@ function TaskMultiSelectFilter({
   )
 }
 
-function QualityStatusFacetFilter<T extends QualityOutcome>({
+function QualityStatusFacetFilter<T extends QualityStatus>({
   label,
   statuses,
   labelFor,
@@ -1144,8 +1210,8 @@ function DatasetRow({
 }) {
   const { t } = useI18n()
   const quality = buildDatasetQualityView(dataset)
-  const autoCleanStatus = quality.autoCleanOutcome
-  const manualReviewOutcome = quality.manualReviewOutcome
+  const autoCleanStatus = quality.autoCleanStatus
+  const manualReviewStatus = quality.manualReviewStatus
   return (
     <article className={cn('data-manage-card data-manage-dataset-row', active && 'is-active')}>
       {selectable && onToggle && (
@@ -1169,7 +1235,7 @@ function DatasetRow({
         </div>
         <div className="data-manage-quality-pill">
           <span>{t('dataManageManualReviewStatus')}</span>
-          <strong className={cn(`is-${manualReviewOutcome}`)}>{manualReviewOutcomeLabel(manualReviewOutcome, t)}</strong>
+          <strong className={cn(`is-${manualReviewStatus}`)}>{manualReviewStatusLabel(manualReviewStatus, t)}</strong>
         </div>
       </div>
     </article>
@@ -1280,9 +1346,9 @@ function DatasetDrawer({
 function DatasetQualityPanel({ dataset, onReview }: { dataset: Dataset; onReview: () => void }) {
   const { t } = useI18n()
   const quality = buildDatasetQualityView(dataset)
-  const autoCleanStatus = quality.autoCleanOutcome
-  const manualReviewOutcome = quality.manualReviewOutcome
-  const autoCleanFallbackSteps = autoCleanStepFallbacks(quality.autoCleanOutcome, quality.autoCleanMessage)
+  const autoCleanStatus = quality.autoCleanStatus
+  const manualReviewStatus = quality.manualReviewStatus
+  const autoCleanFallbackSteps = autoCleanStepFallbacks(quality.autoCleanStatus, quality.autoCleanMessage)
   const [activeLane, setActiveLane] = useState<QualityLane | null>(null)
   const [loadingLane, setLoadingLane] = useState<QualityLane | null>(null)
   const [runs, setRuns] = useState<Partial<Record<QualityLane, DataQcRun>>>({})
@@ -1340,8 +1406,8 @@ function DatasetQualityPanel({ dataset, onReview }: { dataset: Dataset; onReview
         onClick={onReview}
       >
         <span>{t('dataManageManualReviewStatus')}</span>
-        <strong className={cn(`is-${manualReviewOutcome}`)}>
-          {manualReviewOutcomeLabel(manualReviewOutcome, t)}
+        <strong className={cn(`is-${manualReviewStatus}`)}>
+          {manualReviewStatusLabel(manualReviewStatus, t)}
         </strong>
       </button>
     </div>
@@ -1395,11 +1461,10 @@ function QualityRunDetails({
         title={t(lane === 'auto_clean' ? 'dataManageQualityAutoCleanSteps' : 'dataManageQualityManualReviewSteps')}
         steps={steps}
         emptyMessage={lane === 'auto_clean' ? t('dataManageQualityNoSteps') : (message || t('dataManageQualityNoSteps'))}
-        hideMessages={lane === 'auto_clean'}
       />
       {run?.failure && (
         <p className="data-manage-quality-detail__note">
-          {t('dataManageQualityFailure')}: {compactRecord(run.failure)}
+          {t('dataManageQualityFailure')}: {qualityFailureSummary(run.failure, t)}
         </p>
       )}
     </div>
@@ -1427,7 +1492,7 @@ function QualityStepList({
             <span className="data-manage-quality-step__index" aria-hidden="true">{index + 1}</span>
             <div>
               <span className="data-manage-quality-step__title">{qualityStepLabel(step.id, t)}</span>
-              {!hideMessages && qualityDisplayMessage(step.message) && <p>{qualityDisplayMessage(step.message)}</p>}
+              {!hideMessages && qualityDisplayMessage(step.message, t) && <p>{qualityDisplayMessage(step.message, t)}</p>}
             </div>
             <em className={cn(`is-${qualityStepStatusClass(step.status)}`)}>{qualityStepStatusLabel(step.status, t)}</em>
           </li>
@@ -1625,10 +1690,35 @@ function DeleteConfirmDialog({
   )
 }
 
+function AutoCleanBackgroundJobPanel({ job, onCancel }: { job: DataJob; onCancel: () => void }) {
+  const { t } = useI18n()
+  const { progress, width } = jobProgress(job)
+  const cancelling = job.phase === 'cancelling'
+  return (
+    <section className="data-manage-background-job">
+      <div className="data-manage-background-job__head">
+        <div>
+          <span>{t('dataManageAutoCleanBackground')}</span>
+          <strong>{t('dataManageAutoCleanProgressCount', { processed: job.processed, total: job.total })}</strong>
+        </div>
+        <button type="button" className="data-manage-danger" onClick={onCancel} disabled={cancelling}>
+          {t(cancelling ? 'dataManageAutoCleanCancelling' : 'dataManageAutoCleanCancel')}
+        </button>
+      </div>
+      <div className="data-manage-job-dialog__bar" aria-label={`${progress}%`}>
+        <i style={{ width }} />
+      </div>
+      <div className="data-manage-job-dialog__meta">
+        <span className={`data-badge data-badge--${job.phase}`}>{t(JOB_PHASE_LABELS[job.phase])}</span>
+        <span>{job.message || t('dataManageAutoCleanProgressWaiting')}</span>
+      </div>
+    </section>
+  )
+}
+
 function AutoCleanJobDialog({ job, onClose }: { job: DataJob; onClose: () => void }) {
   const { t } = useI18n()
-  const total = Math.max(job.total, 1)
-  const progress = Math.min(100, Math.max(0, (job.processed / total) * 100))
+  const { width } = jobProgress(job)
   return (
     <div className="data-manage-job-dialog" role="dialog" aria-modal="true" aria-labelledby="data-manage-job-title">
       <div className="data-manage-job-dialog__panel">
@@ -1640,16 +1730,27 @@ function AutoCleanJobDialog({ job, onClose }: { job: DataJob; onClose: () => voi
           <button type="button" className="data-manage-icon-button" onClick={onClose} title={t('dataManageCloseJobDialog')}>×</button>
         </div>
         <div className="data-manage-job-dialog__bar" aria-hidden="true">
-          <i style={{ width: `${progress}%` }} />
+          <i style={{ width }} />
         </div>
         <div className="data-manage-job-dialog__meta">
           <span className={`data-badge data-badge--${job.phase}`}>{t(JOB_PHASE_LABELS[job.phase])}</span>
           <span>{job.message || t('dataManageAutoCleanProgressWaiting')}</span>
         </div>
         {job.error && <p className="data-manage-job-dialog__error">{job.error}</p>}
+        <div className="data-manage-job-dialog__actions">
+          <button type="button" className="data-manage-neutral-button" onClick={onClose}>
+            {t('dataManageAutoCleanRunInBackground')}
+          </button>
+        </div>
       </div>
     </div>
   )
+}
+
+function jobProgress(job: DataJob): { progress: number; width: string } {
+  const total = Math.max(job.total, 1)
+  const progress = Math.min(100, Math.max(0, (job.processed / total) * 100))
+  return { progress, width: `${progress}%` }
 }
 
 function KeyValue({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
@@ -1735,8 +1836,8 @@ function matchesDatasetFilters(
   return (
     isDateInFilter(quality.createdDate, dateFilter)
     && matchesTaskFilter(quality.taskDescription, taskFilter)
-    && matchesQualityFilter(quality.autoCleanOutcome, autoCleanFilter)
-    && matchesQualityFilter(quality.manualReviewOutcome, manualReviewFilter)
+    && matchesQualityFilter(quality.autoCleanStatus, autoCleanFilter)
+    && matchesQualityFilter(quality.manualReviewStatus, manualReviewFilter)
   )
 }
 
@@ -1761,28 +1862,28 @@ function matchesTaskFilter(task: string, taskFilter: string[]): boolean {
   return taskFilter.includes(task)
 }
 
-function matchesQualityFilter<T extends QualityOutcome>(status: T, filter: T | 'all'): boolean {
+function matchesQualityFilter<T extends QualityStatus>(status: T, filter: T | 'all'): boolean {
   return filter === 'all' || status === filter
 }
 
 function datasetSectionStatusSummary(datasets: Dataset[]): DatasetSectionStatusSummary {
   const summary: DatasetSectionStatusSummary = {
-    autoClean: emptyAutoCleanOutcomeCounts(),
-    manualReview: emptyManualReviewOutcomeCounts(),
+    autoClean: emptyAutoCleanStatusCounts(),
+    manualReview: emptyManualReviewStatusCounts(),
   }
   for (const dataset of datasets) {
     const quality = buildDatasetQualityView(dataset)
-    summary.autoClean[quality.autoCleanOutcome] += 1
-    summary.manualReview[quality.manualReviewOutcome] += 1
+    summary.autoClean[quality.autoCleanStatus] += 1
+    summary.manualReview[quality.manualReviewStatus] += 1
   }
   return summary
 }
 
-function emptyAutoCleanOutcomeCounts(): LaneStatusCounts<AutoCleanOutcome> {
-  return { pending: 0, passed: 0, failed: 0 }
+function emptyAutoCleanStatusCounts(): LaneStatusCounts<AutoCleanStatus> {
+  return { pending: 0, running: 0, passed: 0, failed: 0 }
 }
 
-function emptyManualReviewOutcomeCounts(): LaneStatusCounts<ManualReviewOutcome> {
+function emptyManualReviewStatusCounts(): LaneStatusCounts<ManualReviewStatus> {
   return { pending: 0, passed: 0, needs_fix: 0, failed: 0 }
 }
 
@@ -1804,20 +1905,20 @@ function isDataset(value: Dataset | undefined): value is Dataset {
 
 function isPackableDataset(dataset: Dataset): boolean {
   const quality = buildDatasetQualityView(dataset)
-  return isAutoCleanPassedOutcome(quality.autoCleanOutcome)
-    && quality.manualReviewOutcome === 'passed'
-    && qcReviewStatus(dataset) === 'applied'
+  return dataset.lifecycle_stage === 'clean'
+    && isAutoCleanPassedStatus(quality.autoCleanStatus)
+    && quality.manualReviewStatus === 'passed'
 }
 
 function isReviewBatchReady(dataset: Dataset): boolean {
   const quality = buildDatasetQualityView(dataset)
-  return qcReviewStatus(dataset) === 'ready_for_batch'
-    && isAutoCleanPassedOutcome(quality.autoCleanOutcome)
-    && isManualReviewBatchApplicable(quality.manualReviewOutcome)
+  return dataset.lifecycle_stage !== 'clean'
+    && isAutoCleanPassedStatus(quality.autoCleanStatus)
+    && isManualReviewBatchApplicableStatus(quality.manualReviewStatus)
 }
 
 function isManualReviewStartReady(dataset: Dataset): boolean {
-  return isAutoCleanPassedOutcome(buildDatasetQualityView(dataset).autoCleanOutcome)
+  return isAutoCleanPassedStatus(buildDatasetQualityView(dataset).autoCleanStatus)
 }
 
 function manualReviewBatchDisabledReason(
@@ -1848,20 +1949,20 @@ function currentReviewerId(user: { id?: string; phone?: string; nickname?: strin
   return user?.id || user?.phone || user?.nickname || ''
 }
 
-function isAutoCleanPassedOutcome(outcome: AutoCleanOutcome): boolean {
-  return outcome === 'passed'
+function isAutoCleanPassedStatus(status: AutoCleanStatus): boolean {
+  return status === 'passed'
 }
 
-function isManualReviewBatchApplicable(outcome: ManualReviewOutcome): boolean {
-  return outcome === 'passed' || outcome === 'needs_fix'
+function isManualReviewBatchApplicableStatus(status: ManualReviewStatus): boolean {
+  return status === 'passed' || status === 'needs_fix'
 }
 
-function autoCleanStatusLabel(status: AutoCleanOutcome, t: (key: TranslationKey) => string): string {
-  return t(autoCleanOutcomeLabelKey(status))
+function autoCleanStatusLabel(status: AutoCleanStatus, t: (key: TranslationKey) => string): string {
+  return t(autoCleanStatusLabelKey(status))
 }
 
-function manualReviewOutcomeLabel(outcome: ManualReviewOutcome, t: (key: TranslationKey) => string): string {
-  return t(manualReviewOutcomeLabelKey(outcome))
+function manualReviewStatusLabel(status: ManualReviewStatus, t: (key: TranslationKey) => string): string {
+  return t(manualReviewStatusLabelKey(status))
 }
 
 function qualityStepStatusClass(status: string): QualityStepStatusClass {
@@ -1880,8 +1981,11 @@ function qualityStepLabel(stepId: string, t: (key: TranslationKey) => string): s
   return labelKey ? t(labelKey) : stepId
 }
 
-function qualityDisplayMessage(message: string): string {
-  return message.trim() === 'Dataset is already clean' ? '' : message
+function qualityDisplayMessage(message: string, t: (key: TranslationKey) => string): string {
+  const trimmed = message.trim()
+  if (!trimmed || trimmed === 'Dataset is already clean' || trimmed === 'passed') return ''
+  const labelKey = QUALITY_STEP_MESSAGE_LABELS[trimmed]
+  return labelKey ? t(labelKey) : trimmed
 }
 
 function normalizedQualityStepStatus(status: string): GateStatus {
@@ -1893,18 +1997,21 @@ function normalizedQualityStepStatus(status: string): GateStatus {
   return 'pending'
 }
 
-function autoCleanStepFallbacks(outcome: AutoCleanOutcome, message: string): QualityRunStepView[] {
-  const failedStepId = outcome === 'failed' ? autoCleanFailureStepId(message) : ''
-  const alreadyClean = outcome === 'passed' && message.toLowerCase().includes('already clean')
+function autoCleanStepFallbacks(status: AutoCleanStatus, message: string): QualityRunStepView[] {
+  const failedStepId = status === 'failed' ? autoCleanFailureStepId(message) : ''
+  const alreadyClean = status === 'passed' && message.toLowerCase().includes('already clean')
   return AUTO_CLEAN_STEP_IDS.map((stepId) => ({
     id: stepId,
-    status: autoCleanFallbackStepStatus(stepId, outcome, failedStepId, alreadyClean),
+    status: autoCleanFallbackStepStatus(stepId, status, failedStepId, alreadyClean),
     message: autoCleanFallbackStepMessage(stepId, failedStepId, alreadyClean, message),
     details: {},
   }))
 }
 
 function autoCleanOrderedSteps(runSteps: QualityRunStepView[], fallbackSteps: QualityRunStepView[]): QualityRunStepView[] {
+  if (runSteps.length) {
+    return [...runSteps].sort((left, right) => autoCleanSortIndex(left.id) - autoCleanSortIndex(right.id))
+  }
   const runStepsById = new Map(runSteps.map((step) => [step.id, step]))
   const fallbackStepsById = new Map(fallbackSteps.map((step) => [step.id, step]))
   return AUTO_CLEAN_STEP_IDS.map((stepId) => (
@@ -1916,12 +2023,13 @@ function autoCleanOrderedSteps(runSteps: QualityRunStepView[], fallbackSteps: Qu
 
 function autoCleanFallbackStepStatus(
   stepId: string,
-  outcome: AutoCleanOutcome,
+  status: AutoCleanStatus,
   failedStepId: string,
   alreadyClean: boolean,
 ): string {
-  if (outcome === 'pending') return 'pending'
-  if (outcome === 'failed') {
+  if (status === 'pending') return 'pending'
+  if (status === 'running') return autoCleanStepIndex(stepId) === 0 ? 'running' : 'pending'
+  if (status === 'failed') {
     if (stepId === failedStepId) return 'failed'
     return autoCleanStepIndex(stepId) < autoCleanStepIndex(failedStepId) ? 'passed' : 'pending'
   }
@@ -1948,14 +2056,60 @@ function autoCleanStepIndex(stepId: string): number {
   return AUTO_CLEAN_STEP_IDS.indexOf(stepId)
 }
 
+function autoCleanSortIndex(stepId: string): number {
+  const index = autoCleanStepIndex(stepId)
+  return index < 0 ? AUTO_CLEAN_STEP_IDS.length : index
+}
+
 function qualityLaneLastRunId(dataset: Dataset, lane: QualityLane): string {
   return stringValue(qcLanePayload(dataset, lane).last_run_id)
 }
 
-function compactRecord(value: Record<string, unknown>): string {
-  return Object.entries(value)
-    .map(([key, entry]) => `${key}: ${stringValue(entry) || JSON.stringify(entry)}`)
-    .join(', ')
+function qualityFailureSummary(
+  failure: Record<string, unknown>,
+  t: (key: TranslationKey) => string,
+): string {
+  const stepId = stringValue(failure.step_id)
+  const message = stringValue(failure.message)
+  const details = recordValue(failure.details)
+  const diagnosis = recordValue(details?.diagnosis) ?? details
+  const damageType = (
+    stringValue(diagnosis?.damage_kind)
+    || stringValue(diagnosis?.integrity_status)
+    || damageTypeFromMessage(message)
+  )
+  const reason = damageTypeLabel(damageType, t) || readableFailureMessage(message)
+  const stepLabel = stepId ? qualityStepLabel(stepId, t) : ''
+  return [stepLabel, reason].filter(Boolean).join('：') || t('dataManageQualityFailureUnknown')
+}
+
+function damageTypeLabel(damageType: string, t: (key: TranslationKey) => string): string {
+  if (damageType === 'empty_shell') return t('dataManageQualityFailureEmptyShell')
+  if (damageType === 'structure_incomplete') return t('dataManageQualityFailureStructureIncomplete')
+  if (damageType === 'healthy') return t('dataManageQualityFailureHealthy')
+  if (damageType === 'unknown_damage') return t('dataManageQualityFailureUnknownDamage')
+  return ''
+}
+
+function damageTypeFromMessage(message: string): string {
+  if (message.includes('unknown_damage')) return 'unknown_damage'
+  if (message.includes('empty_shell')) return 'empty_shell'
+  if (message.includes('structure_incomplete')) return 'structure_incomplete'
+  if (message.includes('healthy')) return 'healthy'
+  return ''
+}
+
+function readableFailureMessage(message: string): string {
+  return message
+    .replace(/^[a-z_]+ failed:\s*/i, '')
+    .replace(/_/g, ' ')
+    .trim()
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 function stringValue(value: unknown): string {

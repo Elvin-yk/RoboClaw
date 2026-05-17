@@ -12,17 +12,17 @@ export type DatasetPackageStage =
   | 'failed'
 
 export type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'needs_review' | 'skipped'
-export const DATA_AUTO_CLEAN_OUTCOMES = ['pending', 'passed', 'failed'] as const
-export type DataAutoCleanOutcome = (typeof DATA_AUTO_CLEAN_OUTCOMES)[number]
-export const DATA_MANUAL_REVIEW_OUTCOMES = ['pending', 'passed', 'needs_fix', 'failed'] as const
-export type DataManualReviewOutcome = (typeof DATA_MANUAL_REVIEW_OUTCOMES)[number]
+export const DATA_AUTO_CLEAN_STATUSES = ['pending', 'running', 'passed', 'failed'] as const
+export type DataAutoCleanStatus = (typeof DATA_AUTO_CLEAN_STATUSES)[number]
+export const DATA_REVIEW_STATUSES = ['pending', 'passed', 'needs_fix', 'failed'] as const
+export type DataReviewStatus = (typeof DATA_REVIEW_STATUSES)[number]
 
-export function isDataAutoCleanOutcome(value: string): value is DataAutoCleanOutcome {
-  return (DATA_AUTO_CLEAN_OUTCOMES as readonly string[]).includes(value)
+export function isDataAutoCleanStatus(value: string): value is DataAutoCleanStatus {
+  return (DATA_AUTO_CLEAN_STATUSES as readonly string[]).includes(value)
 }
 
-export function isDataManualReviewOutcome(value: string): value is DataManualReviewOutcome {
-  return (DATA_MANUAL_REVIEW_OUTCOMES as readonly string[]).includes(value)
+export function isDataReviewStatus(value: string): value is DataReviewStatus {
+  return (DATA_REVIEW_STATUSES as readonly string[]).includes(value)
 }
 
 export interface DataGate {
@@ -114,7 +114,6 @@ export interface DataQcRun {
   lane: string
   chain_id: string
   status: string
-  outcome?: DataAutoCleanOutcome | DataManualReviewOutcome
   started_at: string
   updated_at: string
   steps: DataQcRunStep[]
@@ -122,7 +121,6 @@ export interface DataQcRun {
   failure?: Record<string, unknown>
 }
 
-export type DataReviewStatus = 'pending' | 'ready_for_batch' | 'applied'
 export type DataReviewDecision = 'passed' | 'failed'
 
 export interface DataReviewEpisodeDecision {
@@ -135,7 +133,6 @@ export interface DataReviewEpisodeDecision {
 
 export interface DataReviewState {
   status: DataReviewStatus
-  outcome: DataManualReviewOutcome
   episodes: Record<string, DataReviewEpisodeDecision>
   draft_edits: Record<string, unknown>
   updated_at: string

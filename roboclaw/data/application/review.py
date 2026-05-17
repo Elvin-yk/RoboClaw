@@ -11,17 +11,12 @@ from uuid import uuid4
 from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
 from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.domain.models import (
-    AUTO_CLEAN_OUTCOME_PASSED,
-    AUTO_CLEAN_OUTCOME_PENDING,
     MANUAL_REVIEW_DECISION_FAILED,
     MANUAL_REVIEW_DECISION_PASSED,
-    MANUAL_REVIEW_OUTCOME_FAILED,
-    MANUAL_REVIEW_OUTCOME_NEEDS_FIX,
-    MANUAL_REVIEW_OUTCOME_PASSED,
-    MANUAL_REVIEW_OUTCOME_PENDING,
-    MANUAL_REVIEW_STATUS_APPLIED,
+    MANUAL_REVIEW_STATUS_FAILED,
+    MANUAL_REVIEW_STATUS_NEEDS_FIX,
+    MANUAL_REVIEW_STATUS_PASSED,
     MANUAL_REVIEW_STATUS_PENDING,
-    MANUAL_REVIEW_STATUS_READY_FOR_BATCH,
 )
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
@@ -29,10 +24,14 @@ from roboclaw.data.infrastructure.state_store import utc_now_iso
 from .jobs import DataJobCoordinator, DataJobHandle
 from .packages import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 
-REVIEW_STATUSES = {MANUAL_REVIEW_STATUS_PENDING, MANUAL_REVIEW_STATUS_READY_FOR_BATCH, MANUAL_REVIEW_STATUS_APPLIED}
+REVIEW_STATUSES = {
+    MANUAL_REVIEW_STATUS_PENDING,
+    MANUAL_REVIEW_STATUS_PASSED,
+    MANUAL_REVIEW_STATUS_NEEDS_FIX,
+    MANUAL_REVIEW_STATUS_FAILED,
+}
 REVIEW_DECISIONS = {MANUAL_REVIEW_DECISION_PASSED, MANUAL_REVIEW_DECISION_FAILED}
-AUTO_CLEAN_PASSED_OUTCOMES = {AUTO_CLEAN_OUTCOME_PASSED}
-REVIEW_BATCH_APPLICABLE_OUTCOMES = {MANUAL_REVIEW_OUTCOME_PASSED, MANUAL_REVIEW_OUTCOME_NEEDS_FIX}
+REVIEW_BATCH_APPLICABLE_STATUSES = {MANUAL_REVIEW_STATUS_PASSED, MANUAL_REVIEW_STATUS_NEEDS_FIX}
 
 
 @dataclass(frozen=True)
@@ -180,12 +179,12 @@ class DataReviewService:
         state: dict[str, Any],
         review: dict[str, Any],
     ) -> None:
-        if review["status"] != MANUAL_REVIEW_STATUS_READY_FOR_BATCH:
+        if review["status"] not in REVIEW_BATCH_APPLICABLE_STATUSES:
             raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
-        if self._auto_clean_outcome(state) not in AUTO_CLEAN_PASSED_OUTCOMES:
+        if review.get("batch_result"):
+            raise ValueError(f"Dataset '{dataset_id}' review batch has already been applied")
+        if self._clean_status(state) != "passed":
             raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
-        if review["outcome"] not in REVIEW_BATCH_APPLICABLE_OUTCOMES:
-            raise ValueError(f"Dataset '{dataset_id}' review outcome cannot be applied")
 
     def _apply_review_batch(self, *, dataset_id: str, reviewer_id: str) -> dict[str, Any]:
         context = self._review_batch_context(dataset_id)
@@ -205,8 +204,7 @@ class DataReviewService:
         applied_at = utc_now_iso()
         state = context.state
         review = context.review
-        review["status"] = MANUAL_REVIEW_STATUS_APPLIED
-        review["outcome"] = MANUAL_REVIEW_OUTCOME_PASSED
+        review["status"] = MANUAL_REVIEW_STATUS_PASSED
         review["applied_at"] = applied_at
         review["applied_by"] = reviewer_id
         review["artifact_relative_path"] = relative_path
@@ -237,7 +235,7 @@ class DataReviewService:
         self.repository.state_store.write_dataset_state(context.dataset_path, state)
         self.repository.state_store.append_dataset_event(context.dataset_path, {
             "type": "review_batch_applied",
-            "review_outcome": review["outcome"],
+            "review_status": review["status"],
             "artifact_relative_path": relative_path,
             "removed_episode_indices": sorted(failed_indices),
         })
@@ -475,16 +473,16 @@ class DataReviewService:
         }
 
     def _update_review_progress(self, review: dict[str, Any], episode_indices: list[int]) -> None:
-        review["status"], review["outcome"] = self._review_progress(review, episode_indices)
+        review["status"] = self._review_progress(review, episode_indices)
 
-    def _review_progress(self, review: dict[str, Any], episode_indices: list[int]) -> tuple[str, str]:
-        if review.get("status") == MANUAL_REVIEW_STATUS_APPLIED:
-            return MANUAL_REVIEW_STATUS_APPLIED, MANUAL_REVIEW_OUTCOME_PASSED
+    def _review_progress(self, review: dict[str, Any], episode_indices: list[int]) -> str:
+        if review.get("batch_result") or str(review.get("status") or "") == "applied":
+            return MANUAL_REVIEW_STATUS_PASSED
         decisions = dict(review.get("episodes") or {})
         if not episode_indices or not all(str(index) in decisions for index in episode_indices):
             status = str(review.get("status") or MANUAL_REVIEW_STATUS_PENDING)
             normalized_status = status if status in REVIEW_STATUSES else MANUAL_REVIEW_STATUS_PENDING
-            return normalized_status, MANUAL_REVIEW_OUTCOME_PENDING
+            return normalized_status
 
         passed_count = 0
         failed_count = 0
@@ -497,18 +495,17 @@ class DataReviewService:
 
         has_draft_edits = any(str(value).strip() for value in dict(review.get("draft_edits") or {}).values())
         if failed_count == len(episode_indices):
-            return MANUAL_REVIEW_STATUS_READY_FOR_BATCH, MANUAL_REVIEW_OUTCOME_FAILED
+            return MANUAL_REVIEW_STATUS_FAILED
         if passed_count == len(episode_indices) and not has_draft_edits:
-            return MANUAL_REVIEW_STATUS_READY_FOR_BATCH, MANUAL_REVIEW_OUTCOME_PASSED
+            return MANUAL_REVIEW_STATUS_PASSED
         if passed_count > 0 and (failed_count > 0 or has_draft_edits):
-            return MANUAL_REVIEW_STATUS_READY_FOR_BATCH, MANUAL_REVIEW_OUTCOME_NEEDS_FIX
-        return MANUAL_REVIEW_STATUS_READY_FOR_BATCH, MANUAL_REVIEW_OUTCOME_PENDING
+            return MANUAL_REVIEW_STATUS_NEEDS_FIX
+        return MANUAL_REVIEW_STATUS_PENDING
 
-    def _auto_clean_outcome(self, state: dict[str, Any]) -> str:
-        qc = state.get("qc") if isinstance(state.get("qc"), dict) else {}
-        lanes = qc.get("lanes") if isinstance(qc.get("lanes"), dict) else {}
-        auto_clean = lanes.get("auto_clean") if isinstance(lanes.get("auto_clean"), dict) else {}
-        return str(auto_clean.get("outcome") or AUTO_CLEAN_OUTCOME_PENDING)
+    def _clean_status(self, state: dict[str, Any]) -> str:
+        gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
+        clean = gates.get("clean") if isinstance(gates.get("clean"), dict) else {}
+        return str(clean.get("status") or "pending")
 
     def _write_review_state(
         self,
@@ -524,7 +521,6 @@ class DataReviewService:
         self.repository.state_store.append_dataset_event(dataset_path, {
             "type": event_type,
             "review_status": review["status"],
-            "review_outcome": review["outcome"],
         })
 
     def _read_json(self, path: Path) -> dict[str, Any]:

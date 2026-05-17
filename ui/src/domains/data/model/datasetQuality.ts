@@ -1,36 +1,36 @@
 import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
 import {
-  isDataAutoCleanOutcome,
-  isDataManualReviewOutcome,
-  type DataAutoCleanOutcome,
+  isDataAutoCleanStatus,
+  isDataReviewStatus,
+  type DataAutoCleanStatus,
   type DataGate,
-  type DataManualReviewOutcome,
   type DataReviewStatus,
   type Dataset,
 } from '@/domains/data/model/types'
 import type { TranslationKey } from '@/i18n'
 
-export type AutoCleanOutcome = DataAutoCleanOutcome
-export type ManualReviewOutcome = DataManualReviewOutcome
+export type AutoCleanStatus = DataAutoCleanStatus
+export type ManualReviewStatus = DataReviewStatus
 
-const AUTO_CLEAN_OUTCOME_LABELS: Record<AutoCleanOutcome, TranslationKey> = {
-  pending: 'dataAutoCleanOutcomePending',
-  passed: 'dataAutoCleanOutcomePassed',
-  failed: 'dataAutoCleanOutcomeFailed',
+const AUTO_CLEAN_STATUS_LABELS: Record<AutoCleanStatus, TranslationKey> = {
+  pending: 'dataQualityStatusPending',
+  running: 'dataQualityStatusRunning',
+  passed: 'dataQualityStatusPassed',
+  failed: 'dataQualityStatusFailed',
 }
 
-const MANUAL_REVIEW_OUTCOME_LABELS: Record<ManualReviewOutcome, TranslationKey> = {
-  pending: 'dataManualReviewOutcomePending',
-  passed: 'dataManualReviewOutcomePassed',
-  needs_fix: 'dataManualReviewOutcomeNeedsFix',
-  failed: 'dataManualReviewOutcomeFailed',
+const MANUAL_REVIEW_STATUS_LABELS: Record<ManualReviewStatus, TranslationKey> = {
+  pending: 'dataQualityStatusPending',
+  passed: 'dataQualityStatusPassed',
+  needs_fix: 'dataQualityStatusNeedsFix',
+  failed: 'dataQualityStatusFailed',
 }
 
 export interface DatasetQualityView {
   taskDescription: string
   createdDate: string
-  autoCleanOutcome: AutoCleanOutcome
-  manualReviewOutcome: ManualReviewOutcome
+  autoCleanStatus: AutoCleanStatus
+  manualReviewStatus: ManualReviewStatus
   autoCleanMessage: string
   manualReviewMessage: string
 }
@@ -42,8 +42,8 @@ export function buildDatasetQualityView(dataset: Dataset): DatasetQualityView {
   return {
     taskDescription: datasetTaskDescription(dataset),
     createdDate: datasetCreatedDate(dataset),
-    autoCleanOutcome: qcAutoCleanOutcome(dataset),
-    manualReviewOutcome: qcManualReviewOutcome(dataset),
+    autoCleanStatus: qcAutoCleanStatus(dataset),
+    manualReviewStatus: qcReviewStatus(dataset) || 'pending',
     autoCleanMessage: cleanGate.message,
     manualReviewMessage: reviewGate.message,
   }
@@ -79,29 +79,26 @@ export function matchesDatasetText(dataset: Dataset, query: string): boolean {
 export function qcReviewStatus(dataset: Dataset): DataReviewStatus | '' {
   const review = qcReviewPayload(dataset)
   const status = textValue(review.status).toLowerCase()
-  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
+  if (status === 'applied') {
+    return 'passed'
+  }
+  if (isDataReviewStatus(status)) {
     return status
   }
   return ''
 }
 
-export function autoCleanOutcomeLabelKey(outcome: AutoCleanOutcome): TranslationKey {
-  return AUTO_CLEAN_OUTCOME_LABELS[outcome]
+export function autoCleanStatusLabelKey(status: AutoCleanStatus): TranslationKey {
+  return AUTO_CLEAN_STATUS_LABELS[status]
 }
 
-export function manualReviewOutcomeLabelKey(outcome: ManualReviewOutcome): TranslationKey {
-  return MANUAL_REVIEW_OUTCOME_LABELS[outcome]
+export function manualReviewStatusLabelKey(status: ManualReviewStatus): TranslationKey {
+  return MANUAL_REVIEW_STATUS_LABELS[status]
 }
 
-function qcAutoCleanOutcome(dataset: Dataset): AutoCleanOutcome {
-  const outcome = textValue(qcLanePayload(dataset, 'auto_clean').outcome).toLowerCase()
-  return isDataAutoCleanOutcome(outcome) ? outcome : 'pending'
-}
-
-function qcManualReviewOutcome(dataset: Dataset): ManualReviewOutcome {
-  const review = qcReviewPayload(dataset)
-  const outcome = textValue(review.outcome).toLowerCase()
-  return isDataManualReviewOutcome(outcome) ? outcome : 'pending'
+function qcAutoCleanStatus(dataset: Dataset): AutoCleanStatus {
+  const status = textValue(gateOrPending(dataset.gates.clean).status).toLowerCase()
+  return isDataAutoCleanStatus(status) ? status : 'pending'
 }
 
 export function qcLanePayload(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Record<string, unknown> {

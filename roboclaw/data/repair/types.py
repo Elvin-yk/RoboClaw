@@ -8,16 +8,28 @@ from typing import Any
 SKIP_FRAME_KEYS = {"timestamp", "frame_index", "episode_index", "index", "task_index"}
 
 
-class DamageType(Enum):
+class IntegrityStatus(Enum):
     HEALTHY = "healthy"
     EMPTY_SHELL = "empty_shell"
-    CRASH_NO_SAVE = "crash_no_save"
-    TMP_VIDEOS_STUCK = "tmp_videos_stuck"
-    PARTIAL_TMP_VIDEOS_STUCK = "partial_tmp_videos_stuck"
-    PARQUET_NO_VIDEO = "parquet_no_video"
-    META_STALE = "meta_stale"
-    FRAME_MISMATCH = "frame_mismatch"
-    MISSING_CP = "missing_cp"
+    STRUCTURE_INCOMPLETE = "structure_incomplete"
+
+
+class DamageKind(Enum):
+    NONE = "none"
+    EMPTY_SHELL = "empty_shell"
+    MISSING_DATA_ROWS = "missing_data_rows"
+    MISSING_METADATA = "missing_metadata"
+    ORPHAN_DATA_EPISODES = "orphan_data_episodes"
+    STALE_INFO_TOTALS = "stale_info_totals"
+    MISSING_VIDEO_FILES = "missing_video_files"
+    RECOVERABLE_TMP_VIDEOS = "recoverable_tmp_videos"
+    TMP_VIDEO_RESIDUE = "tmp_video_residue"
+    UNKNOWN_DAMAGE = "unknown_damage"
+
+
+class RepairStrategy(Enum):
+    NONE = "none"
+    FORMALIZE_DATA_EPISODES = "formalize_data_episodes"
 
 
 @dataclass(frozen=True)
@@ -40,7 +52,9 @@ class TmpVideo:
 @dataclass(frozen=True)
 class DiagnosisResult:
     dataset_dir: Path
-    damage_type: DamageType
+    integrity_status: IntegrityStatus
+    damage_kind: DamageKind
+    repair_strategy: RepairStrategy
     repairable: bool
     details: dict[str, Any]
 
@@ -48,6 +62,7 @@ class DiagnosisResult:
 @dataclass(frozen=True)
 class RepairResult:
     dataset_dir: Path
-    damage_type: DamageType | None
-    outcome: str
+    damage_kind: DamageKind | None
+    repair_strategy: RepairStrategy | None
+    status: str
     error: str | None = None
