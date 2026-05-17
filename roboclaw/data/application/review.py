@@ -2,20 +2,46 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import uuid4
 
 from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
+from roboclaw.data.curation.paths import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 from roboclaw.data.curation.serializers import video_feature_keys
+from roboclaw.data.domain.models import (
+    MANUAL_REVIEW_DECISION_FAILED,
+    MANUAL_REVIEW_DECISION_PASSED,
+    MANUAL_REVIEW_STATUS_FAILED,
+    MANUAL_REVIEW_STATUS_NEEDS_FIX,
+    MANUAL_REVIEW_STATUS_PASSED,
+    MANUAL_REVIEW_STATUS_PENDING,
+)
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 
 from .jobs import DataJobCoordinator, DataJobHandle
-from .packages import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 
-REVIEW_STATUSES = {"pending", "ready_for_batch", "applied"}
-REVIEW_DECISIONS = {"passed", "failed"}
+REVIEW_STATUSES = {
+    MANUAL_REVIEW_STATUS_PENDING,
+    MANUAL_REVIEW_STATUS_PASSED,
+    MANUAL_REVIEW_STATUS_NEEDS_FIX,
+    MANUAL_REVIEW_STATUS_FAILED,
+}
+REVIEW_DECISIONS = {MANUAL_REVIEW_DECISION_PASSED, MANUAL_REVIEW_DECISION_FAILED}
+REVIEW_BATCH_APPLICABLE_STATUSES = {MANUAL_REVIEW_STATUS_PASSED, MANUAL_REVIEW_STATUS_NEEDS_FIX}
+
+
+@dataclass(frozen=True)
+class ReviewBatchContext:
+    dataset_path: Path
+    source_path: Path
+    info: dict[str, Any]
+    episodes: list[dict[str, Any]]
+    state: dict[str, Any]
+    review: dict[str, Any]
 
 
 class DataReviewService:
@@ -50,10 +76,13 @@ class DataReviewService:
         if normalized_decision not in REVIEW_DECISIONS:
             raise ValueError("decision must be 'passed' or 'failed'")
         normalized_reason = reason.strip()
-        if normalized_decision == "failed" and not normalized_reason:
+        if normalized_decision == MANUAL_REVIEW_DECISION_FAILED and not normalized_reason:
             raise ValueError("reason is required when decision is failed")
 
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
+        state = self.repository.state_store.load_dataset_state(dataset_path)
+        if self._clean_status(state) != "passed":
+            raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
         materialized_path = self.repository.dataset_materialized_path(dataset_id)
         info = self._read_json(materialized_path / "meta" / "info.json")
         episodes = self._normalize_episode_meta(info, self._read_episode_meta(materialized_path, info))
@@ -61,16 +90,15 @@ class DataReviewService:
         if episode_index not in episode_indices:
             raise ValueError(f"Episode {episode_index} is not part of dataset '{dataset_id}'")
 
-        state = self.repository.state_store.load_dataset_state(dataset_path)
         review = self._review_state_from_payload(state, episode_indices)
         review["episodes"][str(episode_index)] = {
             "decision": normalized_decision,
-            "reason": normalized_reason if normalized_decision == "failed" else "",
+            "reason": normalized_reason if normalized_decision == MANUAL_REVIEW_DECISION_FAILED else "",
             "note": note.strip(),
             "reviewer_id": reviewer_id.strip(),
             "reviewed_at": utc_now_iso(),
         }
-        review["status"] = self._review_progress_status(review, episode_indices)
+        self._update_review_progress(review, episode_indices)
         review["updated_at"] = utc_now_iso()
         self._write_review_state(dataset_path, state, review, event_type="review_episode_decision")
         return self.workspace(dataset_id=dataset_id)
@@ -94,7 +122,7 @@ class DataReviewService:
             next_draft["task_description"] = str(draft_edits.get("task_description") or "").strip()
         review["draft_edits"] = next_draft
         review["draft_reviewer_id"] = reviewer_id.strip()
-        review["status"] = self._review_progress_status(review, episode_indices)
+        self._update_review_progress(review, episode_indices)
         review["updated_at"] = utc_now_iso()
         self._write_review_state(dataset_path, state, review, event_type="review_draft_saved")
         return self.workspace(dataset_id=dataset_id)
@@ -127,16 +155,9 @@ class DataReviewService:
         return job.to_dict()
 
     def _require_ready_for_batch(self, dataset_id: str) -> None:
-        dataset_path = self.repository.resolve_dataset_path(dataset_id)
-        materialized_path = self.repository.dataset_materialized_path(dataset_id)
-        info = self._read_json(materialized_path / "meta" / "info.json")
-        episodes = self._normalize_episode_meta(info, self._read_episode_meta(materialized_path, info))
-        episode_indices = [int(entry["episode_index"]) for entry in episodes]
-        review = self._review_state(dataset_path, episode_indices)
-        if review["status"] != "ready_for_batch":
-            raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
+        self._review_batch_context(dataset_id)
 
-    def _apply_review_batch(self, *, dataset_id: str, reviewer_id: str) -> dict[str, Any]:
+    def _review_batch_context(self, dataset_id: str) -> ReviewBatchContext:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
         source_path = self.repository.dataset_materialized_path(dataset_id)
         info = self._read_json(source_path / "meta" / "info.json")
@@ -144,26 +165,48 @@ class DataReviewService:
         episode_indices = [int(entry["episode_index"]) for entry in episodes]
         state = self.repository.state_store.load_dataset_state(dataset_path)
         review = self._review_state_from_payload(state, episode_indices)
-        if review["status"] != "ready_for_batch":
-            raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
-
-        failed_indices = {
-            int(index)
-            for index, payload in review["episodes"].items()
-            if dict(payload).get("decision") == "failed"
-        }
-        kept_episodes = [entry for entry in episodes if int(entry["episode_index"]) not in failed_indices]
-        artifact_dir = dataset_path / ".status" / "artifacts" / f"review-{uuid4().hex[:10]}"
-        self._materialize_review_artifact(
-            output_path=artifact_dir,
+        self._assert_review_batch_applicable(dataset_id, state, review)
+        return ReviewBatchContext(
+            dataset_path=dataset_path,
             source_path=source_path,
             info=info,
-            episodes=kept_episodes,
-            draft_edits=dict(review.get("draft_edits") or {}),
+            episodes=episodes,
+            state=state,
+            review=review,
         )
-        relative_path = artifact_dir.relative_to(dataset_path).as_posix()
+
+    def _assert_review_batch_applicable(
+        self,
+        dataset_id: str,
+        state: dict[str, Any],
+        review: dict[str, Any],
+    ) -> None:
+        if review["status"] not in REVIEW_BATCH_APPLICABLE_STATUSES:
+            raise ValueError(f"Dataset '{dataset_id}' is not ready for review batch")
+        if review.get("batch_result"):
+            raise ValueError(f"Dataset '{dataset_id}' review batch has already been applied")
+        if self._clean_status(state) != "passed":
+            raise ValueError(f"Dataset '{dataset_id}' has not passed auto clean")
+
+    def _apply_review_batch(self, *, dataset_id: str, reviewer_id: str) -> dict[str, Any]:
+        context = self._review_batch_context(dataset_id)
+        failed_indices = {
+            int(index)
+            for index, payload in context.review["episodes"].items()
+            if dict(payload).get("decision") == MANUAL_REVIEW_DECISION_FAILED
+        }
+        kept_episodes = [entry for entry in context.episodes if int(entry["episode_index"]) not in failed_indices]
+        if not kept_episodes:
+            raise ValueError(f"Dataset '{dataset_id}' has no episodes to keep")
+        artifact_dir = self._write_review_artifact(
+            context,
+            kept_episodes=kept_episodes,
+        )
+        relative_path = artifact_dir.relative_to(context.dataset_path).as_posix()
         applied_at = utc_now_iso()
-        review["status"] = "applied"
+        state = context.state
+        review = context.review
+        review["status"] = MANUAL_REVIEW_STATUS_PASSED
         review["applied_at"] = applied_at
         review["applied_by"] = reviewer_id
         review["artifact_relative_path"] = relative_path
@@ -191,9 +234,10 @@ class DataReviewService:
                 "details": review["batch_result"],
                 "updated_at": applied_at,
             }
-        self.repository.state_store.write_dataset_state(dataset_path, state)
-        self.repository.state_store.append_dataset_event(dataset_path, {
+        self.repository.state_store.write_dataset_state(context.dataset_path, state)
+        self.repository.state_store.append_dataset_event(context.dataset_path, {
             "type": "review_batch_applied",
+            "review_status": review["status"],
             "artifact_relative_path": relative_path,
             "removed_episode_indices": sorted(failed_indices),
         })
@@ -202,6 +246,27 @@ class DataReviewService:
             "active_output": state["active_output"],
             **review["batch_result"],
         }
+
+    def _write_review_artifact(
+        self,
+        context: ReviewBatchContext,
+        *,
+        kept_episodes: list[dict[str, Any]],
+    ) -> Path:
+        artifact_root = context.dataset_path / ".status" / "artifacts"
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        artifact_dir = artifact_root / f"review-{uuid4().hex[:10]}"
+        with TemporaryDirectory(prefix=f".{artifact_dir.name}-", dir=artifact_root) as temporary_root:
+            temporary_artifact_dir = Path(temporary_root) / artifact_dir.name
+            self._materialize_review_artifact(
+                output_path=temporary_artifact_dir,
+                source_path=context.source_path,
+                info=context.info,
+                episodes=kept_episodes,
+                draft_edits=dict(context.review.get("draft_edits") or {}),
+            )
+            temporary_artifact_dir.replace(artifact_dir)
+        return artifact_dir
 
     def _materialize_review_artifact(
         self,
@@ -384,14 +449,14 @@ class DataReviewService:
         raw_review = qc.get("review") if isinstance(qc.get("review"), dict) else {}
         review = dict(raw_review)
         episodes = review.get("episodes")
-        normalized_episodes = {
-            str(index): self._normalize_episode_decision(payload)
-            for index, payload in dict(episodes or {}).items()
-            if self._normalize_episode_decision(payload)
-        }
+        normalized_episodes: dict[str, dict[str, Any]] = {}
+        for index, payload in dict(episodes or {}).items():
+            decision = self._normalize_episode_decision(payload)
+            if decision:
+                normalized_episodes[str(index)] = decision
         review["episodes"] = normalized_episodes
         review["draft_edits"] = dict(review.get("draft_edits") or {})
-        review["status"] = self._review_progress_status(review, episode_indices)
+        self._update_review_progress(review, episode_indices)
         review.setdefault("updated_at", "")
         return review
 
@@ -409,14 +474,40 @@ class DataReviewService:
             "reviewed_at": str(payload.get("reviewed_at") or ""),
         }
 
-    def _review_progress_status(self, review: dict[str, Any], episode_indices: list[int]) -> str:
-        if review.get("status") == "applied":
-            return "applied"
+    def _update_review_progress(self, review: dict[str, Any], episode_indices: list[int]) -> None:
+        review["status"] = self._review_progress(review, episode_indices)
+
+    def _review_progress(self, review: dict[str, Any], episode_indices: list[int]) -> str:
+        if review.get("batch_result") or str(review.get("status") or "") == "applied":
+            return MANUAL_REVIEW_STATUS_PASSED
         decisions = dict(review.get("episodes") or {})
-        if episode_indices and all(str(index) in decisions for index in episode_indices):
-            return "ready_for_batch"
-        status = str(review.get("status") or "pending")
-        return status if status in REVIEW_STATUSES else "pending"
+        if not episode_indices or not all(str(index) in decisions for index in episode_indices):
+            status = str(review.get("status") or MANUAL_REVIEW_STATUS_PENDING)
+            normalized_status = status if status in REVIEW_STATUSES else MANUAL_REVIEW_STATUS_PENDING
+            return normalized_status
+
+        passed_count = 0
+        failed_count = 0
+        for index in episode_indices:
+            decision = dict(decisions.get(str(index)) or {}).get("decision")
+            if decision == MANUAL_REVIEW_DECISION_PASSED:
+                passed_count += 1
+            if decision == MANUAL_REVIEW_DECISION_FAILED:
+                failed_count += 1
+
+        has_draft_edits = any(str(value).strip() for value in dict(review.get("draft_edits") or {}).values())
+        if failed_count == len(episode_indices):
+            return MANUAL_REVIEW_STATUS_FAILED
+        if passed_count == len(episode_indices) and not has_draft_edits:
+            return MANUAL_REVIEW_STATUS_PASSED
+        if passed_count > 0 and (failed_count > 0 or has_draft_edits):
+            return MANUAL_REVIEW_STATUS_NEEDS_FIX
+        return MANUAL_REVIEW_STATUS_PENDING
+
+    def _clean_status(self, state: dict[str, Any]) -> str:
+        gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
+        clean = gates.get("clean") if isinstance(gates.get("clean"), dict) else {}
+        return str(clean.get("status") or "pending")
 
     def _write_review_state(
         self,

@@ -19,6 +19,8 @@ DatasetPackageStage = Literal[
 GateStatus = Literal["pending", "running", "passed", "failed", "needs_review", "skipped"]
 DatasetGateKey = Literal["inspect", "diagnose", "clean", "review"]
 DatasetPackageGateKey = Literal["assemble", "validate", "annotate", "upload"]
+ManualReviewStatus = Literal["pending", "passed", "needs_fix", "failed"]
+ManualReviewDecision = Literal["passed", "failed"]
 DataJobPhase = Literal[
     "queued",
     "running",
@@ -31,6 +33,12 @@ DataJobPhase = Literal[
 
 DATASET_GATE_KEYS: tuple[DatasetGateKey, ...] = ("inspect", "diagnose", "clean", "review")
 PACKAGE_GATE_KEYS: tuple[DatasetPackageGateKey, ...] = ("assemble", "validate", "annotate", "upload")
+MANUAL_REVIEW_STATUS_PENDING: ManualReviewStatus = "pending"
+MANUAL_REVIEW_STATUS_PASSED: ManualReviewStatus = "passed"
+MANUAL_REVIEW_STATUS_NEEDS_FIX: ManualReviewStatus = "needs_fix"
+MANUAL_REVIEW_STATUS_FAILED: ManualReviewStatus = "failed"
+MANUAL_REVIEW_DECISION_PASSED: ManualReviewDecision = "passed"
+MANUAL_REVIEW_DECISION_FAILED: ManualReviewDecision = "failed"
 
 
 @dataclass

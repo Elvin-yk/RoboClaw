@@ -367,6 +367,10 @@ def register_data_routes(app: FastAPI, service: DataService) -> None:
     async def data_overview() -> dict[str, Any]:
         return service.overview.overview()
 
+    @app.get("/api/data/jobs")
+    async def data_jobs(kind: str | None = None) -> list[dict[str, Any]]:
+        return [job.to_dict() for job in service.jobs.list(kind=kind)]
+
     @app.get("/api/data/jobs/{job_id}")
     async def data_job(job_id: str) -> dict[str, Any]:
         try:

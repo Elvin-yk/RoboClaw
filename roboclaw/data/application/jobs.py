@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from collections.abc import Awaitable, Callable, AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -101,6 +101,15 @@ class DataJobCoordinator:
         job = self.require(job_id)
         return DataJob(**job.to_dict())
 
+    def list(self, *, kind: str | None = None) -> list[DataJob]:
+        with self._lock:
+            jobs = [
+                DataJob(**job.to_dict())
+                for job in self._jobs.values()
+                if kind is None or job.kind == kind
+            ]
+        return sorted(jobs, key=lambda job: job.started_at)
+
     def update(
         self,
         job_id: str,
@@ -185,7 +194,7 @@ class DataJobCoordinator:
 
         phase = self.require(job_id).phase
         if phase == "cancelling":
-            self.update(job_id, phase="cancelled", message="Cancelled")
+            self.update(job_id, phase="cancelled", message="Cancelled", result=result or {})
             self._finish(job_id, "cancel")
             return
         self.update(job_id, phase="completed", processed=self.require(job_id).total, message="Completed", result=result or {})

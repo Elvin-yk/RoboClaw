@@ -263,9 +263,11 @@ def _existing_local_video_files(
 ) -> list[Path]:
     files: list[Path] = []
     for relative_path in resolve_video_relative_paths(info, episode_meta, episode_index):
-        candidate = (dataset_path / relative_path).resolve()
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Video path escapes dataset root: {relative_path}")
+        candidate = dataset_path / relative_path
         try:
-            candidate.relative_to(dataset_path.resolve())
+            candidate.relative_to(dataset_path)
         except ValueError as exc:
             raise ValueError(f"Video path escapes dataset root: {relative_path}") from exc
         if candidate.is_file():

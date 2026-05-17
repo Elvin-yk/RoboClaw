@@ -12,6 +12,18 @@ export type DatasetPackageStage =
   | 'failed'
 
 export type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'needs_review' | 'skipped'
+export const DATA_AUTO_CLEAN_STATUSES = ['pending', 'running', 'passed', 'failed'] as const
+export type DataAutoCleanStatus = (typeof DATA_AUTO_CLEAN_STATUSES)[number]
+export const DATA_REVIEW_STATUSES = ['pending', 'passed', 'needs_fix', 'failed'] as const
+export type DataReviewStatus = (typeof DATA_REVIEW_STATUSES)[number]
+
+export function isDataAutoCleanStatus(value: string): value is DataAutoCleanStatus {
+  return (DATA_AUTO_CLEAN_STATUSES as readonly string[]).includes(value)
+}
+
+export function isDataReviewStatus(value: string): value is DataReviewStatus {
+  return (DATA_REVIEW_STATUSES as readonly string[]).includes(value)
+}
 
 export interface DataGate {
   key: string
@@ -109,7 +121,6 @@ export interface DataQcRun {
   failure?: Record<string, unknown>
 }
 
-export type DataReviewStatus = 'pending' | 'ready_for_batch' | 'applied'
 export type DataReviewDecision = 'passed' | 'failed'
 
 export interface DataReviewEpisodeDecision {

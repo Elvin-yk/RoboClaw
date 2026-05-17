@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 from PIL import Image
 
 from roboclaw.data.repair.diagnosis import diagnose_dataset
-from roboclaw.data.repair.types import DamageType
+from roboclaw.data.repair.types import DamageKind, IntegrityStatus, RepairStrategy
 
 
 def _write_info(dataset_dir: Path, **overrides: object) -> None:
@@ -30,17 +30,11 @@ def _write_info(dataset_dir: Path, **overrides: object) -> None:
     meta_dir = dataset_dir / "meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
     (meta_dir / "info.json").write_text(json.dumps(info), encoding="utf-8")
-
-
-def _write_rlt_info(dataset_dir: Path, **overrides: object) -> None:
-    _write_info(
-        dataset_dir,
-        rlt_episode_metadata_fields={
-            "rl_intervals": "List of {start_frame, end_frame, outcome} for each RL phase.",
-            "human_intervention_intervals": "List of {start_frame, end_frame} for each human intervention segment.",
-        },
-        **overrides,
-    )
+    pq.write_table(pa.table({"task_index": [0], "task": ["task"]}), meta_dir / "tasks.parquet")
+    calibration_dir = dataset_dir / "calibration" / "bimanual_followers"
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    (calibration_dir / "bimanual_left.json").write_text("{}", encoding="utf-8")
+    (calibration_dir / "bimanual_right.json").write_text("{}", encoding="utf-8")
 
 
 def _write_recovery(dataset_dir: Path, count: int) -> None:
@@ -75,10 +69,41 @@ def _write_video(dataset_dir: Path, episode_index: int = 0, camera: str = "obser
     (video_dir / f"file-{episode_index:03d}.mp4").write_bytes(b"mp4")
 
 
+def _write_complete_metadata(dataset_dir: Path, *, length: int = 3) -> None:
+    meta_dir = dataset_dir / "meta"
+    (meta_dir / "stats.json").write_text("{}", encoding="utf-8")
+    episodes_dir = meta_dir / "episodes" / "chunk-000"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.table({
+            "episode_index": [0],
+            "tasks": [["task"]],
+            "length": [length],
+            "data/chunk_index": [0],
+            "data/file_index": [0],
+            "dataset_from_index": [0],
+            "dataset_to_index": [length],
+            "videos/observation.images.front/chunk_index": [0],
+            "videos/observation.images.front/file_index": [0],
+            "videos/observation.images.front/from_timestamp": [0.0],
+            "videos/observation.images.front/to_timestamp": [length / 30],
+        }),
+        episodes_dir / "file-000.parquet",
+    )
+    manifest = {
+        "schema_version": 1,
+        "entries": [
+            {"relative_path": "bimanual_followers/bimanual_left.json"},
+            {"relative_path": "bimanual_followers/bimanual_right.json"},
+        ],
+    }
+    (dataset_dir / "calibration" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
 class TestDatasetDiagnosis:
-    def test_tmp_videos_stuck_wins_before_crash_no_save(self, tmp_path: Path) -> None:
+    def test_tmp_videos_without_parquet_is_incomplete(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "tmp_stuck"
-        _write_rlt_info(dataset_dir, total_episodes=0, total_frames=0)
+        _write_info(dataset_dir, total_episodes=0, total_frames=0)
         _write_recovery(dataset_dir, 2)
         tmp_dir = dataset_dir / "tmpabc"
         tmp_dir.mkdir(parents=True)
@@ -86,10 +111,10 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.TMP_VIDEOS_STUCK
-        assert diagnosis.repairable is True
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
+        assert diagnosis.repairable is False
 
-    def test_plain_dataset_detects_tmp_videos_stuck_without_recovery(self, tmp_path: Path) -> None:
+    def test_plain_dataset_with_tmp_videos_is_incomplete(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "plain_tmp_stuck"
         _write_info(dataset_dir, total_episodes=0, total_frames=0)
         tmp_dir = dataset_dir / "tmpabc"
@@ -98,40 +123,9 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.TMP_VIDEOS_STUCK
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
         assert diagnosis.repairable is False
-        assert diagnosis.details["records_critical_phase_intervals"] is False
-        assert diagnosis.details["n_recovery_lines"] == 0
         assert diagnosis.details["n_tmp_videos"] == 1
-
-    def test_missing_cp_detected_from_log_when_data_present(self, tmp_path: Path) -> None:
-        dataset_dir = tmp_path / "missing_cp"
-        _write_rlt_info(dataset_dir)
-        _write_parquet(dataset_dir, 3)
-        _write_images(dataset_dir, 3)
-        _write_video(dataset_dir)
-        (dataset_dir.parent / "missing_cp.log").write_text(
-            "[CP] END at episode 0, frame 2 (segment: 1-2, 1 frames, outcome=success)\n",
-            encoding="utf-8",
-        )
-
-        diagnosis = diagnose_dataset(dataset_dir)
-
-        assert diagnosis.damage_type is DamageType.MISSING_CP
-        assert diagnosis.details["n_log_cp"] == 1
-
-    def test_frame_mismatch_uses_smallest_available_count(self, tmp_path: Path) -> None:
-        dataset_dir = tmp_path / "frame_mismatch"
-        _write_rlt_info(dataset_dir, total_frames=4)
-        _write_recovery(dataset_dir, 4)
-        _write_images(dataset_dir, 3)
-        _write_parquet(dataset_dir, 2)
-        _write_video(dataset_dir)
-
-        diagnosis = diagnose_dataset(dataset_dir)
-
-        assert diagnosis.damage_type is DamageType.FRAME_MISMATCH
-        assert diagnosis.details["truncate_target_frames"] == 2
 
     def test_plain_dataset_ignores_recovery_frame_mismatch(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "plain_with_recovery_artifacts"
@@ -140,12 +134,11 @@ class TestDatasetDiagnosis:
         _write_images(dataset_dir, 3)
         _write_parquet(dataset_dir, 3)
         _write_video(dataset_dir)
+        _write_complete_metadata(dataset_dir)
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.HEALTHY
-        assert diagnosis.details["records_critical_phase_intervals"] is False
-        assert diagnosis.details["n_recovery_lines"] == 0
+        assert diagnosis.integrity_status is IntegrityStatus.HEALTHY
 
     def test_plain_dataset_ignores_cp_log(self, tmp_path: Path) -> None:
         dataset_dir = tmp_path / "plain_missing_cp"
@@ -153,20 +146,34 @@ class TestDatasetDiagnosis:
         _write_parquet(dataset_dir, 3)
         _write_images(dataset_dir, 3)
         _write_video(dataset_dir)
+        _write_complete_metadata(dataset_dir)
         (dataset_dir.parent / "plain_missing_cp.log").write_text(
-            "[CP] END at episode 0, frame 2 (segment: 1-2, 1 frames, outcome=success)\n",
+            "[CP] END at episode 0, frame 2 (segment: 1-2, 1 frames, status=success)\n",
             encoding="utf-8",
         )
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.HEALTHY
-        assert diagnosis.details["records_critical_phase_intervals"] is False
-        assert diagnosis.details["log_path"] is None
+        assert diagnosis.integrity_status is IntegrityStatus.HEALTHY
 
-    def test_partial_tmp_videos_stuck_when_one_camera_missing_video(self, tmp_path: Path) -> None:
+    def test_unmatched_structure_error_is_unknown_damage(self, tmp_path: Path) -> None:
+        dataset_dir = tmp_path / "unknown_damage"
+        _write_info(dataset_dir)
+        _write_parquet(dataset_dir, 3)
+        _write_video(dataset_dir)
+        _write_complete_metadata(dataset_dir)
+        (dataset_dir / "meta" / "stats.json").write_text("{bad-json", encoding="utf-8")
+
+        diagnosis = diagnose_dataset(dataset_dir)
+
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
+        assert diagnosis.damage_kind is DamageKind.UNKNOWN_DAMAGE
+        assert diagnosis.repair_strategy is RepairStrategy.NONE
+        assert diagnosis.repairable is False
+
+    def test_missing_camera_video_with_tmp_details_is_incomplete(self, tmp_path: Path) -> None:
         """Two declared cameras, one has its mp4 in videos/, the other only has
-        a tmp file matching its key. Should classify as PARTIAL_TMP_VIDEOS_STUCK.
+        a tmp file matching its key. The top-level diagnosis stays incomplete.
         """
         dataset_dir = tmp_path / "partial_stuck"
         _write_info(
@@ -196,19 +203,18 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
         assert diagnosis.repairable is True
         assert diagnosis.details["n_recoverable_tmp_videos"] == 1
         recoverable = diagnosis.details["recoverable_tmp_videos"]
         assert [tmp.video_key for tmp in recoverable] == ["observation.images.side"]
         assert recoverable[0].episode_index == 0
 
-    def test_streaming_tmp_with_canonical_present_falls_back_to_meta_stale(
+    def test_streaming_tmp_with_canonical_present_is_incomplete(
         self, tmp_path: Path
     ) -> None:
         """A ``<key>_streaming.mp4`` whose canonical mp4 already exists is
-        garbage (residue from a finalized episode); the dataset still
-        classifies as META_STALE because info totals are stale.
+        garbage residue; the top-level diagnosis stays incomplete.
         """
         dataset_dir = tmp_path / "streaming_with_canonical"
         _write_info(dataset_dir, total_episodes=0, total_frames=0)
@@ -220,7 +226,7 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.META_STALE
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
         assert diagnosis.details["n_recoverable_tmp_videos"] == 0
         # The streaming filename is parsed correctly even though it isn't recoverable.
         assert {tmp.video_key for tmp in diagnosis.details["tmp_videos"]} == {
@@ -231,8 +237,8 @@ class TestDatasetDiagnosis:
         self, tmp_path: Path
     ) -> None:
         """A ``<key>_streaming.mp4`` whose canonical doesn't exist is what the
-        ``rec_20260422`` style of damage looks like: PARTIAL_TMP_VIDEOS_STUCK,
-        with the streaming file's video_key parsed by stripping ``_streaming``.
+        ``rec_20260422`` style of damage looks like. The top-level diagnosis is
+        incomplete, with tmp details preserved for debugging.
         """
         dataset_dir = tmp_path / "streaming_missing_canonical"
         _write_info(
@@ -262,7 +268,7 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
         recoverable = diagnosis.details["recoverable_tmp_videos"]
         assert [tmp.video_key for tmp in recoverable] == ["observation.images.right_front"]
         assert recoverable[0].episode_index is None  # streaming pattern carries no episode
@@ -310,7 +316,7 @@ class TestDatasetDiagnosis:
 
         diagnosis = diagnose_dataset(dataset_dir)
 
-        assert diagnosis.damage_type is DamageType.PARTIAL_TMP_VIDEOS_STUCK
+        assert diagnosis.integrity_status is IntegrityStatus.STRUCTURE_INCOMPLETE
         assert diagnosis.details["n_tmp_videos"] == 2
         assert diagnosis.details["n_recoverable_tmp_videos"] == 2
         assert {tmp.video_key for tmp in diagnosis.details["recoverable_tmp_videos"]} == {

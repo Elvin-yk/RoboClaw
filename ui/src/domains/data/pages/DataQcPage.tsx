@@ -10,11 +10,13 @@ import { asRecord, formatSeconds } from '@/domains/data/lib/analysisPayload'
 import { framePreviewTime, readEpisodeVideos, type EpisodeVideo } from '@/domains/data/lib/episodeMedia'
 import { clearReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
+  autoCleanStatusLabelKey,
   buildDatasetQualityView,
   datasetTaskDescription,
-  qualityStatusLabelKey,
+  manualReviewStatusLabelKey,
+  qcReviewPayload,
   qcReviewStatus,
-  type QualityStatus,
+  type AutoCleanStatus,
 } from '@/domains/data/model/datasetQuality'
 import type { DataReviewDecision, DataReviewStatus, DataReviewWorkspace, Dataset } from '@/domains/data/model/types'
 import { useDataInspectWorkspace } from '@/domains/data/store/inspectStore'
@@ -23,7 +25,7 @@ import { useAuthStore } from '@/shared/lib/authStore'
 import { useI18n, type TranslationKey } from '@/i18n'
 import { cn } from '@/shared/lib/cn'
 
-type ReviewWorkStatus = DataReviewStatus | 'blocked'
+type QcReviewWorkStatus = DataReviewStatus | 'blocked'
 
 interface QcDatasetRecord {
   id: string
@@ -31,8 +33,8 @@ interface QcDatasetRecord {
   path: string
   task: string
   createdDate: string
-  autoCleanStatus: QualityStatus
-  reviewStatus: ReviewWorkStatus
+  autoCleanStatus: AutoCleanStatus
+  reviewStatus: QcReviewWorkStatus
   reviewedCount: number
   passedCount: number
   failedCount: number
@@ -82,6 +84,7 @@ export default function DataQcPage() {
   const [failureNote, setFailureNote] = useState('')
   const [draftTaskDescription, setDraftTaskDescription] = useState('')
   const [datasetIdCopied, setDatasetIdCopied] = useState(false)
+  const [inspectionEndReached, setInspectionEndReached] = useState(false)
   const reviewLoadRequestRef = useRef(0)
   const inspectionLoadRequestRef = useRef(0)
   const datasetQuery = searchParams.get('dataset') || ''
@@ -116,6 +119,7 @@ export default function DataQcPage() {
       setFailureReason('')
       setFailureNote('')
       setDraftTaskDescription('')
+      setInspectionEndReached(false)
     }
   }, [activeDatasetId, searchParams])
 
@@ -134,6 +138,7 @@ export default function DataQcPage() {
   const activeRecord = filteredRecords.find((record) => record.id === activeDatasetId)
     ?? records.find((record) => record.id === activeDatasetId)
     ?? null
+  const decisionBlockedReason = activeRecord ? reviewDecisionBlockedReason(activeRecord, t) : ''
   const activeDataset = reviewWorkspace?.dataset
     ?? datasets.find((datasetItem) => datasetItem.id === activeDatasetId)
     ?? null
@@ -162,6 +167,7 @@ export default function DataQcPage() {
     setFailureOpen(false)
     setFailureReason('')
     setFailureNote('')
+    setInspectionEndReached(false)
     try {
       const workspace = await dataApi.reviewWorkspace({ dataset_id: datasetId })
       if (requestId !== reviewLoadRequestRef.current) return
@@ -193,6 +199,7 @@ export default function DataQcPage() {
 
   async function loadSelectedEpisode(nextEpisodeIndex: number) {
     inspectionLoadRequestRef.current += 1
+    setInspectionEndReached(false)
     setEpisodeIndex(nextEpisodeIndex)
     if (reviewWorkspace) {
       setFailureDraftFromWorkspace(reviewWorkspace, nextEpisodeIndex, false)
@@ -232,6 +239,14 @@ export default function DataQcPage() {
 
   async function saveReviewDecision(decision: DataReviewDecision) {
     if (!activeDatasetId || !reviewWorkspace) return
+    if (decisionBlockedReason) {
+      setReviewError(decisionBlockedReason)
+      return
+    }
+    if (!inspectionEndReached) {
+      setReviewError(t('dataQcReviewActionsLocked'))
+      return
+    }
     if (decision === 'failed' && !failureReason) {
       setReviewError(t('dataReviewFailureReasonRequired'))
       return
@@ -300,12 +315,12 @@ export default function DataQcPage() {
     setFailureReason('')
     setFailureNote('')
     setDraftTaskDescription('')
+    setInspectionEndReached(false)
     setSearchParams(new URLSearchParams())
   }
 
   function returnToManage() {
     const targetParams = new URLSearchParams()
-    if (activeDatasetId) targetParams.set('dataset', activeDatasetId)
     const reviewQuery = searchParams.toString()
     if (reviewQuery) {
       writeReviewQueueReturn(reviewQuery)
@@ -364,6 +379,8 @@ export default function DataQcPage() {
                 <ReviewDecisionControls
                   workspace={reviewWorkspace}
                   saving={reviewSaving}
+                  canDecide={inspectionEndReached && !decisionBlockedReason}
+                  disabledReason={decisionBlockedReason}
                   failureOpen={failureOpen}
                   failureReason={failureReason}
                   failureNote={failureNote}
@@ -399,6 +416,7 @@ export default function DataQcPage() {
                 onLoadEpisode={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
                 onDraftTaskDescriptionChange={setDraftTaskDescription}
                 onSaveDraftTaskDescription={() => void saveDraftTaskDescription()}
+                onInspectionEndReached={setInspectionEndReached}
                 t={t}
               />
             </>
@@ -488,7 +506,7 @@ function ReviewStatusCards({
     <div className="data-qc-review-status-cards">
       <div className="data-qc-review-status-card">
         <span>{t('dataManageAutoCleanStatus')}</span>
-        <strong>{t(qualityStatusLabelKey(activeRecord.autoCleanStatus))}</strong>
+        <strong>{t(autoCleanStatusLabelKey(activeRecord.autoCleanStatus))}</strong>
       </div>
       <div className="data-qc-review-status-card">
         <span>{t('dataQcCurrentAssignee')}</span>
@@ -562,6 +580,7 @@ function ReviewInspectionWorkspace({
   onLoadEpisode,
   onDraftTaskDescriptionChange,
   onSaveDraftTaskDescription,
+  onInspectionEndReached,
   t,
 }: {
   source: 'local'
@@ -580,6 +599,7 @@ function ReviewInspectionWorkspace({
   onLoadEpisode: (episodeIndex: number) => void
   onDraftTaskDescriptionChange: (value: string) => void
   onSaveDraftTaskDescription: () => void
+  onInspectionEndReached: (reached: boolean) => void
   t: (key: TranslationKey, params?: Record<string, string | number>) => string
 }) {
   const episodePayload = asRecord(episode)
@@ -587,8 +607,27 @@ function ReviewInspectionWorkspace({
   const duration = resolveEpisodePlaybackDuration(episodePayload, { includeTrajectory: false })
   const [inspectionOpen, setInspectionOpen] = useState(true)
   const [editOpen, setEditOpen] = useState(true)
+  const endMarkerRef = useRef<HTMLDivElement | null>(null)
   const inspectionTitle = t('dataReviewInspectionChecklistTitle')
   const editTitle = t('dataReviewEditSectionTitle')
+
+  useEffect(() => {
+    const endMarker = endMarkerRef.current
+    if (!endMarker) return undefined
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onInspectionEndReached(true)
+      },
+      {
+        root: null,
+        rootMargin: '0px 0px -104px 0px',
+        threshold: 1,
+      },
+    )
+    observer.observe(endMarker)
+    return () => observer.disconnect()
+  }, [dataset, editOpen, episodeIndex, inspectionOpen, onInspectionEndReached])
 
   return (
     <div className="data-review-inspection-groups">
@@ -684,6 +723,7 @@ function ReviewInspectionWorkspace({
           </div>
         )}
       </section>
+      <div ref={endMarkerRef} className="data-qc-inspection-end-marker" aria-hidden="true" />
     </div>
   )
 }
@@ -828,6 +868,8 @@ function FramePreviewVideo({
 function ReviewDecisionControls({
   workspace,
   saving,
+  canDecide,
+  disabledReason,
   failureOpen,
   failureReason,
   failureNote,
@@ -840,6 +882,8 @@ function ReviewDecisionControls({
 }: {
   workspace: DataReviewWorkspace
   saving: boolean
+  canDecide: boolean
+  disabledReason?: string
   failureOpen: boolean
   failureReason: string
   failureNote: string
@@ -854,18 +898,28 @@ function ReviewDecisionControls({
     return <div className="data-empty">{t('dataReviewNoEpisodes')}</div>
   }
   const savingReason = saving ? t('saving') : undefined
-  const submitFailDisabledReason = savingReason || (!failureReason ? t('dataReviewFailureReasonRequired') : undefined)
+  const decisionDisabledReason = savingReason || disabledReason || (!canDecide ? t('dataQcReviewActionsLocked') : undefined)
+  const decisionDisabled = saving || !canDecide
+  const submitFailDisabledReason = decisionDisabledReason || (!failureReason ? t('dataReviewFailureReasonRequired') : undefined)
   return (
     <div className="data-qc-review-decision">
       <div className="data-review-verdict-panel">
         <div className="data-review-decision-panel__actions">
-          <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
-            <button type="button" className="data-review-pass-button" onClick={onPass} disabled={saving}>
+          <span
+            className="data-review-verdict-action data-tooltip-host"
+            data-tooltip={decisionDisabled ? decisionDisabledReason : undefined}
+            title={decisionDisabled ? decisionDisabledReason : undefined}
+          >
+            <button type="button" className="data-review-pass-button" onClick={onPass} disabled={decisionDisabled}>
               {t('dataReviewPass')}
             </button>
           </span>
-          <span className="data-review-verdict-action data-tooltip-host" data-tooltip={savingReason}>
-            <button type="button" className="data-review-fail-button" onClick={onFailureOpen} disabled={saving}>
+          <span
+            className="data-review-verdict-action data-tooltip-host"
+            data-tooltip={decisionDisabled ? decisionDisabledReason : undefined}
+            title={decisionDisabled ? decisionDisabledReason : undefined}
+          >
+            <button type="button" className="data-review-fail-button" onClick={onFailureOpen} disabled={decisionDisabled}>
               {t('dataReviewFail')}
             </button>
           </span>
@@ -890,12 +944,16 @@ function ReviewDecisionControls({
             onChange={(event) => onFailureNoteChange(event.target.value)}
             placeholder={t('dataReviewNotePlaceholder')}
           />
-          <span className="data-review-submit-fail-action data-tooltip-host" data-tooltip={submitFailDisabledReason}>
+          <span
+            className="data-review-submit-fail-action data-tooltip-host"
+            data-tooltip={submitFailDisabledReason}
+            title={submitFailDisabledReason}
+          >
             <button
               type="button"
               className="data-review-submit-fail-button"
               onClick={onFail}
-              disabled={saving || !failureReason}
+              disabled={decisionDisabled || !failureReason}
             >
               {t('dataReviewSubmitFail')}
             </button>
@@ -908,10 +966,9 @@ function ReviewDecisionControls({
 
 function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
   const quality = buildDatasetQualityView(dataset)
-  const review = reviewPayload(dataset)
+  const review = qcReviewPayload(dataset)
   const episodes = asRecord(review.episodes)
   const decisions = Object.values(episodes).map(asRecord)
-  const reviewStatus = datasetReviewStatus(dataset, quality.autoCleanStatus)
   return {
     id: dataset.id,
     name: dataset.label || dataset.name,
@@ -919,22 +976,13 @@ function buildQcDatasetRecord(dataset: Dataset): QcDatasetRecord {
     task: quality.taskDescription,
     createdDate: quality.createdDate,
     autoCleanStatus: quality.autoCleanStatus,
-    reviewStatus,
+    reviewStatus: quality.autoCleanStatus === 'passed' ? qcReviewStatus(dataset) || 'pending' : 'blocked',
     reviewedCount: decisions.length,
     passedCount: decisions.filter((decision) => decision.decision === 'passed').length,
     failedCount: decisions.filter((decision) => decision.decision === 'failed').length,
     totalEpisodes: dataset.stats.total_episodes,
     reviewerIds: Array.from(new Set(decisions.map((decision) => String(decision.reviewer_id || '')).filter(Boolean))),
   }
-}
-
-function datasetReviewStatus(dataset: Dataset, autoCleanStatus: QualityStatus): ReviewWorkStatus {
-  const status = qcReviewStatus(dataset)
-  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
-    return status
-  }
-  if (autoCleanStatus === 'failed' || autoCleanStatus === 'running') return 'blocked'
-  return 'pending'
 }
 
 function buildSequenceSummary(records: QcDatasetRecord[], activeDatasetId: string): QcSequenceSummary {
@@ -965,7 +1013,23 @@ function isReviewPendingRecord(record: QcDatasetRecord): boolean {
 }
 
 function isReviewCompleteRecord(record: QcDatasetRecord): boolean {
-  return record.reviewStatus === 'ready_for_batch' || record.reviewStatus === 'applied'
+  return record.reviewStatus !== 'pending' && record.reviewStatus !== 'blocked'
+}
+
+function reviewDecisionBlockedReason(
+  record: QcDatasetRecord,
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
+): string {
+  if (record.autoCleanStatus !== 'passed') {
+    return t('dataQcBlockedByAutoClean')
+  }
+  if (record.reviewStatus === 'blocked') {
+    return t('dataQcBlockedByAutoClean')
+  }
+  if (record.reviewStatus !== 'pending') {
+    return t('dataQcReadonlyStatus', { status: t(manualReviewStatusLabelKey(record.reviewStatus)) })
+  }
+  return ''
 }
 
 function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {
@@ -973,10 +1037,6 @@ function scopedDatasetIdsFromSearch(searchParams: URLSearchParams): string[] {
   if (scopedIds.length) return Array.from(new Set(scopedIds))
   const datasetId = searchParams.get('dataset')
   return datasetId ? [datasetId] : []
-}
-
-function reviewPayload(dataset: Dataset): Record<string, unknown> {
-  return asRecord(asRecord(dataset.qc).review)
 }
 
 function reviewTaskDescription(workspace: DataReviewWorkspace): string {

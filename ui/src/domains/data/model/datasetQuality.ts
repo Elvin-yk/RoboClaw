@@ -1,23 +1,36 @@
 import { asRecord, textValue } from '@/domains/data/lib/analysisPayload'
-import type { DataGate, Dataset, GateStatus } from '@/domains/data/model/types'
+import {
+  isDataAutoCleanStatus,
+  isDataReviewStatus,
+  type DataAutoCleanStatus,
+  type DataGate,
+  type DataReviewStatus,
+  type Dataset,
+} from '@/domains/data/model/types'
 import type { TranslationKey } from '@/i18n'
 
-export type QualityStatus = GateStatus
+export type AutoCleanStatus = DataAutoCleanStatus
+export type ManualReviewStatus = DataReviewStatus
 
-const QUALITY_STATUS_LABELS: Record<QualityStatus, TranslationKey> = {
+const AUTO_CLEAN_STATUS_LABELS: Record<AutoCleanStatus, TranslationKey> = {
   pending: 'dataQualityStatusPending',
   running: 'dataQualityStatusRunning',
   passed: 'dataQualityStatusPassed',
   failed: 'dataQualityStatusFailed',
-  needs_review: 'dataQualityStatusNeedsReview',
-  skipped: 'dataQualityStatusSkipped',
+}
+
+const MANUAL_REVIEW_STATUS_LABELS: Record<ManualReviewStatus, TranslationKey> = {
+  pending: 'dataQualityStatusPending',
+  passed: 'dataQualityStatusPassed',
+  needs_fix: 'dataQualityStatusNeedsFix',
+  failed: 'dataQualityStatusFailed',
 }
 
 export interface DatasetQualityView {
   taskDescription: string
   createdDate: string
-  autoCleanStatus: QualityStatus
-  manualReviewStatus: QualityStatus
+  autoCleanStatus: AutoCleanStatus
+  manualReviewStatus: ManualReviewStatus
   autoCleanMessage: string
   manualReviewMessage: string
 }
@@ -25,15 +38,12 @@ export interface DatasetQualityView {
 export function buildDatasetQualityView(dataset: Dataset): DatasetQualityView {
   const cleanGate = gateOrPending(dataset.gates.clean)
   const reviewGate = gateOrPending(dataset.gates.review)
-  const autoCleanLaneStatus = qcLaneStatus(dataset, 'auto_clean')
-  const manualReviewLaneStatus = qcLaneStatus(dataset, 'manual_review')
-  const reviewState = qcReviewStatus(dataset)
 
   return {
     taskDescription: datasetTaskDescription(dataset),
     createdDate: datasetCreatedDate(dataset),
-    autoCleanStatus: autoCleanStatus(dataset, autoCleanLaneStatus, cleanGate.status),
-    manualReviewStatus: manualReviewStatus(manualReviewLaneStatus, reviewGate.status, reviewState),
+    autoCleanStatus: qcAutoCleanStatus(dataset),
+    manualReviewStatus: qcReviewStatus(dataset) || 'pending',
     autoCleanMessage: cleanGate.message,
     manualReviewMessage: reviewGate.message,
   }
@@ -66,55 +76,39 @@ export function matchesDatasetText(dataset: Dataset, query: string): boolean {
     .includes(needle)
 }
 
-function autoCleanStatus(
-  dataset: Dataset,
-  laneStatus: QualityStatus,
-  gateStatus: QualityStatus,
-): QualityStatus {
-  if (laneStatus !== 'pending') return laneStatus
-  if (dataset.lifecycle_stage === 'clean') return 'passed'
-  if (dataset.lifecycle_stage === 'cleaning') return 'running'
-  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'running') return gateStatus
-  if (gateStatus === 'needs_review') return 'failed'
-  return 'pending'
-}
-
-function manualReviewStatus(laneStatus: QualityStatus, gateStatus: QualityStatus, reviewStatus: string): QualityStatus {
-  if (reviewStatus === 'applied') return 'passed'
-  if (reviewStatus === 'ready_for_batch') return 'needs_review'
-  if (laneStatus === 'passed' || laneStatus === 'failed' || laneStatus === 'needs_review' || laneStatus === 'skipped') return laneStatus
-  if (gateStatus === 'passed' || gateStatus === 'failed' || gateStatus === 'needs_review') {
-    return gateStatus
-  }
-  if (gateStatus === 'skipped') return 'skipped'
-  return 'pending'
-}
-
-export function qcReviewStatus(dataset: Dataset): string {
-  const qc = asRecord(dataset.qc)
-  const review = asRecord(qc.review)
+export function qcReviewStatus(dataset: Dataset): DataReviewStatus | '' {
+  const review = qcReviewPayload(dataset)
   const status = textValue(review.status).toLowerCase()
-  if (status === 'pending' || status === 'ready_for_batch' || status === 'applied') {
+  if (status === 'applied') {
+    return 'passed'
+  }
+  if (isDataReviewStatus(status)) {
     return status
   }
   return ''
 }
 
-export function qualityStatusLabelKey(status: QualityStatus): TranslationKey {
-  return QUALITY_STATUS_LABELS[status]
+export function autoCleanStatusLabelKey(status: AutoCleanStatus): TranslationKey {
+  return AUTO_CLEAN_STATUS_LABELS[status]
 }
 
-function qcLaneStatus(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): QualityStatus {
+export function manualReviewStatusLabelKey(status: ManualReviewStatus): TranslationKey {
+  return MANUAL_REVIEW_STATUS_LABELS[status]
+}
+
+function qcAutoCleanStatus(dataset: Dataset): AutoCleanStatus {
+  const status = textValue(gateOrPending(dataset.gates.clean).status).toLowerCase()
+  return isDataAutoCleanStatus(status) ? status : 'pending'
+}
+
+export function qcLanePayload(dataset: Dataset, lane: 'auto_clean' | 'manual_review'): Record<string, unknown> {
   const qc = asRecord(dataset.qc)
   const lanes = asRecord(qc.lanes)
-  const payload = asRecord(lanes[lane])
-  const status = textValue(payload.status).toLowerCase()
-  if (status === 'completed' || status === 'passed') return 'passed'
-  if (status === 'failed' || status === 'rejected') return 'failed'
-  if (status === 'needs_review' || status === 'needs_rework') return 'needs_review'
-  if (status === 'running' || status === 'queued' || status === 'in_progress' || status === 'started') return 'running'
-  if (status === 'skipped') return 'skipped'
-  return 'pending'
+  return asRecord(lanes[lane])
+}
+
+export function qcReviewPayload(dataset: Dataset): Record<string, unknown> {
+  return asRecord(asRecord(dataset.qc).review)
 }
 
 function gateOrPending(gate: DataGate | undefined): Pick<DataGate, 'status' | 'message'> {

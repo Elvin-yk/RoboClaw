@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from roboclaw.data.cleaning import LeadingStaticTrimConfig, LeadingStaticTrimService
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 from roboclaw.data.repair.diagnosis import diagnose_dataset
 from roboclaw.data.repair.repairers import repair_dataset
-from roboclaw.data.repair.types import DamageType
+from roboclaw.data.repair.types import IntegrityStatus, RepairStatus, RepairStrategy
 
 from .jobs import DataJobCoordinator, DataJobHandle
 from .serialization import json_ready
@@ -20,6 +22,7 @@ class DataCleanService:
     def __init__(self, repository: DataRepository, jobs: DataJobCoordinator) -> None:
         self.repository = repository
         self.jobs = jobs
+        self.leading_static_trim = LeadingStaticTrimService()
 
     def start_auto_clean_run(
         self,
@@ -47,10 +50,15 @@ class DataCleanService:
                     task=task,
                     vcodec=vcodec,
                     force=force,
+                    cancelled=lambda: handle.cancelled,
                 )
                 results.append(result)
                 await handle.item(result)
+                if result.get("status") == "cancelled":
+                    break
                 await handle.update(processed=index, message=f"Auto clean finished for {dataset_id}")
+                if handle.cancelled:
+                    break
             return {"datasets": results}
 
         job = self.jobs.start(
@@ -125,6 +133,7 @@ class DataCleanService:
 
     def _diagnose_dataset(self, dataset_id: str) -> dict[str, Any]:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
+        input_path = self.repository.dataset_materialized_path(dataset_id)
         self.repository.state_store.set_dataset_stage(dataset_path, "inspecting")
         self.repository.state_store.set_gate(
             dataset_path,
@@ -133,7 +142,7 @@ class DataCleanService:
             status="running",
             message="Inspecting dataset artifacts",
         )
-        diagnosis = diagnose_dataset(dataset_path)
+        diagnosis = diagnose_dataset(input_path)
         diagnosis_payload = self._diagnosis_payload(diagnosis)
         self.repository.state_store.write_dataset_report(
             dataset_path,
@@ -153,7 +162,7 @@ class DataCleanService:
             object_type="dataset",
             key="diagnose",
             status="passed",
-            message=diagnosis.damage_type.value,
+            message=diagnosis.damage_kind.value,
             details=diagnosis_payload,
         )
         self.repository.state_store.set_dataset_stage(dataset_path, "raw")
@@ -167,14 +176,20 @@ class DataCleanService:
         task: str,
         vcodec: str,
         force: bool,
+        cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
         dataset_path = self.repository.resolve_dataset_path(dataset_id)
+        input_path = self.repository.dataset_materialized_path(dataset_id)
         run = self._start_qc_run(
             dataset_path,
             dataset_id=dataset_id,
             lane="auto_clean",
             chain_id=chain_id,
         )
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
         self.repository.state_store.set_dataset_stage(dataset_path, "inspecting")
         self.repository.state_store.set_gate(
             dataset_path,
@@ -183,7 +198,7 @@ class DataCleanService:
             status="running",
             message="Inspecting dataset artifacts",
         )
-        diagnosis = diagnose_dataset(dataset_path)
+        diagnosis = diagnose_dataset(input_path)
         diagnosis_payload = self._diagnosis_payload(diagnosis)
         self.repository.state_store.write_dataset_report(
             dataset_path,
@@ -191,10 +206,14 @@ class DataCleanService:
             name=f"{run['run_id']}.json",
             payload=diagnosis_payload,
         )
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
         self._record_qc_step(dataset_path, run, {
-            "id": "empty_dataset_check",
-            "status": "failed" if diagnosis.damage_type == DamageType.EMPTY_SHELL else "passed",
-            "message": diagnosis.damage_type.value,
+            "id": "data_integrity_check",
+            "status": "failed" if diagnosis.integrity_status == IntegrityStatus.EMPTY_SHELL else "passed",
+            "message": diagnosis.integrity_status.value,
             "details": diagnosis_payload,
         })
         self.repository.state_store.set_gate(
@@ -204,20 +223,19 @@ class DataCleanService:
             status="passed",
             message="Inspection completed",
         )
-        if diagnosis.damage_type == DamageType.EMPTY_SHELL:
-            return self._fail_auto_clean(
+
+        if diagnosis.integrity_status == IntegrityStatus.EMPTY_SHELL:
+            return self._fail_empty_shell(
                 dataset_id,
                 dataset_path,
                 run,
-                step_id="empty_dataset_check",
-                message="empty_dataset_check failed: no valid frames",
                 diagnosis_payload=diagnosis_payload,
             )
 
         self._record_qc_step(dataset_path, run, {
             "id": "damage_diagnosis",
             "status": "passed",
-            "message": diagnosis.damage_type.value,
+            "message": diagnosis.damage_kind.value,
             "details": diagnosis_payload,
         })
         self.repository.state_store.set_gate(
@@ -225,36 +243,30 @@ class DataCleanService:
             object_type="dataset",
             key="diagnose",
             status="passed",
-            message=diagnosis.damage_type.value,
+            message=diagnosis.damage_kind.value,
             details=diagnosis_payload,
         )
 
-        if diagnosis.damage_type == DamageType.HEALTHY:
-            active_output = {"kind": "source", "dataset_id": dataset_id}
-            self.repository.state_store.set_dataset_active_output(dataset_path, active_output)
-            self.repository.state_store.set_gate(
-                dataset_path,
-                object_type="dataset",
-                key="clean",
-                status="passed",
-                message="Dataset is already clean",
-                details=diagnosis_payload,
-            )
-            self.repository.state_store.set_gate(
-                dataset_path,
-                object_type="dataset",
-                key="review",
-                status="skipped",
-                message="No manual review required",
-            )
-            self.repository.state_store.set_dataset_stage(dataset_path, "clean")
+        if diagnosis.integrity_status == IntegrityStatus.HEALTHY:
+            active_output = self._current_active_output(dataset_path, dataset_id)
             self._record_qc_step(dataset_path, run, {
                 "id": "repair_if_possible",
                 "status": "skipped",
                 "message": "Dataset is already clean",
             })
-            self._finish_qc_run(dataset_path, run, status="completed", output=active_output)
-            return {"dataset_id": dataset_id, "outcome": "clean", "diagnosis": diagnosis_payload}
+            return self._finish_with_leading_static_trim(
+                dataset_id,
+                dataset_path,
+                run,
+                input_path=input_path,
+                base_active_output=active_output,
+                diagnosis_payload=diagnosis_payload,
+                clean_payload={"diagnosis": diagnosis_payload},
+                trim_output_dir=self._artifact_dataset_path(dataset_path, run["run_id"]),
+                vcodec=vcodec,
+                force=force,
+                cancelled=cancelled,
+            )
 
         if not diagnosis.repairable:
             return self._fail_auto_clean(
@@ -262,7 +274,7 @@ class DataCleanService:
                 dataset_path,
                 run,
                 step_id="repair_if_possible",
-                message=f"repair_if_possible failed: {diagnosis.damage_type.value} is not repairable",
+                message=f"repair_if_possible failed: {diagnosis.damage_kind.value} is not repairable",
                 diagnosis_payload=diagnosis_payload,
             )
 
@@ -285,18 +297,28 @@ class DataCleanService:
             force=force,
             output_dir=output_dir,
         )
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
+        repair_status = "passed" if result.status == RepairStatus.REPAIRED else "failed"
         result_payload = {
-            "damage_type": result.damage_type.value if result.damage_type else None,
-            "outcome": result.outcome,
+            "damage_kind": result.damage_kind.value if result.damage_kind else None,
+            "repair_strategy": (
+                result.repair_strategy.value
+                if result.repair_strategy
+                else RepairStrategy.NONE.value
+            ),
+            "status": repair_status,
             "error": result.error,
         }
         self._record_qc_step(dataset_path, run, {
             "id": "repair_if_possible",
-            "status": "passed" if result.outcome == "repaired" else "failed",
-            "message": result.error or result.outcome,
+            "status": repair_status,
+            "message": result.error or result_payload["repair_strategy"],
             "details": result_payload,
         })
-        if result.outcome != "repaired":
+        if result.status != RepairStatus.REPAIRED:
             if output_dir.exists():
                 shutil.rmtree(output_dir)
             return self._fail_auto_clean(
@@ -304,18 +326,22 @@ class DataCleanService:
                 dataset_path,
                 run,
                 step_id="repair_if_possible",
-                message=f"repair_if_possible failed: {result.error or result.outcome}",
+                message=f"repair_if_possible failed: {result.error or repair_status}",
                 diagnosis_payload=diagnosis_payload,
                 extra_details={"repair": result_payload},
             )
 
         verify_diagnosis = diagnose_dataset(output_dir)
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
         verify_payload = self._diagnosis_payload(verify_diagnosis)
-        if verify_diagnosis.damage_type != DamageType.HEALTHY:
+        if verify_diagnosis.integrity_status != IntegrityStatus.HEALTHY:
             self._record_qc_step(dataset_path, run, {
                 "id": "repair_verify",
                 "status": "failed",
-                "message": verify_diagnosis.damage_type.value,
+                "message": verify_diagnosis.integrity_status.value,
                 "details": verify_payload,
             })
             return self._fail_auto_clean(
@@ -323,69 +349,284 @@ class DataCleanService:
                 dataset_path,
                 run,
                 step_id="repair_verify",
-                message=f"repair_verify failed: {verify_diagnosis.damage_type.value}",
+                message=f"repair_verify failed: {verify_diagnosis.integrity_status.value}",
                 diagnosis_payload=diagnosis_payload,
                 extra_details={"repair": result_payload, "verify": verify_payload},
             )
 
         self._mark_cleaned_output(output_dir, {**result_payload, "verify": verify_payload})
-        active_output = {
+        repair_active_output = {
             "kind": "artifact",
             "run_id": run["run_id"],
             "relative_path": output_dir.relative_to(dataset_path).as_posix(),
             "path": str(output_dir),
+            "input_path": str(input_path),
+            "created_at": utc_now_iso(),
+            "reason": "repair_if_possible",
         }
-        self.repository.state_store.set_dataset_active_output(dataset_path, active_output)
         self._record_qc_step(dataset_path, run, {
             "id": "repair_verify",
             "status": "passed",
             "message": "Repair output verified",
             "details": verify_payload,
         })
+        return self._finish_with_leading_static_trim(
+            dataset_id,
+            dataset_path,
+            run,
+            input_path=output_dir,
+            base_active_output=repair_active_output,
+            diagnosis_payload=diagnosis_payload,
+            clean_payload={
+                "diagnosis": diagnosis_payload,
+                "repair": result_payload,
+                "verify": verify_payload,
+            },
+            trim_output_dir=self._artifact_dataset_path(dataset_path, run["run_id"], name="trimmed-dataset"),
+            vcodec=vcodec,
+            force=force,
+            cancelled=cancelled,
+        )
+
+    def _diagnosis_payload(self, diagnosis: Any) -> dict[str, Any]:
+        return {
+            "integrity_status": diagnosis.integrity_status.value,
+            "damage_kind": diagnosis.damage_kind.value,
+            "repair_strategy": diagnosis.repair_strategy.value,
+            "repairable": diagnosis.repairable,
+            "details": json_ready(diagnosis.details),
+        }
+
+    def _finish_with_leading_static_trim(
+        self,
+        dataset_id: str,
+        dataset_path: Path,
+        run: dict[str, Any],
+        *,
+        input_path: Path,
+        base_active_output: dict[str, Any],
+        diagnosis_payload: dict[str, Any],
+        clean_payload: dict[str, Any],
+        trim_output_dir: Path,
+        vcodec: str,
+        force: bool,
+        cancelled: Callable[[], bool],
+    ) -> dict[str, Any]:
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
+        self.repository.state_store.set_dataset_stage(dataset_path, "cleaning")
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="clean",
+            status="running",
+            message="Trimming leading static frames",
+            details=clean_payload,
+        )
+        try:
+            trim_result = self.leading_static_trim.trim(
+                input_path,
+                output_dir=trim_output_dir,
+                config=LeadingStaticTrimConfig(vcodec=vcodec),
+                force=force,
+            )
+        except (FileExistsError, FileNotFoundError, ValueError) as exc:
+            trim_payload = {
+                "status": "failed",
+                "input_path": str(input_path),
+                "output_path": str(trim_output_dir),
+                "error": str(exc),
+            }
+            return self._fail_auto_clean(
+                dataset_id,
+                dataset_path,
+                run,
+                step_id="leading_static_trim",
+                message=f"leading_static_trim failed: {exc}",
+                diagnosis_payload=diagnosis_payload,
+                extra_details={**clean_payload, "leading_static_trim": trim_payload},
+            )
+
+        trim_payload = trim_result.to_dict()
+        cancelled_result = self._cancel_auto_clean_if_requested(dataset_id, dataset_path, run, cancelled)
+        if cancelled_result is not None:
+            return cancelled_result
+
+        if trim_result.status == "failed":
+            return self._fail_auto_clean(
+                dataset_id,
+                dataset_path,
+                run,
+                step_id="leading_static_trim",
+                message=f"leading_static_trim failed: {trim_result.error}",
+                diagnosis_payload=diagnosis_payload,
+                extra_details={**clean_payload, "leading_static_trim": trim_payload},
+            )
+
+        trim_step_status = "passed" if trim_result.changed else "skipped"
+        self._record_qc_step(dataset_path, run, {
+            "id": "leading_static_trim",
+            "status": trim_step_status,
+            "message": self._leading_static_trim_message(trim_result),
+            "details": trim_payload,
+        })
+
+        active_output = dict(base_active_output)
+        if trim_result.changed:
+            if trim_result.output_path is None:
+                raise ValueError("Trim result changed without output_path")
+            self._mark_cleaned_output(
+                trim_result.output_path,
+                {**clean_payload, "leading_static_trim": trim_payload},
+                message="Trimmed dataset ready",
+            )
+            active_output = {
+                "kind": "artifact",
+                "run_id": run["run_id"],
+                "relative_path": trim_result.output_path.relative_to(dataset_path).as_posix(),
+                "path": str(trim_result.output_path),
+                "input_path": str(input_path),
+                "created_at": utc_now_iso(),
+                "reason": "leading_static_trim",
+            }
+
+        self.repository.state_store.set_dataset_active_output(dataset_path, active_output)
         self.repository.state_store.set_gate(
             dataset_path,
             object_type="dataset",
             key="clean",
             status="passed",
-            message=f"Repair completed: {active_output['relative_path']}",
-            details={**result_payload, "verify": verify_payload, "active_output": active_output},
+            message=self._clean_gate_message(active_output, trim_result),
+            details={**clean_payload, "leading_static_trim": trim_payload, "active_output": active_output},
         )
+        self._mark_manual_review_pending_after_auto_clean(dataset_path, run)
+        self._finish_qc_run(
+            dataset_path,
+            run,
+            status="completed",
+            output=active_output,
+        )
+        return {
+            "dataset_id": dataset_id,
+            "active_output": active_output,
+            "status": "passed",
+            "diagnosis": diagnosis_payload,
+            "leading_static_trim": trim_payload,
+        }
+
+    def _cancel_auto_clean_if_requested(
+        self,
+        dataset_id: str,
+        dataset_path: Path,
+        run: dict[str, Any],
+        cancelled: Callable[[], bool],
+    ) -> dict[str, Any] | None:
+        if not cancelled():
+            return None
+        return self._cancel_auto_clean_dataset(dataset_id, dataset_path, run)
+
+    def _cancel_auto_clean_dataset(
+        self,
+        dataset_id: str,
+        dataset_path: Path,
+        run: dict[str, Any],
+    ) -> dict[str, Any]:
+        message = "Auto clean cancelled"
+        failure = {"step_id": "auto_clean_cancelled", "message": message, "details": {}}
+        artifact_root = dataset_path / ".status" / "artifacts" / run["run_id"]
+        if artifact_root.exists():
+            shutil.rmtree(artifact_root)
+        run["status"] = "cancelled"
+        run["updated_at"] = utc_now_iso()
+        run["failure"] = failure
+        self.repository.state_store.write_dataset_run(dataset_path, run)
+        self.repository.state_store.append_dataset_event(dataset_path, {
+            "type": "qc_run_cancelled",
+            "run_id": run["run_id"],
+            "lane": run["lane"],
+            "failure": failure,
+        })
+        state = self.repository.state_store.load_dataset_state(dataset_path)
+        state["lifecycle_stage"] = "raw"
+        now = utc_now_iso()
+        for gate_key, gate in state["gates"].items():
+            if gate["status"] == "running" or gate_key == "clean":
+                gate["status"] = "pending"
+                gate["message"] = message if gate_key == "clean" else ""
+                gate["details"] = {}
+                gate["updated_at"] = now
+        lanes = state.setdefault("qc", {}).setdefault("lanes", {})
+        lanes["auto_clean"] = {
+            "status": "pending",
+            "chain_id": run["chain_id"],
+            "last_run_id": run["run_id"],
+            "failure": failure,
+            "updated_at": now,
+        }
+        self.repository.state_store.write_dataset_state(dataset_path, state)
+        return {
+            "dataset_id": dataset_id,
+            "status": "cancelled",
+            "failure": failure,
+        }
+
+    def _leading_static_trim_message(self, result: Any) -> str:
+        if result.status == "no_change":
+            return "No leading static frames found"
+        return (
+            f"Trimmed {result.total_trimmed_frames} frames; "
+            f"dropped {len(result.dropped_episode_indices)} episodes"
+        )
+
+    def _clean_gate_message(self, active_output: dict[str, Any], trim_result: Any) -> str:
+        if trim_result.changed:
+            return f"Leading static trim completed: {active_output['relative_path']}"
+        if active_output.get("kind") == "artifact":
+            return f"Dataset is clean: {active_output.get('relative_path', '')}"
+        return "Dataset is clean"
+
+    def _artifact_dataset_path(self, dataset_path: Path, run_id: str, *, name: str = "dataset") -> Path:
+        output_dir = (dataset_path / ".status" / "artifacts" / run_id / name).resolve()
+        output_dir.relative_to(dataset_path.resolve())
+        return output_dir
+
+    def _current_active_output(self, dataset_path: Path, dataset_id: str) -> dict[str, Any]:
+        state = self.repository.state_store.load_dataset_state(dataset_path)
+        active_output = state.get("active_output")
+        if isinstance(active_output, dict) and active_output.get("kind") == "artifact":
+            return dict(active_output)
+        return {"kind": "source", "dataset_id": dataset_id}
+
+    def _mark_manual_review_pending_after_auto_clean(
+        self,
+        dataset_path: Path,
+        run: dict[str, Any],
+    ) -> None:
         self.repository.state_store.set_gate(
             dataset_path,
             object_type="dataset",
             key="review",
-            status="skipped",
-            message="Automatic repair verified",
+            status="pending",
+            message="Manual review pending",
+            details={"auto_clean_run_id": run["run_id"]},
         )
-        self.repository.state_store.set_dataset_stage(dataset_path, "clean")
-        self._finish_qc_run(dataset_path, run, status="completed", output=active_output)
-        return {
-            "dataset_id": dataset_id,
-            "active_output": active_output,
-            "outcome": "clean",
-            "diagnosis": diagnosis_payload,
-            "repair": result_payload,
-        }
+        self.repository.state_store.set_dataset_stage(dataset_path, "needs_review")
 
-    def _diagnosis_payload(self, diagnosis: Any) -> dict[str, Any]:
-        return {
-            "damage_type": diagnosis.damage_type.value,
-            "repairable": diagnosis.repairable,
-            "details": json_ready(diagnosis.details),
-        }
-
-    def _artifact_dataset_path(self, dataset_path: Path, run_id: str) -> Path:
-        output_dir = (dataset_path / ".status" / "artifacts" / run_id / "dataset").resolve()
-        output_dir.relative_to(dataset_path.resolve())
-        return output_dir
-
-    def _mark_cleaned_output(self, output_dir: Path, repair_payload: dict[str, Any]) -> None:
+    def _mark_cleaned_output(
+        self,
+        output_dir: Path,
+        repair_payload: dict[str, Any],
+        *,
+        message: str = "Recovered dataset ready",
+    ) -> None:
         state = self.repository.state_store.load_dataset_state(output_dir)
         state["lifecycle_stage"] = "clean"
         state["active_output"] = {"kind": "source"}
         for key in ("inspect", "diagnose", "clean", "review"):
             state["gates"][key]["status"] = "passed"
-            state["gates"][key]["message"] = "Recovered dataset ready"
+            state["gates"][key]["message"] = message
             state["gates"][key]["details"] = repair_payload
         self.repository.state_store.write_dataset_state(output_dir, state)
 
@@ -418,7 +659,11 @@ class DataCleanService:
         self.repository.state_store.set_dataset_qc_lane(
             dataset_path,
             lane=lane,
-            payload={"status": "running", "chain_id": chain_id, "last_run_id": run["run_id"]},
+            payload={
+                "status": "running",
+                "chain_id": chain_id,
+                "last_run_id": run["run_id"],
+            },
         )
         return run
 
@@ -473,6 +718,42 @@ class DataCleanService:
             payload=lane_payload,
         )
 
+    def _fail_empty_shell(
+        self,
+        dataset_id: str,
+        dataset_path: Path,
+        run: dict[str, Any],
+        *,
+        diagnosis_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        message = "data_integrity_check failed: empty_shell"
+        details = {"diagnosis": diagnosis_payload}
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="diagnose",
+            status="failed",
+            message="empty_shell",
+            details=diagnosis_payload,
+        )
+        self.repository.state_store.set_gate(
+            dataset_path,
+            object_type="dataset",
+            key="clean",
+            status="failed",
+            message=message,
+            details=details,
+        )
+        self.repository.state_store.set_dataset_stage(dataset_path, "excluded")
+        failure = {"step_id": "data_integrity_check", "message": message, "details": details}
+        self._finish_qc_run(dataset_path, run, status="failed", failure=failure)
+        return {
+            "dataset_id": dataset_id,
+            "status": "failed",
+            "failure": failure,
+            "diagnosis": diagnosis_payload,
+        }
+
     def _fail_auto_clean(
         self,
         dataset_id: str,
@@ -513,7 +794,7 @@ class DataCleanService:
         self._finish_qc_run(dataset_path, run, status="failed", failure=failure)
         return {
             "dataset_id": dataset_id,
-            "outcome": "needs_review",
+            "status": "failed",
             "failure": failure,
             "diagnosis": diagnosis_payload,
         }

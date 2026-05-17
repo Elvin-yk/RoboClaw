@@ -19,7 +19,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from roboclaw.data.repair.repairers import DatasetRepairService, prepare_output_dir
-from roboclaw.data.repair.types import DamageType, DiagnosisResult, TmpVideo
+from roboclaw.data.repair.types import DamageKind, DiagnosisResult, IntegrityStatus, RepairStrategy, TmpVideo
 
 
 def _write_info(dataset_dir: Path, *, total_episodes: int = 0, total_frames: int = 0) -> None:
@@ -36,6 +36,11 @@ def _write_info(dataset_dir: Path, *, total_episodes: int = 0, total_frames: int
         },
     }
     (meta_dir / "info.json").write_text(json.dumps(info), encoding="utf-8")
+    pq.write_table(pa.table({"task_index": [0], "task": ["task"]}), meta_dir / "tasks.parquet")
+    calibration_dir = dataset_dir / "calibration" / "bimanual_followers"
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    (calibration_dir / "bimanual_left.json").write_text("{}", encoding="utf-8")
+    (calibration_dir / "bimanual_right.json").write_text("{}", encoding="utf-8")
 
 
 def _write_parquet(dataset_dir: Path, episodes: list[int]) -> None:
@@ -56,10 +61,21 @@ def _write_video(dataset_dir: Path, episode_index: int = 0) -> None:
     (video_dir / f"file-{episode_index:03d}.mp4").write_bytes(b"mp4")
 
 
+def _write_tasks_and_calibration(dataset_dir: Path) -> None:
+    meta_dir = dataset_dir / "meta"
+    pq.write_table(pa.table({"task_index": [0], "task": ["task"]}), meta_dir / "tasks.parquet")
+    calibration_dir = dataset_dir / "calibration" / "bimanual_followers"
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    (calibration_dir / "bimanual_left.json").write_text("{}", encoding="utf-8")
+    (calibration_dir / "bimanual_right.json").write_text("{}", encoding="utf-8")
+
+
 def _meta_stale_diagnosis(dataset_dir: Path) -> DiagnosisResult:
     return DiagnosisResult(
         dataset_dir=dataset_dir,
-        damage_type=DamageType.META_STALE,
+        integrity_status=IntegrityStatus.STRUCTURE_INCOMPLETE,
+        damage_kind=DamageKind.STALE_INFO_TOTALS,
+        repair_strategy=RepairStrategy.FORMALIZE_DATA_EPISODES,
         repairable=True,
         details={"n_parquet_rows": 3},
     )
@@ -113,7 +129,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         out_info = json.loads((output_dir / "meta" / "info.json").read_text(encoding="utf-8"))
         src_info = json.loads((dataset_dir / "meta" / "info.json").read_text(encoding="utf-8"))
         assert out_info["total_frames"] == 3
@@ -137,7 +153,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "skipped"
+        assert result.status == "skipped"
         assert "already exists" in (result.error or "")
         assert (output_dir / "guard").read_text(encoding="utf-8") == "dont touch"
 
@@ -160,7 +176,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         assert not (output_dir / "stale").exists()
 
     def test_healthy_does_not_create_output_dir(self, tmp_path: Path) -> None:
@@ -168,7 +184,9 @@ class TestDatasetRepairServiceOutputDir:
         dataset_dir.mkdir()
         diagnosis = DiagnosisResult(
             dataset_dir=dataset_dir,
-            damage_type=DamageType.HEALTHY,
+            integrity_status=IntegrityStatus.HEALTHY,
+            damage_kind=DamageKind.NONE,
+            repair_strategy=RepairStrategy.NONE,
             repairable=True,
             details={},
         )
@@ -183,7 +201,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "healthy"
+        assert result.status == "healthy"
         assert not output_dir.exists()
 
     def test_empty_shell_does_not_create_output_dir(self, tmp_path: Path) -> None:
@@ -191,7 +209,9 @@ class TestDatasetRepairServiceOutputDir:
         dataset_dir.mkdir()
         diagnosis = DiagnosisResult(
             dataset_dir=dataset_dir,
-            damage_type=DamageType.EMPTY_SHELL,
+            integrity_status=IntegrityStatus.EMPTY_SHELL,
+            damage_kind=DamageKind.EMPTY_SHELL,
+            repair_strategy=RepairStrategy.NONE,
             repairable=False,
             details={},
         )
@@ -206,7 +226,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "skipped"
+        assert result.status == "skipped"
         assert not output_dir.exists()
 
     def test_unrepairable_does_not_create_output_dir(self, tmp_path: Path) -> None:
@@ -214,7 +234,9 @@ class TestDatasetRepairServiceOutputDir:
         dataset_dir.mkdir()
         diagnosis = DiagnosisResult(
             dataset_dir=dataset_dir,
-            damage_type=DamageType.META_STALE,
+            integrity_status=IntegrityStatus.STRUCTURE_INCOMPLETE,
+            damage_kind=DamageKind.STALE_INFO_TOTALS,
+            repair_strategy=RepairStrategy.NONE,
             repairable=False,
             details={"n_parquet_rows": 0},
         )
@@ -229,7 +251,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "skipped"
+        assert result.status == "skipped"
         assert result.error == "unrepairable"
         assert not output_dir.exists()
 
@@ -248,7 +270,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "skipped"
+        assert result.status == "skipped"
         assert result.error == "dry run"
         assert not output_dir.exists()
 
@@ -275,7 +297,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         assert not (output_dir / "meta" / "repair_status.json").exists()
         # Source's status file is unchanged (Phase 3 does not touch the source disk).
         assert (dataset_dir / "meta" / "repair_status.json").exists()
@@ -303,7 +325,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         assert not (output_dir / "tmpxyz").exists()
         # Source unchanged.
         assert (dataset_dir / "tmpxyz" / "leftover.mp4").exists()
@@ -327,6 +349,7 @@ class TestDatasetRepairServiceOutputDir:
             },
         }
         (meta_dir / "info.json").write_text(json.dumps(info), encoding="utf-8")
+        _write_tasks_and_calibration(dataset_dir)
         _write_parquet(dataset_dir, [0, 0, 0])
         _write_video(dataset_dir, 0)
         output_dir = tmp_path / "out"
@@ -340,7 +363,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         cleaned = json.loads((output_dir / "meta" / "info.json").read_text(encoding="utf-8"))
         assert "observation.images.missing" not in cleaned["features"]
         assert "observation.images.front" in cleaned["features"]
@@ -364,6 +387,7 @@ class TestDatasetRepairServiceOutputDir:
             },
         }
         (meta_dir / "info.json").write_text(json.dumps(info), encoding="utf-8")
+        _write_tasks_and_calibration(dataset_dir)
         _write_parquet(dataset_dir, [0, 0, 0])
         _write_video(dataset_dir, 0)  # only 'front' canonical
         tmp_dir = dataset_dir / "tmpxyz"
@@ -372,11 +396,15 @@ class TestDatasetRepairServiceOutputDir:
         side_mp4.write_bytes(b"sidempfourdata")
         diagnosis = DiagnosisResult(
             dataset_dir=dataset_dir,
-            damage_type=DamageType.PARTIAL_TMP_VIDEOS_STUCK,
+            integrity_status=IntegrityStatus.STRUCTURE_INCOMPLETE,
+            damage_kind=DamageKind.RECOVERABLE_TMP_VIDEOS,
+            repair_strategy=RepairStrategy.FORMALIZE_DATA_EPISODES,
             repairable=True,
             details={
                 "n_parquet_rows": 3,
-                "recoverable_tmp_videos": [
+                "data_episode_counts": {0: 3},
+                "repair_plan": {"missing_episode_indices": [0]},
+                "tmp_videos": [
                     TmpVideo(
                         video_key="observation.images.side",
                         path=side_mp4,
@@ -396,7 +424,7 @@ class TestDatasetRepairServiceOutputDir:
             output_dir=output_dir,
         )
 
-        assert result.outcome == "repaired"
+        assert result.status == "repaired"
         canonical_side = (
             output_dir / "videos" / "observation.images.side" / "chunk-000" / "file-000.mp4"
         )
@@ -437,11 +465,15 @@ class TestDatasetRepairServiceOutputDir:
         (tmp1 / "observation.images.side_001.mp4").write_bytes(b"ep1")
         diagnosis = DiagnosisResult(
             dataset_dir=dataset_dir,
-            damage_type=DamageType.PARTIAL_TMP_VIDEOS_STUCK,
+            integrity_status=IntegrityStatus.STRUCTURE_INCOMPLETE,
+            damage_kind=DamageKind.RECOVERABLE_TMP_VIDEOS,
+            repair_strategy=RepairStrategy.FORMALIZE_DATA_EPISODES,
             repairable=True,
             details={
                 "n_parquet_rows": 3,
-                "recoverable_tmp_videos": [
+                "data_episode_counts": {0: 3, 1: 3},
+                "repair_plan": {"missing_episode_indices": [0, 1]},
+                "tmp_videos": [
                     TmpVideo(
                         video_key="observation.images.side",
                         path=tmp0 / "observation.images.side_000.mp4",
@@ -475,4 +507,4 @@ class TestDatasetRepairServiceOutputDir:
         assert ep1.exists() and ep1.read_bytes() == b"ep1"
         # And the result either repaired or failed-on-verify depending on parquet,
         # but the file relocation must have happened.
-        assert result.outcome in {"repaired", "failed"}
+        assert result.status in {"repaired", "failed"}

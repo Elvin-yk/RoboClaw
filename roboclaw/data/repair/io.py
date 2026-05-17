@@ -3,51 +3,20 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from roboclaw.data.curation.paths import PACKAGE_VIDEO_PATH, video_path_from_indices
+
 log = logging.getLogger(__name__)
 
-DEFAULT_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+DEFAULT_VIDEO_PATH = PACKAGE_VIDEO_PATH
 
-_CP_END_RE = re.compile(
-    r"\[CP\] END at episode (\d+), frame (\d+) "
-    r"\(segment: (\d+)-(\d+), \d+ frames(?:, outcome=(\w+))?\)"
-)
 _PARQUET_ERRORS = (OSError, pa.lib.ArrowException)
-
-
-def sanitize_jsonl_line(line: str) -> str:
-    return line.replace("\x00", "").strip()
-
-
-def parse_cp_from_log(log_path: Path) -> list[dict[str, Any]]:
-    intervals: list[dict[str, Any]] = []
-    with log_path.open() as handle:
-        for line in handle:
-            match = _CP_END_RE.search(line)
-            if match is None:
-                continue
-            intervals.append(
-                {
-                    "episode_index": int(match.group(1)),
-                    "start_frame": int(match.group(3)),
-                    "end_frame": int(match.group(4)),
-                    "outcome": match.group(5),
-                }
-            )
-    return intervals
-
-
-def find_log_for_dataset(dataset_dir: Path) -> Path | None:
-    log_path = dataset_dir.parent / f"{dataset_dir.name}.log"
-    return log_path if log_path.exists() else None
 
 
 def load_info(dataset_dir: Path) -> dict[str, Any]:
@@ -60,37 +29,12 @@ def write_info(dataset_dir: Path, info: dict[str, Any]) -> None:
     info_path.write_text(json.dumps(info, indent=4) + "\n", encoding="utf-8")
 
 
-def read_recovery_rows(dataset_dir: Path) -> list[dict[str, Any]]:
-    recovery_path = dataset_dir / "recovery_frames.jsonl"
-    if not recovery_path.exists():
-        return []
-
-    rows: list[dict[str, Any]] = []
-    with recovery_path.open() as handle:
-        for line_number, line in enumerate(handle, start=1):
-            sanitized = sanitize_jsonl_line(line)
-            if not sanitized:
-                break
-            try:
-                rows.append(json.loads(sanitized))
-            except json.JSONDecodeError as exc:
-                log.warning("Corrupt JSON in %s at line %d: %s", recovery_path, line_number, exc)
-                break
-    return rows
-
-
 def normalize_feature_shapes(features: dict[str, Any]) -> dict[str, Any]:
     normalized = copy.deepcopy(features)
     for feature in normalized.values():
         if "shape" in feature:
             feature["shape"] = tuple(feature["shape"])
     return normalized
-
-
-def coerce_recovery_value(value: Any, feature: dict[str, Any]) -> Any:
-    if isinstance(value, list):
-        return np.array(value, dtype=np.dtype(feature["dtype"]))
-    return value
 
 
 def list_episode_dirs(parent: Path) -> list[Path]:
@@ -181,14 +125,19 @@ def build_video_path(
     episode_index: int,
 ) -> Path:
     chunks_size = int(info.get("chunks_size", 1000))
-    template = info.get("video_path") or DEFAULT_VIDEO_PATH
     chunk_index = episode_index // chunks_size
     file_index = episode_index % chunks_size
-    return dataset_dir / template.format(
-        video_key=video_key,
-        chunk_index=chunk_index,
-        file_index=file_index,
-    )
+    return build_video_path_from_indices(dataset_dir, info, video_key, chunk_index, file_index)
+
+
+def build_video_path_from_indices(
+    dataset_dir: Path,
+    info: dict[str, Any],
+    video_key: str,
+    chunk_index: int,
+    file_index: int,
+) -> Path:
+    return video_path_from_indices(dataset_dir, info, video_key, chunk_index, file_index)
 
 
 def is_dataset_dir(path: Path) -> bool:

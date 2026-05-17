@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def _create_dataset(
     write_episodes_meta: bool = True,
     with_robot_trajectory: bool = False,
     nested_robot_trajectory_names: bool = False,
+    include_video_feature: bool = True,
 ) -> Path:
     dataset_path = root / dataset_id
     meta = dataset_path / "meta"
@@ -35,12 +37,16 @@ def _create_dataset(
         "robot_type": "so100",
         "features": {
             "observation.state": {"dtype": "float32"},
-            "observation.images.front": {"dtype": "video", "shape": [480, 640, 3]},
             "action": {"dtype": "float32"},
         },
         "chunks_size": 1000,
         "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
     }
+    if include_video_feature:
+        info["features"]["observation.images.front"] = {
+            "dtype": "video",
+            "shape": [480, 640, 3],
+        }
     if with_videos:
         info["video_path"] = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
     if with_robot_trajectory:
@@ -66,7 +72,7 @@ def _create_dataset(
     (meta / "info.json").write_text(json.dumps(info), encoding="utf-8")
     episode_length = frames // episodes if episodes else 0
     stored_episode_length = 0 if zero_episode_lengths else episode_length
-    episode_rows = []
+    episode_entries = []
     for index in range(episodes):
         entry = {
             "episode_index": index,
@@ -83,22 +89,44 @@ def _create_dataset(
                 "videos/observation.images.front/from_timestamp": index * episode_length / 30,
                 "videos/observation.images.front/to_timestamp": (index + 1) * episode_length / 30,
             })
-        episode_rows.append(json.dumps(entry))
+        episode_entries.append(entry)
     if write_episodes_meta:
-        (meta / "episodes.jsonl").write_text("\n".join(episode_rows) + "\n", encoding="utf-8")
+        (meta / "episodes.jsonl").write_text(
+            "\n".join(json.dumps(entry) for entry in episode_entries) + "\n",
+            encoding="utf-8",
+        )
+    calibration_dir = dataset_path / "calibration" / "bimanual_followers"
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    (calibration_dir / "bimanual_left.json").write_text("{}", encoding="utf-8")
+    (calibration_dir / "bimanual_right.json").write_text("{}", encoding="utf-8")
+    (dataset_path / "calibration" / "manifest.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "entries": [
+                {"relative_path": "bimanual_followers/bimanual_left.json"},
+                {"relative_path": "bimanual_followers/bimanual_right.json"},
+            ],
+        }),
+        encoding="utf-8",
+    )
     if with_videos:
-        video_path = dataset_path / "videos" / "observation.images.front" / "chunk-000" / "file-000.mp4"
-        video_path.parent.mkdir(parents=True)
-        video_path.write_bytes(b"video")
+        video_dir = dataset_path / "videos" / "observation.images.front" / "chunk-000"
+        video_dir.mkdir(parents=True)
+        for episode_index in range(episodes):
+            (video_dir / f"file-{episode_index:03d}.mp4").write_bytes(b"video")
     if with_data:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
-        if task_text:
-            pq.write_table(
-                pa.Table.from_pylist([{"task_index": 0, "task": task_text}]),
-                meta / "tasks.parquet",
-            )
+        pq.write_table(
+            pa.Table.from_pylist([{"task_index": 0, "task": task_text or "task"}]),
+            meta / "tasks.parquet",
+        )
+        (meta / "stats.json").write_text("{}", encoding="utf-8")
+        if write_episodes_meta:
+            episodes_path = meta / "episodes" / "chunk-000" / "file-000.parquet"
+            episodes_path.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(pa.Table.from_pylist(episode_entries), episodes_path)
         data_rows = []
         for frame_index in range(frames):
             episode_index = min(frame_index // episode_length, episodes - 1) if episode_length else 0
@@ -108,6 +136,8 @@ def _create_dataset(
                 "frame_index": frame_index - episode_index * episode_length,
                 "timestamp": frame_index / 30,
                 "task_index": 0,
+                "action": [float(frame_index)],
+                "observation.state": [float(frame_index)],
             }
             if with_robot_trajectory:
                 row["action"] = [float(frame_index + joint_index) for joint_index in range(12)]
@@ -126,17 +156,23 @@ def _create_meta_stale_dataset(root: Path, dataset_id: str) -> Path:
     dataset_path = root / dataset_id
     meta = dataset_path / "meta"
     meta.mkdir(parents=True)
+    pq.write_table(pa.Table.from_pylist([{"task_index": 0, "task": "task"}]), meta / "tasks.parquet")
+    calibration_dir = dataset_path / "calibration" / "bimanual_followers"
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    (calibration_dir / "bimanual_left.json").write_text("{}", encoding="utf-8")
+    (calibration_dir / "bimanual_right.json").write_text("{}", encoding="utf-8")
     (meta / "info.json").write_text(
         json.dumps({
             "total_episodes": 0,
             "total_frames": 0,
             "fps": 30,
             "robot_type": "so100",
-            "features": {
-                "observation.images.front": {"dtype": "video", "shape": [480, 640, 3]},
-                "observation.state": {"dtype": "float32", "shape": [2]},
-                "episode_index": {"dtype": "int64", "shape": [1]},
-            },
+                "features": {
+                    "observation.images.front": {"dtype": "video", "shape": [480, 640, 3]},
+                    "observation.state": {"dtype": "float32", "shape": [2]},
+                    "action": {"dtype": "float32", "shape": [1]},
+                    "episode_index": {"dtype": "int64", "shape": [1]},
+                },
             "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
             "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
         }),
@@ -146,9 +182,10 @@ def _create_meta_stale_dataset(root: Path, dataset_id: str) -> Path:
     data_path.parent.mkdir(parents=True)
     pq.write_table(
         pa.Table.from_pylist([
-            {"episode_index": 0, "observation.state": [0.0, 1.0]},
-            {"episode_index": 0, "observation.state": [0.1, 1.1]},
-            {"episode_index": 1, "observation.state": [0.2, 1.2]},
+            {"episode_index": 0, "observation.state": [0.0, 1.0], "action": [0.0]},
+            {"episode_index": 0, "observation.state": [0.1, 1.1], "action": [1.0]},
+            {"episode_index": 1, "observation.state": [0.2, 1.2], "action": [2.0]},
+            {"episode_index": 1, "observation.state": [0.3, 1.3], "action": [3.0]},
         ]),
         data_path,
     )
@@ -390,8 +427,8 @@ def test_episode_robot_trajectory_accepts_nested_feature_names(tmp_path: Path) -
     assert payload["arms"]["right"]["joint_degrees"]["shoulder_pan"] == [106, 107, 108, 109]
 
 
-def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
-    _create_dataset(tmp_path, "local/demo")
+def test_clean_run_marks_healthy_dataset_auto_clean_passed(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/demo", with_data=True, with_videos=True, task_text="task")
     client = _client(tmp_path)
 
     diagnosis = client.post("/api/data/qc/diagnosis-runs", json={"dataset_ids": ["local/demo"]})
@@ -407,20 +444,79 @@ def test_clean_run_marks_healthy_dataset_clean(tmp_path: Path) -> None:
     job = _wait_job(client, started.json()["job_id"])
 
     assert job["phase"] == "completed"
+    assert job["result"]["datasets"][0]["status"] == "passed"
     detail = client.get("/api/data/library/datasets/local/demo").json()
-    assert detail["lifecycle_stage"] == "clean"
+    assert detail["lifecycle_stage"] == "needs_review"
     assert detail["gates"]["inspect"]["status"] == "passed"
     assert detail["gates"]["clean"]["status"] == "passed"
-    assert detail["gates"]["review"]["status"] == "skipped"
+    assert detail["gates"]["review"]["status"] == "pending"
     assert detail["active_output"]["kind"] == "source"
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "completed"
+    assert "outcome" not in detail["qc"]["lanes"]["auto_clean"]
     assert detail["qc"]["reports"]["diagnosis"]["relative_path"].startswith("reports/diagnosis/")
     assert (tmp_path / "local" / "demo" / ".status" / "current.json").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / "events.jsonl").is_file()
     assert (tmp_path / "local" / "demo" / ".status" / detail["qc"]["reports"]["diagnosis"]["relative_path"]).is_file()
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={"dataset_id": "local/demo", "run_id": detail["qc"]["lanes"]["auto_clean"]["last_run_id"]},
+    ).json()
+    assert [step["id"] for step in run["steps"]] == [
+        "data_integrity_check",
+        "damage_diagnosis",
+        "repair_if_possible",
+        "leading_static_trim",
+    ]
+    assert "trim_verify" not in {step["id"] for step in run["steps"]}
 
 
-def test_clean_run_writes_repaired_dataset_to_cleaned_pool(tmp_path: Path) -> None:
+def test_auto_clean_trims_static_prefix_and_manual_review_uses_artifact(tmp_path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    _create_dataset(
+        tmp_path,
+        "local/static_prefix",
+        episodes=1,
+        frames=40,
+        with_data=True,
+        include_video_feature=False,
+    )
+    data_path = tmp_path / "local" / "static_prefix" / "data" / "chunk-000" / "file-000.parquet"
+    rows = pq.read_table(data_path).to_pylist()
+    for index, row in enumerate(rows):
+        action = 0.0 if index < 21 else float(index - 20)
+        row["action"] = [action]
+        row["observation.state"] = [action]
+    pq.write_table(pa.Table.from_pylist(rows), data_path)
+    client = _client(tmp_path)
+
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/static_prefix"]})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
+
+    detail = client.get("/api/data/library/datasets/local/static_prefix").json()
+    assert detail["active_output"]["kind"] == "artifact"
+    assert detail["stats"]["total_frames"] == 34
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={
+            "dataset_id": "local/static_prefix",
+            "run_id": detail["qc"]["lanes"]["auto_clean"]["last_run_id"],
+        },
+    ).json()
+    trim_step = next(step for step in run["steps"] if step["id"] == "leading_static_trim")
+    assert trim_step["status"] == "passed"
+    assert trim_step["details"]["total_trimmed_frames"] == 6
+    workspace = client.get(
+        "/api/data/review/workspace",
+        params={"dataset_id": "local/static_prefix"},
+    )
+    assert workspace.status_code == 200
+    assert workspace.json()["episode_indices"] == [0]
+
+
+def test_clean_run_marks_repaired_dataset_auto_clean_passed(tmp_path: Path) -> None:
     _create_meta_stale_dataset(tmp_path, "local/stale")
     client = _client(tmp_path)
 
@@ -430,19 +526,53 @@ def test_clean_run_writes_repaired_dataset_to_cleaned_pool(tmp_path: Path) -> No
 
     assert job["phase"] == "completed"
     result = job["result"]["datasets"][0]
+    assert result["status"] == "passed"
     assert result["active_output"]["kind"] == "artifact"
 
     source = client.get("/api/data/library/datasets/local/stale").json()
-    assert source["lifecycle_stage"] == "clean"
+    assert source["lifecycle_stage"] == "needs_review"
     assert source["gates"]["clean"]["status"] == "passed"
-    assert source["gates"]["clean"]["details"]["active_output"]["kind"] == "artifact"
+    assert source["gates"]["review"]["status"] == "pending"
     assert source["active_output"]["kind"] == "artifact"
-    artifact_path = tmp_path / "local" / "stale" / source["active_output"]["relative_path"]
-    assert artifact_path.is_dir()
+    assert "outcome" not in source["qc"]["lanes"]["auto_clean"]
     assert list((tmp_path / "local" / "stale" / ".status" / "runs").glob("*.json"))
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={"dataset_id": "local/stale", "run_id": source["qc"]["lanes"]["auto_clean"]["last_run_id"]},
+    ).json()
+    assert [(step["id"], step["message"]) for step in run["steps"]] == [
+        ("data_integrity_check", "structure_incomplete"),
+        ("damage_diagnosis", "orphan_data_episodes"),
+        ("repair_if_possible", "formalize_data_episodes"),
+        ("repair_verify", "Repair output verified"),
+        ("leading_static_trim", "No leading static frames found"),
+    ]
+    assert run["steps"][2]["details"]["repair_strategy"] == "formalize_data_episodes"
 
     assert source["stats"]["total_episodes"] == 2
-    assert source["stats"]["total_frames"] == 3
+    assert source["stats"]["total_frames"] == 4
+
+
+def test_auto_clean_rerun_uses_active_artifact_as_latest_dataset(tmp_path: Path) -> None:
+    _create_meta_stale_dataset(tmp_path, "local/stale")
+    client = _client(tmp_path)
+
+    first = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/stale"]})
+    assert first.status_code == 200
+    assert _wait_job(client, first.json()["job_id"])["phase"] == "completed"
+    after_first = client.get("/api/data/library/datasets/local/stale").json()
+    first_output = dict(after_first["active_output"])
+    assert first_output["kind"] == "artifact"
+
+    second = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/stale"]})
+    assert second.status_code == 200
+    second_job = _wait_job(client, second.json()["job_id"])
+    after_second = client.get("/api/data/library/datasets/local/stale").json()
+
+    assert second_job["result"]["datasets"][0]["status"] == "passed"
+    assert second_job["result"]["datasets"][0]["diagnosis"]["integrity_status"] == "healthy"
+    assert second_job["result"]["datasets"][0]["diagnosis"]["damage_kind"] == "none"
+    assert after_second["active_output"]["relative_path"] == first_output["relative_path"]
 
 
 def test_auto_clean_empty_dataset_fails_clean_and_requires_review(tmp_path: Path) -> None:
@@ -454,22 +584,125 @@ def test_auto_clean_empty_dataset_fails_clean_and_requires_review(tmp_path: Path
     job = _wait_job(client, started.json()["job_id"])
 
     assert job["phase"] == "completed"
+    assert job["result"]["datasets"][0]["status"] == "failed"
     detail = client.get("/api/data/library/datasets/local/empty").json()
-    assert detail["lifecycle_stage"] == "needs_review"
+    assert detail["lifecycle_stage"] == "excluded"
     assert detail["gates"]["clean"]["status"] == "failed"
-    assert "empty_dataset_check" in detail["gates"]["clean"]["message"]
-    assert detail["gates"]["review"]["status"] == "needs_review"
+    assert detail["gates"]["diagnose"]["message"] == "empty_shell"
+    assert detail["gates"]["review"]["status"] == "pending"
     assert detail["qc"]["lanes"]["auto_clean"]["status"] == "failed"
+    assert "outcome" not in detail["qc"]["lanes"]["auto_clean"]
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={"dataset_id": "local/empty", "run_id": detail["qc"]["lanes"]["auto_clean"]["last_run_id"]},
+    ).json()
+    assert [(step["id"], step["status"]) for step in run["steps"]] == [("data_integrity_check", "failed")]
+
+
+def test_auto_clean_unknown_damage_fails_after_damage_diagnosis(tmp_path: Path) -> None:
+    dataset_path = _create_dataset(
+        tmp_path,
+        "local/unknown",
+        with_data=True,
+        with_videos=True,
+    )
+    (dataset_path / "meta" / "stats.json").write_text("{bad-json", encoding="utf-8")
+    client = _client(tmp_path)
+
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/unknown"]})
+    assert started.status_code == 200
+    job = _wait_job(client, started.json()["job_id"])
+
+    assert job["phase"] == "completed"
+    assert job["result"]["datasets"][0]["status"] == "failed"
+    detail = client.get("/api/data/library/datasets/local/unknown").json()
+    assert detail["gates"]["clean"]["status"] == "failed"
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={"dataset_id": "local/unknown", "run_id": detail["qc"]["lanes"]["auto_clean"]["last_run_id"]},
+    ).json()
+    assert [(step["id"], step["message"]) for step in run["steps"]] == [
+        ("data_integrity_check", "structure_incomplete"),
+        ("damage_diagnosis", "unknown_damage"),
+        ("repair_if_possible", "repair_if_possible failed: unknown_damage is not repairable"),
+    ]
+    assert run["failure"]["step_id"] == "repair_if_possible"
+
+
+def test_cancel_auto_clean_resets_unfinished_dataset_status(tmp_path: Path, monkeypatch) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/cancel",
+        with_data=True,
+        include_video_feature=False,
+    )
+    service = DataService(root_resolver=lambda: tmp_path)
+    app = FastAPI()
+    register_data_routes(app, service)
+    client = TestClient(app)
+    entered_trim = threading.Event()
+    release_trim = threading.Event()
+    original_trim = service.clean.leading_static_trim.trim
+
+    def blocking_trim(*args, **kwargs):
+        entered_trim.set()
+        release_trim.wait(2)
+        return original_trim(*args, **kwargs)
+
+    monkeypatch.setattr(service.clean.leading_static_trim, "trim", blocking_trim)
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/cancel"]})
+    assert started.status_code == 200
+    job_id = started.json()["job_id"]
+    assert entered_trim.wait(2)
+
+    cancelled = client.post(f"/api/data/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["phase"] == "cancelling"
+    release_trim.set()
+    job = _wait_job(client, job_id)
+
+    assert job["phase"] == "cancelled"
+    assert job["result"]["datasets"][0]["status"] == "cancelled"
+    detail = client.get("/api/data/library/datasets/local/cancel").json()
+    assert detail["lifecycle_stage"] == "raw"
+    assert detail["gates"]["clean"]["status"] == "pending"
+    assert detail["gates"]["review"]["status"] == "pending"
+    assert detail["qc"]["lanes"]["auto_clean"]["status"] == "pending"
+    run_id = detail["qc"]["lanes"]["auto_clean"]["last_run_id"]
+    run = client.get(
+        "/api/data/qc/run-details",
+        params={"dataset_id": "local/cancel", "run_id": run_id},
+    ).json()
+    assert run["status"] == "cancelled"
+    assert run["failure"]["step_id"] == "auto_clean_cancelled"
+    assert not (tmp_path / "local" / "cancel" / ".status" / "artifacts" / run_id).exists()
 
 
 def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: Path) -> None:
-    _create_dataset(tmp_path, "local/review", episodes=3, frames=30, with_data=True, task_text="old task")
+    _create_dataset(
+        tmp_path,
+        "local/review",
+        episodes=3,
+        frames=30,
+        with_data=True,
+        with_videos=True,
+        task_text="old task",
+    )
     client = _client(tmp_path)
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/review"]})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
+    clean_gate = client.patch(
+        "/api/data/lifecycle/datasets/local/review/gates/clean",
+        json={"status": "passed", "message": "ready"},
+    )
+    assert clean_gate.status_code == 200
 
     workspace = client.get("/api/data/review/workspace", params={"dataset_id": "local/review"})
     assert workspace.status_code == 200
     assert workspace.json()["episode_indices"] == [0, 1, 2]
     assert workspace.json()["review"]["status"] == "pending"
+    assert "outcome" not in workspace.json()["review"]
 
     early_batch = client.post("/api/data/review/batch-runs", json={"dataset_ids": ["local/review"]})
     assert early_batch.status_code == 400
@@ -480,6 +713,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     )
     assert first.status_code == 200
     assert first.json()["review"]["status"] == "pending"
+    assert "outcome" not in first.json()["review"]
 
     missing_reason = client.patch(
         "/api/data/review/datasets/local/review/episodes/1",
@@ -502,7 +736,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
         json={"decision": "passed", "reviewer_id": "user-1"},
     )
     assert second.status_code == 200
-    assert second.json()["review"]["status"] == "ready_for_batch"
+    assert second.json()["review"]["status"] == "needs_fix"
 
     draft = client.patch(
         "/api/data/review/datasets/local/review/draft",
@@ -510,6 +744,7 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     )
     assert draft.status_code == 200
     assert draft.json()["review"]["draft_edits"]["task_description"] == "updated task"
+    assert draft.json()["review"]["status"] == "needs_fix"
 
     batch = client.post(
         "/api/data/review/batch-runs",
@@ -524,7 +759,8 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     detail = client.get("/api/data/library/datasets/local/review").json()
     assert detail["lifecycle_stage"] == "clean"
     assert detail["gates"]["review"]["status"] == "passed"
-    assert detail["qc"]["review"]["status"] == "applied"
+    assert detail["qc"]["review"]["status"] == "passed"
+    assert "outcome" not in detail["qc"]["review"]
     assert detail["active_output"]["kind"] == "artifact"
 
     artifact_path = tmp_path / "local" / "review" / detail["active_output"]["relative_path"]
@@ -552,6 +788,54 @@ def test_review_workspace_episode_decisions_draft_and_batch_artifact(tmp_path: P
     original_rows = pq.read_table(tmp_path / "local" / "review" / "data" / "chunk-000" / "file-000.parquet").to_pylist()
     assert original_info["total_episodes"] == 3
     assert len(original_rows) == 30
+
+
+def test_review_episode_decision_requires_auto_clean_passed(tmp_path: Path) -> None:
+    _create_dataset(
+        tmp_path,
+        "local/not_clean",
+        episodes=1,
+        frames=10,
+        with_data=True,
+        with_videos=True,
+    )
+    client = _client(tmp_path)
+
+    response = client.patch(
+        "/api/data/review/datasets/local/not_clean/episodes/0",
+        json={"decision": "passed", "reviewer_id": "user-1"},
+    )
+
+    assert response.status_code == 400
+    assert "has not passed auto clean" in response.json()["detail"]
+
+
+def test_review_batch_rejects_all_failed_review(tmp_path: Path) -> None:
+    _create_dataset(tmp_path, "local/all_failed", episodes=2, frames=20, with_data=True, with_videos=True)
+    client = _client(tmp_path)
+    started = client.post("/api/data/qc/auto-clean-runs", json={"dataset_ids": ["local/all_failed"]})
+    assert started.status_code == 200
+    assert _wait_job(client, started.json()["job_id"])["phase"] == "completed"
+
+    for episode_index in (0, 1):
+        response = client.patch(
+            f"/api/data/review/datasets/local/all_failed/episodes/{episode_index}",
+            json={
+                "decision": "failed",
+                "reason": "video_abnormal",
+                "reviewer_id": "user-1",
+            },
+        )
+        assert response.status_code == 200
+
+    workspace = client.get("/api/data/review/workspace", params={"dataset_id": "local/all_failed"}).json()
+    assert workspace["review"]["status"] == "failed"
+
+    batch = client.post(
+        "/api/data/review/batch-runs",
+        json={"dataset_ids": ["local/all_failed"], "reviewer_id": "user-1"},
+    )
+    assert batch.status_code == 400
 
 
 def test_package_evaluation_annotation_upload_delete_and_overview(monkeypatch, tmp_path: Path) -> None:

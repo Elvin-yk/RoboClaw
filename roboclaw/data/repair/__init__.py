@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from .types import DamageType, DiagnosisResult, RepairResult
+from .types import DamageKind, DiagnosisResult, IntegrityStatus, RepairResult, RepairStatus, RepairStrategy
 
 __all__ = [
-    "DamageType",
+    "DamageKind",
     "DiagnosisResult",
+    "IntegrityStatus",
     "RepairResult",
+    "RepairStatus",
+    "RepairStrategy",
 ]

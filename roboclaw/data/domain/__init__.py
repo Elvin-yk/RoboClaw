@@ -1,4 +1,10 @@
 from .models import (
+    MANUAL_REVIEW_DECISION_FAILED,
+    MANUAL_REVIEW_DECISION_PASSED,
+    MANUAL_REVIEW_STATUS_FAILED,
+    MANUAL_REVIEW_STATUS_NEEDS_FIX,
+    MANUAL_REVIEW_STATUS_PENDING,
+    MANUAL_REVIEW_STATUS_PASSED,
     DataJob,
     DataJobEvent,
     DataJobPhase,
@@ -10,6 +16,8 @@ from .models import (
     DatasetStage,
     Gate,
     GateStatus,
+    ManualReviewDecision,
+    ManualReviewStatus,
 )
 
 __all__ = [
@@ -24,4 +32,12 @@ __all__ = [
     "DatasetStage",
     "Gate",
     "GateStatus",
+    "MANUAL_REVIEW_DECISION_FAILED",
+    "MANUAL_REVIEW_DECISION_PASSED",
+    "MANUAL_REVIEW_STATUS_FAILED",
+    "MANUAL_REVIEW_STATUS_NEEDS_FIX",
+    "MANUAL_REVIEW_STATUS_PENDING",
+    "MANUAL_REVIEW_STATUS_PASSED",
+    "ManualReviewDecision",
+    "ManualReviewStatus",
 ]

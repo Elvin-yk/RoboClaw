@@ -495,7 +495,10 @@ class DataInspectService:
         path = PurePosixPath(relative_path.replace("\\", "/"))
         if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
             raise HTTPException(status_code=403, detail="Path traversal not allowed")
-        resolved_root = root.resolve()
-        resolved = (resolved_root / path.as_posix()).resolve()
-        resolved.relative_to(resolved_root)
+        root_path = root.resolve()
+        resolved = (root_path / path.as_posix()).resolve()
+        try:
+            resolved.relative_to(root_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Path traversal not allowed") from exc
         return resolved
