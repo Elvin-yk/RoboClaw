@@ -12,9 +12,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
+from roboclaw.data.curation.paths import (
+    PACKAGE_DATA_PATH,
+    PACKAGE_VIDEO_PATH,
+    video_path_from_indices,
+)
 from roboclaw.data.curation.serializers import video_feature_keys
-PACKAGE_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
-PACKAGE_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+from roboclaw.data.curation.stats import compute_feature_stats
 
 
 @dataclass(frozen=True)
@@ -228,15 +232,23 @@ class LeadingStaticTrimService:
         episode_rows: list[_EpisodeRows],
         config: LeadingStaticTrimConfig,
     ) -> tuple[float, dict[int, np.ndarray]]:
-        actions: list[np.ndarray] = []
+        action_matrices: dict[int, np.ndarray] = {}
+        matrices: list[np.ndarray] = []
         for episode in episode_rows:
+            vectors: list[np.ndarray] = []
             for row in episode.rows:
                 if "action" not in row:
                     raise ValueError("leading_static_trim requires an action column")
-                actions.append(self._as_float_vector(row["action"]))
-        if not actions:
+                vectors.append(self._as_float_vector(row["action"]))
+            if vectors:
+                matrix = np.vstack(vectors)
+                action_matrices[episode.episode_index] = matrix
+                matrices.append(matrix)
+            else:
+                action_matrices[episode.episode_index] = np.empty((0, 0), dtype=float)
+        if not matrices:
             raise ValueError("leading_static_trim requires at least one action row")
-        action_matrix = np.vstack(actions)
+        action_matrix = np.vstack(matrices)
         q01 = np.quantile(action_matrix, 0.01, axis=0)
         q99 = np.quantile(action_matrix, 0.99, axis=0)
         ranges = q99 - q01
@@ -246,7 +258,7 @@ class LeadingStaticTrimService:
         for episode in episode_rows:
             scores = np.zeros(len(episode.rows), dtype=float)
             if len(episode.rows) >= 2 and np.any(active_dims):
-                ep_actions = np.vstack([self._as_float_vector(row["action"]) for row in episode.rows])
+                ep_actions = action_matrices[episode.episode_index]
                 normalized = ep_actions[:, active_dims] / ranges[active_dims]
                 deltas = np.diff(normalized, axis=0)
                 scores[1:] = np.linalg.norm(deltas, axis=1)
@@ -528,12 +540,7 @@ class LeadingStaticTrimService:
         prefix = f"videos/{video_key}/"
         chunk_index = int(source_episode.get(f"{prefix}chunk_index", 0) or 0)
         file_index = int(source_episode.get(f"{prefix}file_index", 0) or 0)
-        template = str(info.get("video_path") or PACKAGE_VIDEO_PATH)
-        return dataset_dir / template.format(
-            video_key=video_key,
-            chunk_index=chunk_index,
-            file_index=file_index,
-        )
+        return video_path_from_indices(dataset_dir, info, video_key, chunk_index, file_index)
 
     def _source_video_reference(
         self,
@@ -766,30 +773,8 @@ class LeadingStaticTrimService:
                 shutil.copy2(source, target)
 
     def _write_stats(self, output_dir: Path, info: dict[str, Any], rows: list[dict[str, Any]]) -> None:
-        stats: dict[str, Any] = {}
-        for key, feature in dict(info.get("features") or {}).items():
-            if not isinstance(feature, dict) or feature.get("dtype") in {"image", "video", "string"}:
-                continue
-            values = [row[key] for row in rows if key in row and row[key] is not None]
-            if not values:
-                continue
-            array = np.asarray(values, dtype=float)
-            if array.ndim == 1:
-                array = array.reshape(-1, 1)
-            stats[key] = {
-                "min": np.min(array, axis=0).tolist(),
-                "max": np.max(array, axis=0).tolist(),
-                "mean": np.mean(array, axis=0).tolist(),
-                "std": np.std(array, axis=0).tolist(),
-                "count": [int(array.shape[0])],
-                "q01": np.quantile(array, 0.01, axis=0).tolist(),
-                "q10": np.quantile(array, 0.10, axis=0).tolist(),
-                "q50": np.quantile(array, 0.50, axis=0).tolist(),
-                "q90": np.quantile(array, 0.90, axis=0).tolist(),
-                "q99": np.quantile(array, 0.99, axis=0).tolist(),
-            }
         stats_path = output_dir / "meta" / "stats.json"
         stats_path.write_text(
-            json.dumps(stats, indent=4, ensure_ascii=False) + "\n",
+            json.dumps(compute_feature_stats(info, rows), indent=4, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )

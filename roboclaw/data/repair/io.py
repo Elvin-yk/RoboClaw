@@ -10,9 +10,11 @@ import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from roboclaw.data.curation.paths import PACKAGE_VIDEO_PATH, video_path_from_indices
+
 log = logging.getLogger(__name__)
 
-DEFAULT_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+DEFAULT_VIDEO_PATH = PACKAGE_VIDEO_PATH
 
 _PARQUET_ERRORS = (OSError, pa.lib.ArrowException)
 
@@ -135,12 +137,7 @@ def build_video_path_from_indices(
     chunk_index: int,
     file_index: int,
 ) -> Path:
-    template = info.get("video_path") or DEFAULT_VIDEO_PATH
-    return dataset_dir / template.format(
-        video_key=video_key,
-        chunk_index=chunk_index,
-        file_index=file_index,
-    )
+    return video_path_from_indices(dataset_dir, info, video_key, chunk_index, file_index)
 
 
 def is_dataset_dir(path: Path) -> bool:

@@ -12,7 +12,7 @@ from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 from roboclaw.data.repair.diagnosis import diagnose_dataset
 from roboclaw.data.repair.repairers import repair_dataset
-from roboclaw.data.repair.types import IntegrityStatus, RepairStrategy
+from roboclaw.data.repair.types import IntegrityStatus, RepairStatus, RepairStrategy
 
 from .jobs import DataJobCoordinator, DataJobHandle
 from .serialization import json_ready
@@ -301,7 +301,7 @@ class DataCleanService:
         if cancelled_result is not None:
             return cancelled_result
 
-        repair_status = "passed" if result.status == "repaired" else "failed"
+        repair_status = "passed" if result.status == RepairStatus.REPAIRED else "failed"
         result_payload = {
             "damage_kind": result.damage_kind.value if result.damage_kind else None,
             "repair_strategy": (
@@ -318,7 +318,7 @@ class DataCleanService:
             "message": result.error or result_payload["repair_strategy"],
             "details": result_payload,
         })
-        if result.status != "repaired":
+        if result.status != RepairStatus.REPAIRED:
             if output_dir.exists():
                 shutil.rmtree(output_dir)
             return self._fail_auto_clean(

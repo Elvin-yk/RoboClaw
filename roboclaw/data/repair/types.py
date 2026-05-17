@@ -32,6 +32,13 @@ class RepairStrategy(Enum):
     FORMALIZE_DATA_EPISODES = "formalize_data_episodes"
 
 
+class RepairStatus(str, Enum):
+    HEALTHY = "healthy"
+    SKIPPED = "skipped"
+    REPAIRED = "repaired"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class TmpVideo:
     """One stuck mp4 in a top-level ``tmp*/`` dir.
@@ -64,5 +71,5 @@ class RepairResult:
     dataset_dir: Path
     damage_kind: DamageKind | None
     repair_strategy: RepairStrategy | None
-    status: str
+    status: RepairStatus
     error: str | None = None

@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from roboclaw.data.curation.stats import compute_feature_stats
+
 from .diagnosis import verify_repaired_dataset
 from .io import (
     build_video_path,
@@ -17,8 +19,14 @@ from .io import (
     scan_parquet_files,
 )
 from .lerobot_adapter import LeRobotDatasetAdapter
-from .types import DamageKind, DiagnosisResult, IntegrityStatus, RepairResult, RepairStrategy
-from .types import TmpVideo
+from .types import (
+    DiagnosisResult,
+    IntegrityStatus,
+    RepairResult,
+    RepairStatus,
+    RepairStrategy,
+    TmpVideo,
+)
 
 log = logging.getLogger(__name__)
 
@@ -72,26 +80,26 @@ class DatasetRepairService:
         repair_strategy = diagnosis.repair_strategy
 
         if diagnosis.integrity_status == IntegrityStatus.HEALTHY:
-            return RepairResult(dataset_dir, damage_kind, repair_strategy, "healthy")
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, RepairStatus.HEALTHY)
         if diagnosis.integrity_status == IntegrityStatus.EMPTY_SHELL:
             return RepairResult(
                 dataset_dir,
                 damage_kind,
                 repair_strategy,
-                "skipped",
+                RepairStatus.SKIPPED,
                 error="empty shell -- nothing to recover",
             )
         if not diagnosis.repairable:
-            return RepairResult(dataset_dir, damage_kind, repair_strategy, "skipped", error="unrepairable")
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, RepairStatus.SKIPPED, error="unrepairable")
         if dry_run:
-            return RepairResult(dataset_dir, damage_kind, repair_strategy, "skipped", error="dry run")
+            return RepairResult(dataset_dir, damage_kind, repair_strategy, RepairStatus.SKIPPED, error="dry run")
 
         if not prepare_output_dir(output_dir, force=force):
             return RepairResult(
                 dataset_dir,
                 damage_kind,
                 repair_strategy,
-                "skipped",
+                RepairStatus.SKIPPED,
                 error=f"{output_dir} already exists",
             )
 
@@ -104,7 +112,7 @@ class DatasetRepairService:
             vcodec=vcodec,
             output_dir=output_dir,
         )
-        if result.status != "repaired":
+        if result.status != RepairStatus.REPAIRED:
             return result
 
         verify_errors = verify_repaired_dataset(output_dir)
@@ -114,7 +122,7 @@ class DatasetRepairService:
             dataset_dir,
             damage_kind,
             repair_strategy,
-            "failed",
+            RepairStatus.FAILED,
             error="; ".join(verify_errors),
         )
 
@@ -133,13 +141,13 @@ class DatasetRepairService:
                 dataset_dir,
                 diagnosis.damage_kind,
                 diagnosis.repair_strategy,
-                "repaired",
+                RepairStatus.REPAIRED,
             )
         return RepairResult(
             dataset_dir,
             diagnosis.damage_kind,
             diagnosis.repair_strategy,
-            "skipped",
+            RepairStatus.SKIPPED,
             error=f"unsupported repair strategy: {diagnosis.repair_strategy.value}",
         )
 
@@ -477,39 +485,15 @@ class DatasetRepairService:
         return frames
 
     def _write_stats_from_parquet(self, dataset_dir: Path) -> None:
-        import numpy as np
-
         info = load_info(dataset_dir)
         rows: list[dict[str, Any]] = []
         for parquet_path in sorted((dataset_dir / "data").rglob("*.parquet")):
             table = safe_read_parquet_table(parquet_path)
             if table is not None:
                 rows.extend(table.to_pylist())
-        stats: dict[str, Any] = {}
-        for key, feature in info.get("features", {}).items():
-            if feature.get("dtype") in {"image", "video", "string"}:
-                continue
-            values = [row[key] for row in rows if key in row and row[key] is not None]
-            if not values:
-                continue
-            array = np.asarray(values, dtype=float)
-            if array.ndim == 1:
-                array = array.reshape(-1, 1)
-            stats[key] = {
-                "min": np.min(array, axis=0).tolist(),
-                "max": np.max(array, axis=0).tolist(),
-                "mean": np.mean(array, axis=0).tolist(),
-                "std": np.std(array, axis=0).tolist(),
-                "count": [int(array.shape[0])],
-                "q01": np.quantile(array, 0.01, axis=0).tolist(),
-                "q10": np.quantile(array, 0.10, axis=0).tolist(),
-                "q50": np.quantile(array, 0.50, axis=0).tolist(),
-                "q90": np.quantile(array, 0.90, axis=0).tolist(),
-                "q99": np.quantile(array, 0.99, axis=0).tolist(),
-            }
         stats_path = dataset_dir / "meta" / "stats.json"
         self._prepare_write_path(stats_path)
-        stats_path.write_text(json.dumps(stats, indent=4) + "\n", encoding="utf-8")
+        stats_path.write_text(json.dumps(compute_feature_stats(info, rows), indent=4) + "\n", encoding="utf-8")
 
     def _load_tasks(self, dataset_dir: Path) -> dict[int, str]:
         tasks_path = dataset_dir / "meta" / "tasks.parquet"

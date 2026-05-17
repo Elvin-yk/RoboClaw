@@ -292,9 +292,6 @@ export default function DataManagePage() {
     : selectedRawBatchIds.length
       ? ''
       : t('dataManageBatchDisabledNoDataset')
-  const activeAutoCleanJobSignature = activeAutoCleanJobs
-    .map((job) => `${job.job_id}:${job.phase}:${job.processed}:${job.updated_at}:${job.message}`)
-    .join('|')
   const terminalJobSignatures = Object.values(jobs)
     .filter((job) => job.kind === 'auto_clean' && isTerminalDataJobPhase(job.phase))
     .map((job) => `${job.job_id}:${job.phase}:${job.updated_at}`)
@@ -323,11 +320,6 @@ export default function DataManagePage() {
     setReloadedJobSignatures((current) => [...current, terminalJobSignature])
     void load()
   }, [load, reloadedJobSignatures, terminalJobSignature])
-
-  useEffect(() => {
-    if (!activeAutoCleanJobSignature) return
-    void load()
-  }, [activeAutoCleanJobSignature, load])
 
   useEffect(() => {
     if (!drawerDatasetFromQuery || loadedDrawerDatasetFromQuery.current === drawerDatasetFromQuery) return

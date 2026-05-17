@@ -6,14 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
+from roboclaw.data.curation.paths import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 from roboclaw.data.curation.serializers import video_feature_keys
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 
 from .jobs import DataJobCoordinator, DataJobHandle
-
-PACKAGE_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
-PACKAGE_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
 
 
 class DatasetPackageService:
