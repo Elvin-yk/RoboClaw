@@ -141,16 +141,24 @@ export function RobotTrajectory3DPanel({
     <section className="data-analysis-section">
       <div className="data-robot-trajectory3d__header">
         <div className="data-analysis-section-title">机械臂 3D 轨迹</div>
-        <div className="data-robot-trajectory3d__signal" role="group" aria-label="轨迹信号源">
+        <div
+          className={cn(
+            'data-robot-trajectory3d__signal',
+            signal === 'state' && 'is-observation',
+          )}
+          role="radiogroup"
+          aria-label="轨迹信号源"
+        >
           {SIGNAL_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
+              role="radio"
               className={cn(
                 'data-robot-trajectory3d__signal-option',
                 signal === option.value && 'is-active',
               )}
-              aria-pressed={signal === option.value}
+              aria-checked={signal === option.value}
               onClick={() => setSignal(option.value)}
             >
               {option.label}

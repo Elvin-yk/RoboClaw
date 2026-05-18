@@ -91,7 +91,7 @@
 }
 
 .app-sidebar__toggle:hover {
-  background: rgba(47, 111, 228, 0.08);
+  background: #f2f4f7;
   color: var(--tx);
 }
 
@@ -166,7 +166,7 @@
 }
 
 .app-sidebar__child-link:hover {
-  background: rgba(47, 111, 228, 0.05);
+  background: #f2f4f7;
   color: var(--tx);
 }
 
@@ -196,8 +196,9 @@
 }
 
 .app-sidebar__link:hover {
-  background: rgba(47, 111, 228, 0.06);
+  background: #f2f4f7;
   color: var(--tx);
+  box-shadow: none;
 }
 
 .app-sidebar__link--active {
@@ -207,8 +208,9 @@
 }
 
 .app-sidebar__link--active:hover {
-  background: linear-gradient(180deg, #4a85f2, #3a78e8);
-  color: #fff;
+  background: #f2f4f7;
+  color: var(--tx);
+  box-shadow: none;
 }
 
 .app-sidebar__link-icon {

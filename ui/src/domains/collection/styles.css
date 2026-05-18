@@ -183,7 +183,7 @@
 }
 
 .collection-member-picker__option:hover {
-    background: rgba(47, 111, 228, 0.08);
+    background: #f2f4f7;
 }
 
 .collection-member-picker__option span {

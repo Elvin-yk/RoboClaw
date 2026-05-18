@@ -86,6 +86,13 @@ button:not(:disabled):hover {
   filter: brightness(1.015);
 }
 
+[class*="hover:bg-ac"]:hover,
+[class*="hover:bg-[rgba(47,111,228"]:hover {
+  background-color: #f2f4f7 !important;
+  color: #101828 !important;
+  box-shadow: none !important;
+}
+
 button:not(:disabled):active {
   transform: translateY(0) scale(0.975);
   filter: brightness(0.985);

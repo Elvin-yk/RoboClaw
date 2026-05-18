@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dataApi } from '@/domains/data/api/dataApi'
 import { DataDateRangeFilter, isDateInFilter, type DateFilterValue } from '@/domains/data/components/DataDateRangeFilter'
+import { readEpisodeVideos, type EpisodeVideo } from '@/domains/data/lib/episodeMedia'
 import { readReviewQueueReturn, writeReviewQueueReturn } from '@/domains/data/lib/reviewQueueReturn'
 import {
   dataGateLabelKey,
@@ -146,8 +147,6 @@ export default function DataManagePage() {
     deletePackage,
   } = useDataLibraryStore()
   const { jobs, attach, cancel } = useDataJobStore()
-  const [packageId, setPackageId] = useState('')
-  const [groupName, setGroupName] = useState('default')
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const [rawPage, setRawPage] = useState(1)
@@ -164,8 +163,6 @@ export default function DataManagePage() {
   const [packageTaskFilter, setPackageTaskFilter] = useState<string[]>([])
   const [rawAutoCleanFilter, setRawAutoCleanFilter] = useState<AutoCleanStatusFilter>('all')
   const [rawManualReviewFilter, setRawManualReviewFilter] = useState<ManualReviewStatusFilter>('all')
-  const [cleanAutoCleanFilter, setCleanAutoCleanFilter] = useState<AutoCleanStatusFilter>('all')
-  const [cleanManualReviewFilter, setCleanManualReviewFilter] = useState<ManualReviewStatusFilter>('all')
   const [uploadRepoId, setUploadRepoId] = useState('')
   const [uploadToken, setUploadToken] = useState('')
   const [uploadPrivate, setUploadPrivate] = useState(false)
@@ -198,7 +195,7 @@ export default function DataManagePage() {
   }, [attach])
 
   const rawDatasetPool = useMemo(
-    () => datasets.filter((dataset) => !isPackableDataset(dataset)),
+    () => datasets,
     [datasets],
   )
   const cleanDatasetPool = useMemo(
@@ -226,9 +223,9 @@ export default function DataManagePage() {
   )
   const cleanDatasets = useMemo(
     () => cleanDatasetPool.filter((dataset) => (
-      matchesDatasetFilters(dataset, cleanDateFilter, cleanTaskFilter, cleanAutoCleanFilter, cleanManualReviewFilter)
+      matchesPackableDatasetFilters(dataset, cleanDateFilter, cleanTaskFilter)
     )),
-    [cleanAutoCleanFilter, cleanDatasetPool, cleanDateFilter, cleanManualReviewFilter, cleanTaskFilter],
+    [cleanDatasetPool, cleanDateFilter, cleanTaskFilter],
   )
   const visiblePackages = useMemo(
     () => packages.filter((packageItem) => matchesPackageFilters(packageItem, datasetsById, packageDateFilter, packageTaskFilter)),
@@ -242,13 +239,17 @@ export default function DataManagePage() {
     () => rawDatasets.filter((dataset) => selectedDatasetIdSet.has(dataset.id)),
     [rawDatasets, selectedDatasetIdSet],
   )
-  const selectedRawBatchIds = selectedRawDatasets.map((dataset) => dataset.id)
-  const selectedManualReviewDatasets = selectedRawDatasets
-  const manualReviewBlockedCount = useMemo(
-    () => selectedRawDatasets.filter((dataset) => !isManualReviewStartReady(dataset)).length,
+  const selectedRawActionDatasets = useMemo(
+    () => selectedRawDatasets.filter((dataset) => !isPackableDataset(dataset)),
     [selectedRawDatasets],
   )
-  const canStartManualReviewBatch = selectedRawDatasets.length > 0 && manualReviewBlockedCount === 0
+  const selectedRawBatchIds = selectedRawActionDatasets.map((dataset) => dataset.id)
+  const selectedManualReviewDatasets = selectedRawActionDatasets
+  const manualReviewBlockedCount = useMemo(
+    () => selectedRawActionDatasets.filter((dataset) => !isManualReviewStartReady(dataset)).length,
+    [selectedRawActionDatasets],
+  )
+  const canStartManualReviewBatch = selectedRawActionDatasets.length > 0 && manualReviewBlockedCount === 0
   const allFilteredRawSelected = rawFilteredIds.length > 0 && rawFilteredIds.every((id) => selectedDatasetIdSet.has(id))
   const selectedReviewDatasets = useMemo(
     () => selectedDatasetIds.map((id) => datasetsById.get(id)).filter(isDataset),
@@ -260,11 +261,16 @@ export default function DataManagePage() {
     [selectedReviewDatasets],
   )
   const canApplyReviewBatch = selectedReviewDatasets.length > 0 && reviewBatchBlockedCount === 0
-  const manualReviewDisabledReason = manualReviewBatchDisabledReason(selectedRawDatasets.length, manualReviewBlockedCount, t)
+  const manualReviewDisabledReason = manualReviewBatchDisabledReason(selectedRawActionDatasets.length, manualReviewBlockedCount, t)
   const reviewBatchDisabledReason = applyReviewBatchDisabledReason(selectedReviewDatasets.length, reviewBatchBlockedCount, t)
-  const selectedCleanIds = selectedDatasetIds.filter((id) => (
-    cleanDatasets.some((dataset) => dataset.id === id)
-  ))
+  const cleanFilteredIds = useMemo(() => cleanDatasets.map((dataset) => dataset.id), [cleanDatasets])
+  const selectedCleanDatasets = useMemo(
+    () => cleanDatasets.filter((dataset) => selectedDatasetIdSet.has(dataset.id)),
+    [cleanDatasets, selectedDatasetIdSet],
+  )
+  const selectedCleanIds = selectedCleanDatasets.map((dataset) => dataset.id)
+  const canCreatePackage = selectedCleanIds.length > 0
+  const allFilteredCleanSelected = cleanFilteredIds.length > 0 && cleanFilteredIds.every((id) => selectedDatasetIdSet.has(id))
   const rawPageItems = paginate(rawDatasets, rawPage, pageSize)
   const cleanPageItems = paginate(cleanDatasets, cleanPage, pageSize)
   const packagePageItems = paginate(visiblePackages, packagePage, pageSize)
@@ -329,16 +335,14 @@ export default function DataManagePage() {
   }, [datasets, drawerDatasetFromQuery])
 
   async function createPackage() {
-    const nextPackageId = packageId.trim()
-    if (!nextPackageId || selectedCleanIds.length === 0) return
-    const groupKey = groupName.trim() || 'default'
+    if (!canCreatePackage) return
+    const nextPackageId = mergedPackageId(selectedCleanDatasets)
     await dataApi.createPackage({
       package_id: nextPackageId,
       dataset_ids: selectedCleanIds,
-      groups: { [groupKey]: selectedCleanIds },
+      groups: { default: selectedCleanIds },
       force: false,
     })
-    setPackageId('')
     clearSelection()
     await load()
   }
@@ -401,6 +405,10 @@ export default function DataManagePage() {
 
   function toggleRawFilteredSelection() {
     setDatasetSelection(rawFilteredIds, !allFilteredRawSelected)
+  }
+
+  function toggleCleanFilteredSelection() {
+    setDatasetSelection(cleanFilteredIds, !allFilteredCleanSelected)
   }
 
   async function removeDataset(dataset: Dataset) {
@@ -511,7 +519,6 @@ export default function DataManagePage() {
           sectionKey="raw"
           title={t('dataManageRawColumn')}
           count={rawDatasetPool.length}
-          visibleCount={rawDatasets.length}
           showCount={false}
           open={sectionOpen.raw}
           onToggle={toggleSection}
@@ -635,9 +642,18 @@ export default function DataManagePage() {
           sectionKey="clean"
           title={t('dataManageCleanColumn')}
           count={cleanDatasetPool.length}
-          visibleCount={cleanDatasets.length}
           open={sectionOpen.clean}
           onToggle={toggleSection}
+          actions={(
+            <ActionButtonWithReason
+              className={cn('data-manage-create-package-button', canCreatePackage && 'is-armed')}
+              disabled={!canCreatePackage}
+              disabledReason={t('dataManageCreatePackageDisabled')}
+              onClick={() => void createPackage()}
+            >
+              {t('dataManageCreatePackage')}
+            </ActionButtonWithReason>
+          )}
           filtersOpen={filterOpen.clean}
           onToggleFilters={toggleFilters}
           filters={(
@@ -661,32 +677,6 @@ export default function DataManagePage() {
                   }}
                 />
               </FilterField>
-              <StatusFilterGroup>
-                <FilterField label={t('dataManageAutoCleanStatus')}>
-                  <QualityStatusFacetFilter
-                    label={t('dataManageAutoCleanStatus')}
-                    statuses={AUTO_CLEAN_STATUSES}
-                    labelFor={autoCleanStatusLabel}
-                    value={cleanAutoCleanFilter}
-                    onChange={(value) => {
-                      setCleanAutoCleanFilter(value)
-                      setCleanPage(1)
-                    }}
-                  />
-                </FilterField>
-                <FilterField label={t('dataManageManualReviewStatus')}>
-                  <QualityStatusFacetFilter
-                    label={t('dataManageManualReviewStatus')}
-                    statuses={MANUAL_REVIEW_STATUSES}
-                    labelFor={manualReviewStatusLabel}
-                    value={cleanManualReviewFilter}
-                    onChange={(value) => {
-                      setCleanManualReviewFilter(value)
-                      setCleanPage(1)
-                    }}
-                  />
-                </FilterField>
-              </StatusFilterGroup>
             </SectionFilters>
           )}
           pager={(
@@ -696,24 +686,27 @@ export default function DataManagePage() {
               total={cleanDatasets.length}
               onPageChange={setCleanPage}
               onPageSizeChange={changePageSize}
+              leading={(
+                <div className="data-manage-pager-actions">
+                  <span>{t('dataManageSelectedFilterStatus', { selected: selectedCleanIds.length, total: cleanDatasets.length })}</span>
+                  <button
+                    type="button"
+                    className="data-manage-ghost-button"
+                    onClick={toggleCleanFilteredSelection}
+                    disabled={cleanFilteredIds.length === 0}
+                  >
+                    {allFilteredCleanSelected ? t('dataManageClearFilteredSelection') : t('dataManageSelectAllFiltered')}
+                  </button>
+                </div>
+              )}
             />
           )}
         >
-          <div className="data-manage-package-form">
-            <input value={packageId} onChange={(event) => setPackageId(event.target.value)} placeholder={t('dataManagePackageIdPlaceholder')} />
-            <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder={t('dataManageGroupPlaceholder')} />
-            <button
-              type="button"
-              onClick={() => void createPackage()}
-              disabled={!packageId.trim() || selectedCleanIds.length === 0}
-            >
-              {t('dataManageCreatePackage')}
-            </button>
-          </div>
           {cleanPageItems.map((dataset) => (
             <DatasetRow
               key={dataset.id}
               dataset={dataset}
+              variant="packable"
               active={drawerTarget?.type === 'dataset' && drawerTarget.id === dataset.id}
               selected={selectedDatasetIdSet.has(dataset.id)}
               selectable
@@ -728,7 +721,6 @@ export default function DataManagePage() {
           sectionKey="packages"
           title={t('dataManagePackageColumn')}
           count={packages.length}
-          visibleCount={visiblePackages.length}
           open={sectionOpen.packages}
           onToggle={toggleSection}
           filtersOpen={filterOpen.packages}
@@ -901,7 +893,6 @@ function ManageSection({
   sectionKey,
   title,
   count,
-  visibleCount,
   showCount = true,
   open,
   onToggle,
@@ -915,7 +906,6 @@ function ManageSection({
   sectionKey: ManageSectionKey
   title: string
   count: number
-  visibleCount?: number
   showCount?: boolean
   open: boolean
   onToggle: (section: ManageSectionKey) => void
@@ -943,9 +933,6 @@ function ManageSection({
             <span className="data-manage-section__chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
             <h2>{title}</h2>
             {showCount && <span className="data-manage-section__count">{t('dataManageTotalCount', { count })}</span>}
-            {showCount && visibleCount !== undefined && visibleCount !== count && (
-              <span className="data-manage-section__filtered-count">{t('dataManageFilteredCount', { count: visibleCount })}</span>
-            )}
           </button>
           {open && (
             <button
@@ -1187,6 +1174,7 @@ function QualityStatusFacetFilter<T extends QualityStatus>({
 
 function DatasetRow({
   dataset,
+  variant = 'raw',
   active,
   selected,
   selectable,
@@ -1194,6 +1182,7 @@ function DatasetRow({
   onToggle,
 }: {
   dataset: Dataset
+  variant?: 'raw' | 'packable'
   active: boolean
   selected: boolean
   selectable: boolean
@@ -1204,8 +1193,10 @@ function DatasetRow({
   const quality = buildDatasetQualityView(dataset)
   const autoCleanStatus = quality.autoCleanStatus
   const manualReviewStatus = quality.manualReviewStatus
+  const cameraFeatures = datasetCameraFeatures(dataset)
+  const taskDescription = datasetTaskDescription(dataset)
   return (
-    <article className={cn('data-manage-card data-manage-dataset-row', active && 'is-active')}>
+    <article className={cn('data-manage-card data-manage-dataset-row', variant === 'packable' && 'data-manage-dataset-row--packable', active && 'is-active')}>
       {selectable && onToggle && (
         <label className="data-manage-row-checkbox" title={selected ? t('dataManageUnselectDataset') : t('dataManageSelectDataset')} onClick={(event) => event.stopPropagation()}>
           <input
@@ -1218,19 +1209,87 @@ function DatasetRow({
       <button type="button" className="data-manage-card__main" onClick={onSelect}>
         <div className="data-manage-card__topline">
           <span className="data-manage-card__name">{dataset.label}</span>
+          {variant === 'packable' && (
+            <span className="data-manage-packable-episodes">{t('dataManageEpisodesShort', { count: dataset.stats.total_episodes })}</span>
+          )}
         </div>
+        {variant === 'packable' && (
+          <>
+            <div className="data-manage-packable-summary">
+              <span className="data-manage-packable-summary__task" title={taskDescription || undefined}>
+                {taskDescription || t('dataManageNoTaskDescription')}
+              </span>
+            </div>
+            <DatasetCameraPreviewStrip dataset={dataset} cameraFeatures={cameraFeatures} />
+          </>
+        )}
       </button>
-      <div className="data-manage-card__quality">
-        <div className="data-manage-quality-pill">
-          <span>{t('dataManageAutoCleanStatus')}</span>
-          <strong className={cn(`is-${autoCleanStatus}`)}>{autoCleanStatusLabel(autoCleanStatus, t)}</strong>
+      {variant !== 'packable' && (
+        <div className="data-manage-card__quality">
+          <div className="data-manage-quality-pill">
+            <span>{t('dataManageAutoCleanStatus')}</span>
+            <strong className={cn(`is-${autoCleanStatus}`)}>{autoCleanStatusLabel(autoCleanStatus, t)}</strong>
+          </div>
+          <div className="data-manage-quality-pill">
+            <span>{t('dataManageManualReviewStatus')}</span>
+            <strong className={cn(`is-${manualReviewStatus}`)}>{manualReviewStatusLabel(manualReviewStatus, t)}</strong>
+          </div>
         </div>
-        <div className="data-manage-quality-pill">
-          <span>{t('dataManageManualReviewStatus')}</span>
-          <strong className={cn(`is-${manualReviewStatus}`)}>{manualReviewStatusLabel(manualReviewStatus, t)}</strong>
-        </div>
-      </div>
+      )}
     </article>
+  )
+}
+
+function DatasetCameraPreviewStrip({ dataset, cameraFeatures }: { dataset: Dataset; cameraFeatures: string[] }) {
+  const { t } = useI18n()
+  const [videos, setVideos] = useState<EpisodeVideo[]>([])
+  useEffect(() => {
+    let cancelled = false
+    setVideos([])
+    if (!cameraFeatures.length || dataset.stats.total_episodes <= 0) return undefined
+    void (async () => {
+      const episode = await dataApi.inspectEpisode({
+        source: 'local',
+        dataset: dataset.id,
+        episode_index: 0,
+        preview: true,
+      })
+      if (!cancelled) {
+        setVideos(readEpisodeVideos(episode).slice(0, 3))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [cameraFeatures.length, dataset.id, dataset.stats.total_episodes])
+
+  if (videos.length) {
+    return (
+      <div className="data-manage-camera-preview-strip" aria-label={t('dataManageCameraStreams')}>
+        {videos.map((video) => (
+          <span key={video.path} className="data-manage-camera-preview">
+            <video src={video.url} muted playsInline preload="metadata" />
+            <em>{cameraFeatureLabel(video.stream)}</em>
+          </span>
+        ))}
+        {cameraFeatures.length > videos.length && (
+          <span className="data-manage-camera-preview-more">+{cameraFeatures.length - videos.length}</span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="data-manage-camera-strip" aria-label={t('dataManageCameraStreams')}>
+      {cameraFeatures.length ? cameraFeatures.slice(0, 3).map((feature) => (
+        <span key={feature} className="data-manage-camera-chip">{cameraFeatureLabel(feature)}</span>
+      )) : (
+        <span className="data-manage-camera-chip is-empty">{t('dataManageNoCameraStreams')}</span>
+      )}
+      {cameraFeatures.length > 3 && (
+        <span className="data-manage-camera-chip">+{cameraFeatures.length - 3}</span>
+      )}
+    </div>
   )
 }
 
@@ -1833,6 +1892,18 @@ function matchesDatasetFilters(
   )
 }
 
+function matchesPackableDatasetFilters(
+  dataset: Dataset,
+  dateFilter: DateFilterValue,
+  taskFilter: string[],
+): boolean {
+  const quality = buildDatasetQualityView(dataset)
+  return (
+    isDateInFilter(quality.createdDate, dateFilter)
+    && matchesTaskFilter(quality.taskDescription, taskFilter)
+  )
+}
+
 function matchesPackageFilters(
   packageItem: DatasetPackage,
   datasetsById: Map<string, Dataset>,
@@ -1895,16 +1966,51 @@ function isDataset(value: Dataset | undefined): value is Dataset {
   return Boolean(value)
 }
 
+function datasetCameraFeatures(dataset: Dataset): string[] {
+  return dataset.stats.features.filter((feature) => feature.startsWith('observation.images.'))
+}
+
+function cameraFeatureLabel(feature: string): string {
+  return feature.replace(/^observation\.images\./, '')
+}
+
+function mergedPackageId(datasets: Dataset[]): string {
+  const base = sanitizePackageId(datasets[0]?.name || 'dataset')
+  return `pkg_${base}_${compactTimestamp(new Date())}`
+}
+
+function sanitizePackageId(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '') || 'dataset'
+}
+
+function compactTimestamp(date: Date): string {
+  return [
+    date.getFullYear(),
+    padNumber(date.getMonth() + 1),
+    padNumber(date.getDate()),
+    padNumber(date.getHours()),
+    padNumber(date.getMinutes()),
+    padNumber(date.getSeconds()),
+    padNumber(date.getMilliseconds(), 3),
+  ].join('')
+}
+
+function padNumber(value: number, length = 2): string {
+  return String(value).padStart(length, '0')
+}
+
 function isPackableDataset(dataset: Dataset): boolean {
   const quality = buildDatasetQualityView(dataset)
-  return dataset.lifecycle_stage === 'clean'
-    && isAutoCleanPassedStatus(quality.autoCleanStatus)
+  return isAutoCleanPassedStatus(quality.autoCleanStatus)
     && quality.manualReviewStatus === 'passed'
 }
 
 function isReviewBatchReady(dataset: Dataset): boolean {
   const quality = buildDatasetQualityView(dataset)
-  return dataset.lifecycle_stage !== 'clean'
+  return !isPackableDataset(dataset)
     && isAutoCleanPassedStatus(quality.autoCleanStatus)
     && isManualReviewBatchApplicableStatus(quality.manualReviewStatus)
 }
