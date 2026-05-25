@@ -33,6 +33,8 @@ const LOOP_EPSILON = 0.05
 const PLAYBACK_TIME_EPSILON = 0.001
 const EMPTY_VIDEOS: EpisodeVideo[] = []
 const EMPTY_TRAJECTORY: TrajectoryPayload = { timeValues: [], items: [], totalPoints: 0 }
+const PLAYBACK_RATES = [4, 2, 1.5, 1, 0.5] as const
+const RATE_MENU_CLOSE_DELAY_MS = 350
 
 export function EpisodePlaybackPanel({
   episode,
@@ -101,6 +103,7 @@ export function EpisodePlaybackPanel({
   )
   const [playbackTime, setPlaybackTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const [playbackError, setPlaybackError] = useState('')
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([])
   const syncLockRef = useRef(false)
@@ -148,6 +151,9 @@ export function EpisodePlaybackPanel({
 
   useEffect(() => {
     const videosReady = videoRefs.current.filter((video): video is HTMLVideoElement => Boolean(video))
+    videosReady.forEach((video) => {
+      video.playbackRate = playbackRate
+    })
     if (!videosReady.length) return
 
     if (!isPlaying) {
@@ -166,7 +172,7 @@ export function EpisodePlaybackPanel({
         })
       }
     })
-  }, [isPlaying, syncVideosTo, visibleVideos])
+  }, [isPlaying, playbackRate, syncVideosTo, visibleVideos])
 
   useEffect(() => {
     if (!isPlaying || duration <= 0) return undefined
@@ -186,7 +192,7 @@ export function EpisodePlaybackPanel({
     }
     // No videos: advance from a wall clock so trajectory-only playback still runs.
     const tickFromClock = (now: number) => {
-      const nextTime = startTime + (now - startedAt) / 1000
+      const nextTime = startTime + ((now - startedAt) / 1000) * playbackRate
       if (nextTime >= duration - LOOP_EPSILON) {
         seekTo(0)
         setIsPlaying(false)
@@ -197,7 +203,7 @@ export function EpisodePlaybackPanel({
     }
     animationFrame = window.requestAnimationFrame(hasVideos ? tickFromVideo : tickFromClock)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [advancePlaybackTime, duration, isPlaying, seekTo, visibleVideos])
+  }, [advancePlaybackTime, duration, isPlaying, playbackRate, seekTo, visibleVideos])
 
   const handleLeaderTimeUpdate = (index: number) => {
     if (syncLockRef.current || index !== 0) return
@@ -297,7 +303,10 @@ export function EpisodePlaybackPanel({
                     playsInline
                     preload="metadata"
                     onClick={() => setIsPlaying((current) => !current)}
-                    onLoadedMetadata={() => syncVideosTo(playbackTimeRef.current, true)}
+                    onLoadedMetadata={(event) => {
+                      event.currentTarget.playbackRate = playbackRate
+                      syncVideosTo(playbackTimeRef.current, true)
+                    }}
                     onTimeUpdate={() => handleLeaderTimeUpdate(index)}
                   />
                   <figcaption>{video.stream || video.path}</figcaption>
@@ -323,7 +332,9 @@ export function EpisodePlaybackPanel({
         currentTime={playbackTime}
         duration={duration}
         isPlaying={isPlaying}
+        playbackRate={playbackRate}
         onPlayToggle={() => setIsPlaying((current) => !current)}
+        onPlaybackRateChange={setPlaybackRate}
         onSeek={seekTo}
         onDragStart={() => {
           dragWasPlayingRef.current = isPlaying
@@ -420,7 +431,9 @@ function PlaybackTimeline({
   currentTime,
   duration,
   isPlaying,
+  playbackRate,
   onPlayToggle,
+  onPlaybackRateChange,
   onSeek,
   onDragStart,
   onDragEnd,
@@ -428,14 +441,48 @@ function PlaybackTimeline({
   currentTime: number
   duration: number
   isPlaying: boolean
+  playbackRate: number
   onPlayToggle: () => void
+  onPlaybackRateChange: (rate: number) => void
   onSeek: (seconds: number) => void
   onDragStart: () => void
   onDragEnd: () => void
 }) {
   const disabled = duration <= 0
+  const [rateMenuOpen, setRateMenuOpen] = useState(false)
+  const rateMenuCloseTimerRef = useRef<number | null>(null)
   const progress = duration > 0 ? clamp((currentTime / duration) * 100, 0, 100) : 0
   const rangeStyle = { '--timeline-progress': `${progress}%` } as CSSProperties
+
+  useEffect(() => () => {
+    if (rateMenuCloseTimerRef.current != null) {
+      window.clearTimeout(rateMenuCloseTimerRef.current)
+    }
+  }, [])
+
+  function clearRateMenuCloseTimer() {
+    if (rateMenuCloseTimerRef.current == null) return
+    window.clearTimeout(rateMenuCloseTimerRef.current)
+    rateMenuCloseTimerRef.current = null
+  }
+
+  function openRateMenu() {
+    if (disabled) return
+    clearRateMenuCloseTimer()
+    setRateMenuOpen(true)
+  }
+
+  function closeRateMenu(delayMs = 0) {
+    clearRateMenuCloseTimer()
+    if (delayMs <= 0) {
+      setRateMenuOpen(false)
+      return
+    }
+    rateMenuCloseTimerRef.current = window.setTimeout(() => {
+      setRateMenuOpen(false)
+      rateMenuCloseTimerRef.current = null
+    }, delayMs)
+  }
 
   return (
     <div className="data-analysis-timeline">
@@ -492,11 +539,72 @@ function PlaybackTimeline({
         onChange={(event) => onSeek(Number(event.target.value))}
         aria-label="Episode playback timeline"
       />
+      <div
+        className={cn(
+          'data-analysis-timeline__rate',
+          disabled && 'is-disabled',
+          rateMenuOpen && 'is-open',
+        )}
+        onMouseEnter={openRateMenu}
+        onMouseLeave={() => closeRateMenu(RATE_MENU_CLOSE_DELAY_MS)}
+        onFocus={openRateMenu}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            closeRateMenu()
+          }
+        }}
+      >
+        <button
+          type="button"
+          className="data-analysis-timeline__rate-trigger"
+          disabled={disabled}
+          aria-haspopup="menu"
+          aria-expanded={rateMenuOpen}
+          aria-label={`播放倍速，当前 ${formatPlaybackRate(playbackRate)}`}
+          onClick={openRateMenu}
+        >
+          倍速
+        </button>
+        <div className="data-analysis-timeline__rate-menu" role="menu" aria-label="播放倍速">
+          {PLAYBACK_RATES.map((rate) => (
+            <button
+              key={rate}
+              type="button"
+              className={cn(
+                'data-analysis-timeline__rate-option',
+                playbackRate === rate && 'is-active',
+              )}
+              role="menuitemradio"
+              aria-checked={playbackRate === rate}
+              onClick={() => {
+                onPlaybackRateChange(rate)
+                closeRateMenu()
+              }}
+            >
+              {formatPlaybackRate(rate)}
+            </button>
+          ))}
+        </div>
+      </div>
       <span className="data-analysis-timeline__time">
-        {Math.floor(currentTime)}s / {Math.floor(duration)}s
+        {formatTimelineTime(currentTime)} / {formatTimelineTime(duration)}
       </span>
     </div>
   )
+}
+
+function formatPlaybackRate(rate: number): string {
+  return `${rate.toFixed(1)}x`
+}
+
+function formatTimelineTime(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '00:00'
+  const rounded = Math.floor(value)
+  const hours = Math.floor(rounded / 3600)
+  const minutes = Math.floor((rounded % 3600) / 60)
+  const seconds = rounded % 60
+  const parts = hours > 0 ? [hours, minutes, seconds] : [minutes, seconds]
+  return parts.map((part) => String(part).padStart(2, '0')).join(':')
 }
 
 function SkipBackIcon() {

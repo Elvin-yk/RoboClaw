@@ -8,6 +8,7 @@ from typing import Any
 from roboclaw.data.curation.bridge import read_parquet_rows, write_parquet_rows
 from roboclaw.data.curation.paths import PACKAGE_DATA_PATH, PACKAGE_VIDEO_PATH
 from roboclaw.data.curation.serializers import video_feature_keys
+from roboclaw.data.domain.models import Dataset
 from roboclaw.data.infrastructure.filesystem import DataRepository
 from roboclaw.data.infrastructure.state_store import utc_now_iso
 
@@ -61,8 +62,8 @@ class DatasetPackageService:
             raise FileExistsError(f"DatasetPackage '{package_id}' already exists")
         datasets = [self.repository.read_dataset(dataset_id) for dataset_id in dataset_ids]
         for dataset in datasets:
-            if dataset.stage != "clean":
-                raise ValueError(f"Dataset '{dataset.id}' must be clean before packaging")
+            if not dataset_is_packable(dataset):
+                raise ValueError(f"Dataset '{dataset.id}' must pass auto clean and manual review before packaging")
         dataset_paths = [self.repository.dataset_materialized_path(dataset_id) for dataset_id in dataset_ids]
 
         package_path.mkdir(parents=True)
@@ -530,3 +531,18 @@ class DatasetPackageService:
 
     def _safe_slug(self, value: str) -> str:
         return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value).strip("_") or "dataset"
+
+
+def dataset_is_packable(dataset: Dataset) -> bool:
+    clean_gate = dataset.gates.get("clean")
+    return clean_gate is not None and clean_gate.status == "passed" and manual_review_passed(dataset)
+
+
+def manual_review_passed(dataset: Dataset) -> bool:
+    review = dataset.qc.get("review")
+    if isinstance(review, dict):
+        review_status = str(review.get("status") or "").lower()
+        if review_status in {"applied", "passed"}:
+            return True
+    review_gate = dataset.gates.get("review")
+    return review_gate is not None and review_gate.status == "passed"

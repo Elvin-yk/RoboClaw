@@ -13,6 +13,8 @@ const ARM_COLORS: Record<RobotArmSide, string> = {
 }
 const DEFAULT_CAMERA_POSITION = [-1.05, 0, 0.44] as const
 const DEFAULT_CAMERA_TARGET = [0, 0, -0.08] as const
+const FLOOR_SIZE = 1.8
+const FLOOR_DIVISIONS = 18
 
 interface ArmInstance {
   robot: URDFRobot
@@ -182,24 +184,39 @@ function buildLights(): THREE.Group {
   return group
 }
 
-function buildFloor(): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(1.5, 1.5)
-  const material = new THREE.MeshStandardMaterial({ color: 0xe6ebf2, roughness: 0.92 })
+function buildFloor(): THREE.Group {
+  const group = new THREE.Group()
+  const geometry = new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE)
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x70757a,
+    roughness: 0.94,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  })
   const mesh = new THREE.Mesh(geometry, material)
-  mesh.position.z = -0.001
-  return mesh
+  mesh.position.z = -0.006
+
+  const grid = new THREE.GridHelper(FLOOR_SIZE, FLOOR_DIVISIONS, 0x252a30, 0x444a50)
+  grid.rotation.x = Math.PI / 2
+  grid.position.z = 0.001
+
+  group.add(mesh, grid)
+  return group
 }
 
 function disposeObject(object: THREE.Object3D): void {
   object.traverse((child) => {
-    const mesh = child as THREE.Mesh
-    if (!mesh.isMesh) return
-    mesh.geometry?.dispose()
-    const material = mesh.material
+    const resource = child as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry
+      material?: THREE.Material | THREE.Material[]
+    }
+    resource.geometry?.dispose()
+    const material = resource.material
+    if (!material) return
     if (Array.isArray(material)) {
       material.forEach((item) => item.dispose())
       return
     }
-    material?.dispose()
+    material.dispose()
   })
 }

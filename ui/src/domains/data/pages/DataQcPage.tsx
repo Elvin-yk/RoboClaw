@@ -391,12 +391,6 @@ export default function DataQcPage() {
                   onFail={() => void saveReviewDecision('failed')}
                   t={t}
                 />
-                <ReviewLedger
-                  workspace={reviewWorkspace}
-                  episodeIndex={episodeIndex}
-                  onEpisodeSelect={(nextEpisodeIndex) => void loadSelectedEpisode(nextEpisodeIndex)}
-                  t={t}
-                />
               </section>
 
               <ReviewInspectionWorkspace
@@ -511,53 +505,6 @@ function ReviewStatusCards({
       <div className="data-qc-review-status-card">
         <span>{t('dataQcCurrentAssignee')}</span>
         <strong>{reviewerLabel || t('dataQcUnassigned')}</strong>
-      </div>
-    </div>
-  )
-}
-
-function ReviewLedger({
-  workspace,
-  episodeIndex,
-  onEpisodeSelect,
-  t,
-}: {
-  workspace: DataReviewWorkspace
-  episodeIndex: number
-  onEpisodeSelect: (episodeIndex: number) => void
-  t: (key: TranslationKey, params?: Record<string, string | number>) => string
-}) {
-  const reviewedCount = workspace.episode_indices.filter((index) => workspace.review.episodes[String(index)]).length
-  const total = workspace.episode_indices.length
-  const progress = total ? Math.round((reviewedCount / total) * 100) : 0
-  return (
-    <div className="data-qc-review-ledger">
-      <div className="data-qc-review-ledger__head">
-        <span>{t('dataReviewReviewedCount', { reviewed: reviewedCount, total })}</span>
-        <span>{t('dataQcRemaining')}: {Math.max(total - reviewedCount, 0)}</span>
-      </div>
-      <div className="data-review-progress-panel__bar" aria-hidden="true">
-        <i style={{ width: `${progress}%` }} />
-      </div>
-      <div className="data-review-sequence" aria-label={t('dataReviewEpisodeSequence')}>
-        {workspace.episode_indices.map((index) => {
-          const decision = workspace.review.episodes[String(index)]?.decision
-          return (
-            <button
-              key={index}
-              type="button"
-              className={cn(
-                'data-review-sequence__item',
-                episodeIndex === index && 'is-active',
-                decision && `is-${decision}`,
-              )}
-              onClick={() => onEpisodeSelect(index)}
-            >
-              {index + 1}
-            </button>
-          )
-        })}
-        {!workspace.episode_indices.length && <span className="data-review-sequence__empty">{t('dataReviewNoEpisodes')}</span>}
       </div>
     </div>
   )

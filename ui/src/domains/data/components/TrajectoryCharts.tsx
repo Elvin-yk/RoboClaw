@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { clamp, formatSeconds, relativeTimeValues } from '@/domains/data/lib/analysisPayload'
 
 export interface TrajectoryItem {
@@ -37,6 +37,13 @@ const SERIES_COLORS = [
   '#6366f1',
   '#84cc16',
 ]
+const CHART_X_MIN = 7
+const CHART_X_MAX = 98
+const CHART_Y_MIN = 3
+const CHART_Y_MAX = 90
+const CHART_X_RANGE = CHART_X_MAX - CHART_X_MIN
+const CHART_Y_RANGE = CHART_Y_MAX - CHART_Y_MIN
+const Y_AXIS_TICK_COUNT = 5
 
 export function TrajectoryCharts({
   trajectory,
@@ -110,18 +117,31 @@ function TrajectoryGroupChart({
   onSeek: (seconds: number) => void
   onToggleSeries: (seriesId: string) => void
 }) {
+  const plotRef = useRef<HTMLButtonElement | null>(null)
+  const [plotWidth, setPlotWidth] = useState(0)
   const visibleSeries = series.filter((item) => !hiddenSeries.has(item.id))
   const chartSeries = visibleSeries.length ? visibleSeries : series
   const [yMin, yMax] = yBounds(chartSeries)
   const tickValues = yTicks(yMin, yMax)
-  const timeTicks = xTickValues(duration, 7)
+  const timeTicks = xTickValues(duration, xTickCount(plotWidth))
   const xGridLines = xAxisPositions(timeTicks.length)
   const currentIndex = closestIndex(relativeTimes, currentTime)
   const title = series.map((item) => item.label).join(', ')
 
+  useEffect(() => {
+    const node = plotRef.current
+    if (!node) return undefined
+    const observer = new ResizeObserver(([entry]) => {
+      setPlotWidth(entry.contentRect.width)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <section className="data-analysis-group-chart data-analysis-group-chart--combined">
       <button
+        ref={plotRef}
         type="button"
         className="data-analysis-group-chart__plot"
         onClick={(event) => {
@@ -133,8 +153,12 @@ function TrajectoryGroupChart({
       >
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <g className="data-analysis-group-chart__grid">
-            {[10, 28, 46, 64, 82].map((y) => <line key={`y-${y}`} x1="6" y1={y} x2="98" y2={y} />)}
-            {xGridLines.map((x) => <line key={`x-${x}`} x1={x} y1="10" x2={x} y2="82" />)}
+            {yAxisPositions().map((y) => (
+              <line key={`y-${y}`} x1={CHART_X_MIN} y1={y} x2={CHART_X_MAX} y2={y} />
+            ))}
+            {xGridLines.map((x) => (
+              <line key={`x-${x}`} x1={x} y1={CHART_Y_MIN} x2={x} y2={CHART_Y_MAX} />
+            ))}
           </g>
           {chartSeries.map((item) => (
             <g key={item.id}>
@@ -156,10 +180,10 @@ function TrajectoryGroupChart({
             </g>
           ))}
           <line
-            x1={6 + (cursorPercent / 100) * 92}
-            y1="10"
-            x2={6 + (cursorPercent / 100) * 92}
-            y2="82"
+            x1={CHART_X_MIN + (cursorPercent / 100) * CHART_X_RANGE}
+            y1={CHART_Y_MIN}
+            x2={CHART_X_MIN + (cursorPercent / 100) * CHART_X_RANGE}
+            y2={CHART_Y_MAX}
             className="data-analysis-group-chart__cursor"
             vectorEffect="non-scaling-stroke"
           />
@@ -214,13 +238,16 @@ function yBounds(series: TrajectorySeries[]): [number, number] {
   if (!values.length) return [-1, 1]
   const minValue = Math.min(...values)
   const maxValue = Math.max(...values)
-  const padding = Math.max((maxValue - minValue) * 0.1, 0.01)
+  const range = maxValue - minValue
+  const padding = range > 0 ? Math.max(range * 0.02, 0.01) : Math.max(Math.abs(maxValue) * 0.02, 0.01)
   return [minValue - padding, maxValue + padding]
 }
 
 function yTicks(minValue: number, maxValue: number): number[] {
   const span = maxValue - minValue || 1
-  return Array.from({ length: 5 }, (_, index) => maxValue - span * (index / 4))
+  return Array.from({ length: Y_AXIS_TICK_COUNT }, (_, index) => (
+    maxValue - span * (index / (Y_AXIS_TICK_COUNT - 1))
+  ))
 }
 
 function xTickValues(duration: number, count: number): number[] {
@@ -229,8 +256,22 @@ function xTickValues(duration: number, count: number): number[] {
 }
 
 function xAxisPositions(count: number): number[] {
-  if (count <= 1) return [6]
-  return Array.from({ length: count }, (_, index) => 6 + 92 * (index / (count - 1)))
+  if (count <= 1) return [CHART_X_MIN]
+  return Array.from({ length: count }, (_, index) => (
+    CHART_X_MIN + CHART_X_RANGE * (index / (count - 1))
+  ))
+}
+
+function yAxisPositions(): number[] {
+  return Array.from({ length: Y_AXIS_TICK_COUNT }, (_, index) => (
+    CHART_Y_MIN + CHART_Y_RANGE * (index / (Y_AXIS_TICK_COUNT - 1))
+  ))
+}
+
+function xTickCount(width: number): number {
+  if (width > 0 && width < 520) return 3
+  if (width > 0 && width < 760) return 5
+  return 7
 }
 
 function buildPolyline(
@@ -246,9 +287,11 @@ function buildPolyline(
     .map((value, index) => {
       if (value == null || !Number.isFinite(value)) return ''
       const xSource = relativeTimes[index] ?? (duration * index) / lastIndex
-      const x = duration > 0 ? 6 + (xSource / duration) * 92 : 6 + (index / lastIndex) * 92
-      const y = 10 + ((yMax - value) / yRange) * 72
-      return `${clamp(x, 6, 98).toFixed(2)},${clamp(y, 10, 82).toFixed(2)}`
+      const x = duration > 0
+        ? CHART_X_MIN + (xSource / duration) * CHART_X_RANGE
+        : CHART_X_MIN + (index / lastIndex) * CHART_X_RANGE
+      const y = CHART_Y_MIN + ((yMax - value) / yRange) * CHART_Y_RANGE
+      return `${clamp(x, CHART_X_MIN, CHART_X_MAX).toFixed(2)},${clamp(y, CHART_Y_MIN, CHART_Y_MAX).toFixed(2)}`
     })
     .filter(Boolean)
     .join(' ')
