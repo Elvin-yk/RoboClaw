@@ -29,7 +29,7 @@ export default function AppHeader({ onOpenSystemActions }: AppHeaderProps) {
     const restarting = useDeviceRecoveryStore((state) => state.restarting)
     const restartDashboard = useDeviceRecoveryStore((state) => state.restartDashboard)
     const { t, locale, setLocale } = useI18n()
-    const { user, isLoggedIn, isChecking } = useAuthStore()
+    const { user, isLoggedIn, isGuest, isChecking } = useAuthStore()
     const [systemPopoverOpen, setSystemPopoverOpen] = useState(false)
     const role = currentMembershipRole(user)
     const hasPendingInvites = user?.memberships.some((membership) => membership.status === 'invited') ?? false
@@ -99,7 +99,7 @@ export default function AppHeader({ onOpenSystemActions }: AppHeaderProps) {
             </div>
             <div className="app-topbar__actions">
                 {!isChecking && (
-                    isLoggedIn && user ? (
+                    isLoggedIn && user && !isGuest ? (
                         <button
                             type="button"
                             className="header-user-badge"

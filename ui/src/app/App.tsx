@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppShell from '@/app/shell/AppShell'
 import ControlPage from '@/domains/control/pages/ControlPage'
 import TaskPublishPage from '@/domains/collection/pages/TaskPublishPage'
@@ -19,23 +19,6 @@ import LogsPage from '@/domains/logs/pages/LogsPage'
 import LoginPage from '@/domains/auth/pages/LoginPage'
 import { useAuthStore } from '@/shared/lib/authStore'
 
-function RequireLogin() {
-    const isChecking = useAuthStore((state) => state.isChecking)
-    const isLoggedIn = useAuthStore((state) => state.isLoggedIn)
-
-    if (isChecking) {
-        return (
-            <div className="collection-page">
-                <div className="collection-empty">Checking account...</div>
-            </div>
-        )
-    }
-    if (!isLoggedIn) {
-        return <Navigate to="/login" replace />
-    }
-    return <Outlet />
-}
-
 function App() {
     const initialize = useAuthStore((state) => state.initialize)
 
@@ -50,31 +33,29 @@ function App() {
                 {/* 登录页：独立全屏，不使用 AppShell */}
                 <Route path="/login" element={<LoginPage />} />
 
-                {/* 主应用：必须登录后才能访问 */}
-                <Route element={<RequireLogin />}>
-                    <Route path="/" element={<AppShell />}>
-                        <Route index element={<Navigate to="/collection/control" replace />} />
-                        <Route path="collection" element={<Navigate to="/collection/control" replace />} />
-                        <Route path="collection/control" element={<ControlPage />} />
-                        <Route path="collection/publish" element={<TaskPublishPage />} />
-                        <Route path="training" element={<Navigate to="/training/local" replace />} />
-                        <Route path="training/local" element={<TrainingCenterPage />} />
-                        <Route path="training/remote" element={<TrainingCenterPage />} />
-                        <Route path="training/remote/terminal" element={<WebTerminalPage />} />
-                        <Route path="data" element={<Navigate to="/data/manage" replace />} />
-                        <Route path="data/analysis" element={<DataAnalysisPage />} />
-                        <Route path="data/annotation" element={<DataAnnotationPage />} />
-                        <Route path="data/market" element={<DataMarketPage />} />
-                        <Route path="data/manage" element={<DataManagePage />} />
-                        <Route path="data/qc" element={<DataQcPage />} />
-                        <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
-                        <Route path="settings/hardware" element={<HardwareSettingsPage />} />
-                        <Route path="settings/provider" element={<ProviderSettingsPage />} />
-                        <Route path="settings/hub" element={<HubSettingsPage />} />
-                        <Route path="settings/account" element={<AccountSettingsPage />} />
-                        <Route path="settings/credits" element={<CreditsPage />} />
-                        <Route path="logs" element={<LogsPage />} />
-                    </Route>
+                {/* 主应用默认使用本地匿名会话；云端登录只是可选能力。 */}
+                <Route path="/" element={<AppShell />}>
+                    <Route index element={<Navigate to="/collection/control" replace />} />
+                    <Route path="collection" element={<Navigate to="/collection/control" replace />} />
+                    <Route path="collection/control" element={<ControlPage />} />
+                    <Route path="collection/publish" element={<TaskPublishPage />} />
+                    <Route path="training" element={<Navigate to="/training/local" replace />} />
+                    <Route path="training/local" element={<TrainingCenterPage />} />
+                    <Route path="training/remote" element={<TrainingCenterPage />} />
+                    <Route path="training/remote/terminal" element={<WebTerminalPage />} />
+                    <Route path="data" element={<Navigate to="/data/manage" replace />} />
+                    <Route path="data/analysis" element={<DataAnalysisPage />} />
+                    <Route path="data/annotation" element={<DataAnnotationPage />} />
+                    <Route path="data/market" element={<DataMarketPage />} />
+                    <Route path="data/manage" element={<DataManagePage />} />
+                    <Route path="data/qc" element={<DataQcPage />} />
+                    <Route path="settings" element={<Navigate to="/settings/hardware" replace />} />
+                    <Route path="settings/hardware" element={<HardwareSettingsPage />} />
+                    <Route path="settings/provider" element={<ProviderSettingsPage />} />
+                    <Route path="settings/hub" element={<HubSettingsPage />} />
+                    <Route path="settings/account" element={<AccountSettingsPage />} />
+                    <Route path="settings/credits" element={<CreditsPage />} />
+                    <Route path="logs" element={<LogsPage />} />
                 </Route>
             </Routes>
         </BrowserRouter>

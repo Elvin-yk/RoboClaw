@@ -570,7 +570,7 @@ function ExpandableRow({
 export default function AccountSettingsPage() {
     const { t } = useI18n()
     const navigate = useNavigate()
-    const { user, logout, setUser } = useAuthStore()
+    const { user, logout, setUser, isGuest } = useAuthStore()
 
     type Panel = 'change_phone' | 'reset_password'
     type InviteResult = { kind: 'success' | 'error'; text: string }
@@ -632,11 +632,11 @@ export default function AccountSettingsPage() {
         }
     }
 
-    if (!user) {
+    if (!user || isGuest) {
         return (
             <SettingsPageFrame>
                 <div className="glass-panel px-6 py-10 text-center">
-                    <p className="text-sm text-[color:var(--tx2)] mb-4">{t('accountNotLoggedIn')}</p>
+                    <p className="text-sm text-[color:var(--tx2)] mb-4">当前使用本地匿名会话，云端账户功能需要登录后使用。</p>
                     <button
                         onClick={() => navigate('/login')}
                         className={btnPrimaryCls}

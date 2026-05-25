@@ -15,6 +15,7 @@ const PROVIDERS: Array<{ id: PaymentProvider; label: string }> = [
 
 export default function CreditsPage() {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn)
+  const isGuest = useAuthStore((state) => state.isGuest)
   const [accounts, setAccounts] = useState<CreditAccount[]>([])
   const [packages, setPackages] = useState<RechargePackage[]>([])
   const [accountType, setAccountType] = useState<CreditAccountType>('data')
@@ -35,14 +36,14 @@ export default function CreditsPage() {
   const selectedPackage = packages.find((item) => item.id === selectedPackageId) || packages[0]
 
   useEffect(() => {
-    if (!isLoggedIn) return
+    if (!isLoggedIn || isGuest) return
     void loadAccounts()
-  }, [isLoggedIn])
+  }, [isGuest, isLoggedIn])
 
   useEffect(() => {
-    if (!isLoggedIn) return
+    if (!isLoggedIn || isGuest) return
     void loadPackages(accountType)
-  }, [accountType, isLoggedIn])
+  }, [accountType, isGuest, isLoggedIn])
 
   useEffect(() => {
     if (!selectedAccount && visibleAccounts.length > 0) {
@@ -103,8 +104,8 @@ export default function CreditsPage() {
     }
   }
 
-  if (!isLoggedIn) {
-    return <div className="p-6 text-sm text-tx3">请先登陆</div>
+  if (!isLoggedIn || isGuest) {
+    return <div className="p-6 text-sm text-tx3">积分账户是云端账户功能，登录后可用。</div>
   }
 
   return (
