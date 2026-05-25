@@ -113,7 +113,7 @@ function InputField({
 
 export default function LoginPage() {
     const navigate = useNavigate()
-    const { setTokens, setUser, isLoggedIn } = useAuthStore()
+    const { setTokens, setUser, isLoggedIn, isGuest } = useAuthStore()
     const { t, locale, setLocale } = useI18n()
 
     const [mode, setMode] = useState<LoginMode>('sms')
@@ -137,8 +137,8 @@ export default function LoginPage() {
 
     // 已登录跳转
     useEffect(() => {
-        if (isLoggedIn) navigate('/', { replace: true })
-    }, [isLoggedIn, navigate])
+        if (isLoggedIn && !isGuest) navigate('/', { replace: true })
+    }, [isGuest, isLoggedIn, navigate])
 
     // 初始获取图形验证码
     useEffect(() => {

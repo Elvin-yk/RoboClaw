@@ -2,9 +2,9 @@
  * 认证状态管理（Zustand store）
  *
  * 设计原则：
- * - 登录状态完全基于云端 ECS 后端，必须联网才能进入主应用
+ * - 主应用默认进入本地匿名会话，云端账号只作为可选能力
  * - token 只保存在浏览器 localStorage，本地后端不保存账号数据
- * - 网络不可达时 cloudAvailable=false，应用回到登录入口
+ * - 网络不可达或 token 失效时 cloudAvailable=false，但本地 dashboard 继续可用
  */
 
 import { create } from 'zustand'
@@ -13,9 +13,46 @@ import { evoApi, type UserInfo } from '@/shared/api/evoClient'
 const ACCESS_KEY = 'evo_access_token'
 const REFRESH_KEY = 'evo_refresh_token'
 
+const LOCAL_GUEST_USER: UserInfo = {
+    id: 'local-guest',
+    phone: 'local',
+    nickname: 'Local',
+    status: 'active',
+    has_password: false,
+    created_at: 'local',
+    memberships: [{
+        id: 'local-guest-membership',
+        org_id: 'local-organization',
+        role_code: 'owner',
+        status: 'active',
+        invited_by_user_id: null,
+        invited_by_user: null,
+        organization: {
+            id: 'local-organization',
+            name: 'Local Workspace',
+            status: 'active',
+        },
+    }],
+    current_membership: {
+        id: 'local-guest-membership',
+        org_id: 'local-organization',
+        role_code: 'owner',
+        status: 'active',
+        invited_by_user_id: null,
+        invited_by_user: null,
+        organization: {
+            id: 'local-organization',
+            name: 'Local Workspace',
+            status: 'active',
+        },
+    },
+}
+
 interface AuthState {
     user: UserInfo | null
     isLoggedIn: boolean
+    /** true 表示未绑定云端账号的本地匿名会话 */
+    isGuest: boolean
     /** 应用启动时正在异步验证 token，期间为 true */
     isChecking: boolean
     /** 云端后端是否可达（网络层面）*/
@@ -31,9 +68,20 @@ interface AuthState {
     logout: () => void
 }
 
+function activateLocalGuest(set: (state: Partial<AuthState>) => void, cloudAvailable: boolean) {
+    set({
+        user: LOCAL_GUEST_USER,
+        isLoggedIn: true,
+        isGuest: true,
+        isChecking: false,
+        cloudAvailable,
+    })
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
-    user: null,
-    isLoggedIn: false,
+    user: LOCAL_GUEST_USER,
+    isLoggedIn: true,
+    isGuest: true,
     isChecking: true,
     cloudAvailable: false,
 
@@ -41,13 +89,13 @@ export const useAuthStore = create<AuthState>((set) => ({
         const accessToken = localStorage.getItem(ACCESS_KEY)
 
         if (!accessToken) {
-            set({ isChecking: false })
+            activateLocalGuest(set, false)
             return
         }
 
         try {
             const user = await evoApi.getMe()
-            set({ user, isLoggedIn: true, isChecking: false, cloudAvailable: true })
+            set({ user, isLoggedIn: true, isGuest: false, isChecking: false, cloudAvailable: true })
         } catch (err: unknown) {
             // access_token 失效，尝试 refresh
             const refreshToken = localStorage.getItem(REFRESH_KEY)
@@ -57,9 +105,9 @@ export const useAuthStore = create<AuthState>((set) => ({
                     localStorage.setItem(ACCESS_KEY, tokens.access_token)
                     localStorage.setItem(REFRESH_KEY, tokens.refresh_token)
                     const user = await evoApi.getMe()
-                    set({ user, isLoggedIn: true, isChecking: false, cloudAvailable: true })
+                    set({ user, isLoggedIn: true, isGuest: false, isChecking: false, cloudAvailable: true })
                     return
-                } catch (_) {
+                } catch {
                     localStorage.removeItem(ACCESS_KEY)
                     localStorage.removeItem(REFRESH_KEY)
                 }
@@ -67,7 +115,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
             // TypeError 通常是网络不通（fetch failed），其他是 401/403 等
             const isNetworkError = err instanceof TypeError
-            set({ isChecking: false, cloudAvailable: !isNetworkError })
+            activateLocalGuest(set, !isNetworkError)
         }
     },
 
@@ -77,12 +125,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     },
 
     setUser: (user) => {
-        set({ user, isLoggedIn: true, cloudAvailable: true })
+        set({ user, isLoggedIn: true, isGuest: false, cloudAvailable: true })
     },
 
     logout: () => {
         localStorage.removeItem(ACCESS_KEY)
         localStorage.removeItem(REFRESH_KEY)
-        set({ user: null, isLoggedIn: false })
+        activateLocalGuest(set, true)
     },
 }))
